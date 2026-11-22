@@ -154,15 +154,15 @@ async def main():
         check(val("food_1_target") == 199.0 and val("grill_probe_1_target_reported") == 199.0,
               f"quick target changes settle on the last one (slot {val('food_1_target')}, grill {val('grill_probe_1_target_reported')})")
         # A slot with one fixed °C source shows it in the controller's unit (60 °C = 140 °F).
-        check(await wait_for(lambda: val("food_2_temperature") == 140.0, 10, "food 2 140"),
+        check(await wait_for(lambda: val("food_2_temperature") == 135.5, 10, "food 2 135.5"),
               f"single-source slot in °C converted ({val('food_2_temperature')})")
         # Switch Food 1 to the other source.
         opts = list(getattr(by_id.get("food_1_probe"), "options", []) or [])
         check(opts == ["Grill probe 1", "Spare"], f"source options {opts}")
         cli.select_command(by_id["food_1_probe"].key, "Spare")
-        check(await wait_for(lambda: val("food_1_temperature") == 140.0, 10, "food 1 from spare"),
+        check(await wait_for(lambda: val("food_1_probe") == "Spare", 10, "select state"), f"source select state ({val('food_1_probe')})")
+        check(await wait_for(lambda: val("food_1_temperature") == 135.5, 10, "food 1 from spare"),
               f"food 1 now reads the spare probe ({val('food_1_temperature')})")
-        check(val("food_1_probe") == "Spare", f"source select state ({val('food_1_probe')})")
 
         # Grill disappears -> link lost and values unknown.
         grill.terminate()

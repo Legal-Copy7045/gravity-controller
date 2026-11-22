@@ -7,6 +7,9 @@
   real unit. It now follows Home Assistant's own Govee decoder (govee-ble), checked against a real H5198's
   broadcasts: recognised by its service id, all packet variants, unplugged probes. Each probe's alarm on the
   thermometer is available too (*H5198 probe N alarm*).
+- Optional **wired probes**: up to four NTC meat probes on the controller itself through an ADS1115
+  (`firmware/wired-probes.yaml`); every slot can pick *Wired probe 1-4*. They work without Home Assistant, like the
+  grill's probes and the H5198 read directly.
 - Food 3-6 default to the *Home Assistant* source. A thermometer's own alarm (H5198 direct, or the matching Home
   Assistant alarm entity) becomes the slot's target when it's changed there; nothing is written back to it.
 

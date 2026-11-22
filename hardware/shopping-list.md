@@ -50,7 +50,7 @@ depend on what we measure.
 | 1 | K-type thermocouple, stainless sheath, ≥ 1000 °C, mini-K plug | Charcoal chute (fire health) | | 10–20 |
 | 0–4 | Food probes (2.5 mm NTC) | Only if you want more than the stock ones / the Govee's | | 10–26 ea |
 
-You also have the **Govee H5198** (4 probes, read directly over Bluetooth by the controller): that may cover food probes entirely,
+You also have the **Govee H5198** (4 probes, through Home Assistant or read directly over Bluetooth): that may cover food probes entirely,
 leaving the ADS1115 channels for zones.
 
 ### Local display, alarm, status light

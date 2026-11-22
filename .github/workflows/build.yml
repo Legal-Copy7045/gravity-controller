@@ -66,6 +66,8 @@ jobs:
       - name: Compile ESP32-S3 firmware
         working-directory: firmware
         run: esphome compile gravity980-bridge.yaml
+      - name: Validate the optional wired-probes add-on
+        run: esphome config tests/configs/wired-check.yaml
       - name: Compile native test build
         working-directory: tests
         run: esphome compile host-bridge.yaml

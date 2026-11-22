@@ -465,12 +465,12 @@ function renderSources() {
     const ha = st.state === 'Home Assistant';
     const txtE = byName('Smoker external probe ' + (i + 1) + ' entity', ['input_text']);
     return `<div class="row"><span>${esc(p.label)} <span class="muted small">${t != null ? fmt(t) + esc(TU()) : 'no reading'}</span></span>
-      <select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>` +
+      <span>${/^Wired/.test(st.state) ? EXP('Wired probes need the ADS1115 add-on and calibrating against a thermometer you trust.') + ' ' : ''}<select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></span></div>` +
       (ha && txtE ? haPicker(i + 1, val(txtE) || '') : '');
   }).join('');
   const conn = val(E('H5198 connected', ['binary_sensor'])), rssi = num(E('H5198 signal', ['sensor']));
   put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">${EXP('Direct H5198 readings follow Home Assistant\'s Govee decoder but haven\'t been checked against the display on a real cook yet.')} H5198 direct: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
-    Grill probes keep their targets in step with the grill.</div>` : '<div class="empty">This controller has fixed probes.</div>');
+    Grill probes keep their targets in step with the grill. Everything except <em>Home Assistant</em> sources keeps working without Home Assistant.</div>` : '<div class="empty">This controller has fixed probes.</div>');
 }
 
 function renderPlan() {

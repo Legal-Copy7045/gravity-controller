@@ -52,7 +52,7 @@ sensor:
     id: spare_probe
     name: Spare probe
     unit_of_measurement: "°C"
-    lambda: return 60.0f;
+    lambda: return 57.5f;  # 135.5 °F: a value the fake grill (whole °F) never reports
     update_interval: 2s
 binary_sensor:
   - platform: gravity980

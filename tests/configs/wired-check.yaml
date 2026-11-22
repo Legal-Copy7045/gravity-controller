@@ -1,0 +1,14 @@
+# Validates the bridge with the optional wired-probes add-on (config check only; see .github/workflows/build.yml).
+substitutions:
+  name: gravity980-wired
+  friendly_name: Smoker
+packages:
+  smoker: !include ../../firmware/core.yaml
+  wired: !include ../../firmware/wired-probes.yaml
+external_components:
+  - source:
+      type: local
+      path: ../../components
+wifi:
+  ssid: test
+  password: test-password
