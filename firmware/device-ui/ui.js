@@ -742,6 +742,11 @@ function renderSetup(u) {
   const wifi = T('Grill Wi-Fi'), ip = E('text', 'Grill IP address');
   put('conn', `<h3><span>Grill link</span><span class="chip ${on(E('binary_sensor', 'Grill connected')) ? 'ok' : 'bad'}">${on(E('binary_sensor', 'Grill connected')) ? esc({ wifi: 'Wi-Fi', bluetooth: 'Bluetooth' }[T('Grill link')] || 'connected') : 'not connected'}</span></h3>
     ${T('Grill link status') ? row('Status', esc(T('Grill link status'))) : ''}
+    ${(() => { const w = d => d >= -60 ? 'strong' : d >= -72 ? 'good' : d >= -82 ? 'weak' : 'very weak';
+      const b = S('Grill Bluetooth signal'), g = S('Grill Wi-Fi signal');
+      return (E('sensor', 'Grill Bluetooth signal') ? row('Bluetooth signal', b != null ? fmt(b) + ' dBm · ' + w(b) : 'no signal') : '') +
+        (E('sensor', 'Grill Wi-Fi signal') ? row('Grill\'s Wi-Fi signal', (g != null ? fmt(g) + ' dBm · ' + w(g) : 'not reported') +
+          (E('button', 'Grill Wi-Fi: join saved network') ? ' <button class="btn" data-a="press" data-n="Grill Wi-Fi: join saved network">Check</button>' : '')) : ''); })()}
     ${tog(BLE(), 'Control over Bluetooth', 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
     ${tog('Bridge enabled', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}
     ${tog('Alerts enabled', 'Alerts')}

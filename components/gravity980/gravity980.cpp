@@ -417,6 +417,14 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
       bool has_ip = ip[0] != 0 && ip[0] != 255;
       ESP_LOGI(TAG, "Grill reports Wi-Fi status 0x%02X, signal %d, network '%s', IP %s", data[1], int8_t(data[2]),
                ssid.c_str(), ipb);
+#ifdef USE_SENSOR
+      // The signal byte: Char-Griller's app shows it as a magnitude (44 = -44 dBm); a signed byte is already dBm.
+      if (this->grill_wifi_signal_ != nullptr) {
+        int v = int8_t(data[2]);
+        float dbm = !has_ip || v == 0 ? NAN : v > 0 ? -float(v) : float(v);
+        this->grill_wifi_signal_->publish_state(dbm);
+      }
+#endif
       if (this->wifi_ts_ != nullptr) {
         char b[96];
         if (ssid.empty())
@@ -520,7 +528,33 @@ void Gravity980Component::restart_bluetooth_(const char *why) {
 }
 #endif
 
+void Gravity980Component::publish_signals_(uint32_t now) {
+#ifdef USE_SENSOR
+  float ble = NAN;
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr) {
+    if (this->ble_connected_) {
+      this->ble_->request_rssi();  // answered asynchronously; published on the next round
+      if (this->ble_->link_rssi_at() != 0 && now - this->ble_->link_rssi_at() < 90000)
+        ble = this->ble_->link_rssi();
+    } else if (this->ble_->grill_seen_at() != 0 && now - this->ble_->grill_seen_at() < 60000) {
+      ble = this->ble_->adv_rssi();  // not connected: how strong its advertisements are
+    }
+  }
+#endif
+  if (this->ble_signal_ != nullptr && !(std::isnan(ble) && std::isnan(this->ble_signal_->state)) &&
+      ble != this->ble_signal_->state)
+    this->ble_signal_->publish_state(ble);
+  // The grill's own Wi-Fi signal is reported only when asked ("Grill Wi-Fi: join saved network" or a join): the
+  // last report stays, and the pages show how old it is.
+#endif
+}
+
 void Gravity980Component::supervise_(uint32_t now) {
+  if (now - this->signals_at_ >= 30000 || this->signals_at_ == 0) {
+    this->signals_at_ = now;
+    this->publish_signals_(now);
+  }
   if (!this->enabled_) {
     this->down_since_ = 0;
     this->recover_stage_ = 0;
@@ -870,17 +904,50 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
   if (this->fixed_address_ == 0 && a != this->get_address() &&
       (this->get_address() == 0 ||
        (this->state() == esp32_ble_tracker::ClientState::IDLE && int32_t(now - this->seen_at_) > 10000))) {
-    auto name = device.get_name();
-    if (name.size() >= this->name_prefix_.size() &&
-        strncmp(name.c_str(), this->name_prefix_.c_str(), this->name_prefix_.size()) == 0) {
+    if (this->is_grill_(device)) {
       this->seen_at_ = this->grill_seen_at_ = now;
+      auto name = device.get_name();
       ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
                unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
                unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
       this->set_address(device.address_uint64());
     }
   }
+  if (a != 0 && a == this->get_address())
+    this->adv_rssi_ = device.get_rssi();
   return BLEClientBase::parse_device(device);
+}
+
+// The grill advertises as "Gravity980-…", but while it starts up (and in some firmware states) as "BLEWIFI APP", and
+// always with its service 0xAAAA. Matching only the name missed a grill switched on after the bridge.
+bool Gravity980BLE::is_grill_(const esp32_ble_tracker::ESPBTDevice &device) const {
+  const std::string &name = device.get_name();
+  if (!this->name_prefix_.empty() && name.compare(0, this->name_prefix_.size(), this->name_prefix_) == 0)
+    return true;
+  if (name == "BLEWIFI APP")
+    return true;
+  static const auto SVC = esp32_ble_tracker::ESPBTUUID::from_uint16(0xAAAA);
+  for (const auto &u : device.get_service_uuids())
+    if (u == SVC)
+      return true;
+  return false;
+}
+
+void Gravity980BLE::request_rssi() {
+  if (this->state() != esp32_ble_tracker::ClientState::ESTABLISHED)
+    return;
+  esp_err_t err = esp_ble_gap_read_rssi(this->get_remote_bda());
+  if (err != ESP_OK)
+    ESP_LOGD(TAG, "BLE: read RSSI failed: %d", err);
+}
+
+void Gravity980BLE::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
+  BLEClientBase::gap_event_handler(event, param);
+  if (event == ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT && this->check_addr(param->read_rssi_cmpl.remote_addr) &&
+      param->read_rssi_cmpl.status == ESP_BT_STATUS_SUCCESS) {
+    this->link_rssi_ = param->read_rssi_cmpl.rssi;
+    this->link_rssi_at_ = millis();
+  }
 }
 
 bool Gravity980BLE::reconnect(const char *why) {

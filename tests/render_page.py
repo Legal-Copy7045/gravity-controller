@@ -45,6 +45,8 @@ STATES = dict([
     st("sensor.smoker_grill_link", "wifi", "Smoker Grill link"),
     st("sensor.smoker_grill_link_status", "Connected over Wi-Fi", "Smoker Grill link status"),
     st("sensor.smoker_release", "0.2.20", "Smoker Release"),
+    st("sensor.smoker_grill_bluetooth_signal", "-67", "Smoker Grill Bluetooth signal", unit_of_measurement="dBm"),
+    st("sensor.smoker_grill_wi_fi_signal", "-44", "Smoker Grill Wi-Fi signal", unit_of_measurement="dBm"),
     st("binary_sensor.smoker_lid", "off", "Smoker Lid"),
     st("binary_sensor.smoker_fan", "on", "Smoker Fan"),
     st("binary_sensor.smoker_grill_alarm", "off", "Smoker Grill alarm"),
@@ -439,6 +441,9 @@ def main():
                     const t = document.getElementById('topbar').innerText; st[k] = keep; st[ks] = keepS; window.__smOnHass(); return t; }""")
                 if "Grill not connected" not in nc or "All good" in nc or "reconnecting over Bluetooth" not in nc:
                     failures.append(f"{scheme}/{name}: not-connected strip: {nc!r}")
+                cc = fr.inner_text("#controlcard")
+                if "Bluetooth signal" not in cc or "-67 dBm · good" not in cc or "-44 dBm · strong" not in cc:
+                    failures.append(f"{scheme}/{name}: signal rows: {cc[:300]!r}")
                 dg = fr.inner_text("#diag")
                 if "controller 0.2.20" not in dg or "Controller Wi-Fi" not in dg or "not the grill" not in dg:
                     failures.append(f"{scheme}/{name}: diagnostics: {dg[:200]!r}")

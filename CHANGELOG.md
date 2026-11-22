@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.21] - 2026-11-22
+
+- **Signal strength to the grill.** New *Grill Bluetooth signal* (the controller's link to the grill, read every 30 s;
+  while not connected, how strongly its advertisements arrive) and *Grill Wi-Fi signal* (the grill's own Wi-Fi, as the
+  grill reports it; **Check** asks it). Both pages show them in the Connection card in dBm with a word (strong, good,
+  weak, very weak); the status strip warns about a weak Bluetooth link.
+- **Fix: finding a grill that was just switched on.** While it starts up the grill can advertise as "BLEWIFI APP"
+  instead of "Gravity980-…"; the controller only knew the second name. It now also recognises "BLEWIFI APP" and the
+  grill's service (0xAAAA) in the advertisement.
+
 ## [0.2.20] - 2026-11-22
 
 - Release numbers on show: a new *Release* sensor on the controller; the dashboard's Diagnostics shows the controller

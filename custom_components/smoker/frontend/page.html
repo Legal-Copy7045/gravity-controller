@@ -997,6 +997,8 @@ function renderTop() {
   if (hrs != null && hrs < 1.5 && val(E('Cook active', ['binary_sensor'])) === 'on') add(hrs < 0.75 ? 'bad' : 'warn', 'Charcoal ~' + fmt(hrs, 1) + ' h left');
   const pst = val(E('Program state', ['sensor']));
   if (pst === 'Paused') add('warn', 'Program paused');
+  const bsig = num(E('Grill Bluetooth signal', ['sensor']));
+  if (conn && via === 'bluetooth' && bsig != null && bsig < -82) add('warn', 'Weak Bluetooth signal');
   let head, cls;
   if (!conn || via === 'none') { head = '<span class="t">Grill not connected'; cls = 'bad';
     const ls = val(E('Grill link status', ['sensor'])), lsOk = ls && !/^(unknown|unavailable)$/.test(ls);
@@ -1074,6 +1076,7 @@ function renderControl() {
   put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? (via === 'wifi' ? 'Wi-Fi' : 'Bluetooth') : 'not connected'}</span></h3>
     ${(st => st && !/^(unknown|unavailable)$/.test(st) ? `<div class="row"><span>Status</span><span class="r" style="white-space:normal">${esc(st)}</span></div>` : '')(val(E('Grill link status', ['sensor'])))}
     ${controlRow()}
+    ${signalRows()}
     ${tog(bleE, ble, 'Control over Bluetooth', 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
     ${tog(bridge, val(bridge) === 'on', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}
     <div class="row"><span>Grill's Wi-Fi</span><span class="r" style="white-space:normal">${esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')}</span></div>
@@ -1368,6 +1371,22 @@ function renderLearn() {
 }
 
 // "3 d 4 h", "2 h 05 min", "15 min" from seconds.
+// Signal strength in words (dBm): what a person needs to know about it.
+const sigWord = d => d == null ? '' : d >= -60 ? 'strong' : d >= -72 ? 'good' : d >= -82 ? 'weak' : 'very weak';
+// Signal rows for the Connection card: Bluetooth to the grill, and the grill's own Wi-Fi (as it last reported it).
+function signalRows() {
+  const bE = E('Grill Bluetooth signal', ['sensor']), wE = E('Grill Wi-Fi signal', ['sensor']);
+  const b = num(bE), w = num(wE), ws = wE && S(wE), conn = val(E('Grill connected', ['binary_sensor'])) === 'on';
+  const via = val(E('Grill link', ['sensor']));
+  const r = (l, v, note) => `<div class="row"><span>${l}${note ? `<br><span class="muted small">${note}</span>` : ''}</span><span class="r" style="white-space:normal">${v}</span></div>`;
+  let out = '';
+  if (bE) out += r('Bluetooth signal', b != null ? `${fmt(b)} dBm · ${sigWord(b)}` : 'no signal',
+    b == null ? 'grill off or out of range' : conn && via === 'bluetooth' ? 'controller ↔ grill link' : 'the grill\'s advertisements (not connected)');
+  if (wE) out += r('Grill\'s Wi-Fi signal', (w != null ? `${fmt(w)} dBm · ${sigWord(w)}` : 'not reported')
+      + (E('Grill Wi-Fi: join saved network', ['button']) ? ` <button class="btn" onclick="act.pressName('Grill Wi-Fi: join saved network')">Check</button>` : ''),
+    w != null && ws ? 'as the grill reported it ' + esc(ago(ws.last_changed)) : 'the grill reports it over Bluetooth when asked');
+  return out;
+}
 const durTxt = s => { if (s == null || !isFinite(s)) return '--'; const m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
   return d ? `${d} d ${h % 24} h` : h ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`; };
 function renderDiag() {

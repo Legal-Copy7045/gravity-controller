@@ -80,6 +80,11 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
     this->set_address(a);
   }
   bool parse_device(const esp32_ble_tracker::ESPBTDevice &device) override;
+  void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) override;
+  void request_rssi();
+  int link_rssi() const { return this->link_rssi_; }
+  uint32_t link_rssi_at() const { return this->link_rssi_at_; }
+  int adv_rssi() const { return this->adv_rssi_; }
   bool gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                            esp_ble_gattc_cb_param_t *param) override;
   bool ready() const { return this->write_handle_ != 0; }
@@ -98,6 +103,10 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   uint64_t fixed_address_{0};
   uint32_t seen_at_{0};  // last advertisement from the address we connect to
   uint32_t grill_seen_at_{0};
+  int link_rssi_{0};
+  uint32_t link_rssi_at_{0};
+  int adv_rssi_{0};
+  bool is_grill_(const esp32_ble_tracker::ESPBTDevice &device) const;
   uint32_t any_adv_at_{0};
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
@@ -127,6 +136,8 @@ class Gravity980Component : public Component {
 #ifdef USE_SENSOR
   void set_temperature_sensor(Probe p, sensor::Sensor *s) { this->temp_sensors_[p] = s; }
   void set_target_sensor(Probe p, sensor::Sensor *s) { this->target_sensors_[p] = s; }
+  void set_ble_signal_sensor(sensor::Sensor *s) { this->ble_signal_ = s; }
+  void set_grill_wifi_signal_sensor(sensor::Sensor *s) { this->grill_wifi_signal_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { this->connected_bs_ = s; }
@@ -185,6 +196,8 @@ class Gravity980Component : public Component {
   void handle_status_(const Status &s, Transport via);
   void update_active_();
   void supervise_(uint32_t now);  // link watchdog + recovery, once a second
+  void publish_signals_(uint32_t now);
+  uint32_t signals_at_{0};
   void set_link_status_(const std::string &s);
 #ifdef USE_GRAVITY980_BLE
   void restart_bluetooth_(const char *why);
@@ -250,6 +263,8 @@ class Gravity980Component : public Component {
 #ifdef USE_SENSOR
   sensor::Sensor *temp_sensors_[PROBE_COUNT]{nullptr, nullptr, nullptr};
   sensor::Sensor *target_sensors_[PROBE_COUNT]{nullptr, nullptr, nullptr};
+  sensor::Sensor *ble_signal_{nullptr};
+  sensor::Sensor *grill_wifi_signal_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *connected_bs_{nullptr};
