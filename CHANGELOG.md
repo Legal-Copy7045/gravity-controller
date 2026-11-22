@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.1] - 2026-11-22
+
+Fixes from the third test-and-review round.
+
+### Firmware
+- **Fix:** a cook is still recorded when the food target is lowered while the food is done.
+- **Fix:** pausing a program and then losing a probe reading no longer counts the pause twice.
+- **Fix:** 700 °F is reachable as a pit target; settings storage no longer grows memory per save, and detects
+  corrupted or old-format data.
+- API encryption (Home Assistant sets the key when you add the device); firmware can no longer be uploaded from
+  the device's web page; Bluetooth Wi-Fi setup uses `improv_ble`.
+- Govee probes come from Home Assistant helpers (no firmware change needed to map them).
+
+### Home Assistant
+- Govee probe mapping helpers; every line to edit is marked.
+- Dashboard: long programs clear the edit box once loaded.
+
+### Docs
+- Use the board's native USB port for the Wi-Fi step; turn **Bridge enabled** off while using the Char-Griller
+  app; finding the grill's IP; set a food target for a first cook; start the cook on the grill's panel.
+
 ## [0.1.0] - 2026-11-22
 
 First release: the bridge to the stock Gravity 980 controller.
