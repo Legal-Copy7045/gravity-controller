@@ -70,10 +70,34 @@ appears in the sidebar.
 
 (Without HACS: copy `custom_components/smoker` to `/config/custom_components/smoker` and restart.)
 
-## 5. Govee H5198 (optional)
+## 5. Food probes: grill, H5198 or anything in Home Assistant
 
-The Smoker device is an active Bluetooth proxy. Put the Govee within range; Home Assistant's **Govee Bluetooth**
-integration discovers it. Then, in Settings → Devices & services → Helpers, set **Smoker Govee probe 1 entity** …
-**4** to the Govee's probe temperature entities (e.g. `sensor.h5198_xxxx_temperature_probe_1`; check the names on
-the Govee device page). The probes then appear on the dashboard as *Govee 1–4* with predictions, and can be used
-in programs (`govee1 >= 165`). No firmware change is needed.
+The controller has six food slots, **Food 1** to **Food 6**. Each slot reads one thermometer, chosen with its
+**Food N probe** select (on the dashboard: *Probe sources*):
+
+| Source | What it is | Defaults |
+|---|---|---|
+| Grill probe 1 / 2 | The Gravity 980's own food probes (through the bridge). The slot's target is kept in step with the grill's, both ways. | Food 1, Food 2 |
+| H5198 probe 1–4 | A **Govee H5198** read directly over Bluetooth by the controller (no Govee app, no cloud, no Home Assistant needed). | Food 3–6 |
+| Home Assistant | Any temperature entity in Home Assistant (another thermometer, a Wi-Fi probe, …). | |
+
+Every slot gets the same predictions, stall detection, pull-at and rest coaching, and can be used in cook programs
+(`food3 >= 165`).
+
+**H5198.** Nothing to set up: the controller listens for the first H5198 it hears and uses it (the *H5198 connected*
+and *H5198 signal* entities show it). To pin a specific thermometer when there are several nearby, add its Bluetooth
+address in your device YAML:
+
+```yaml
+govee_h5198:
+  mac_address: "AA:BB:CC:DD:EE:FF"
+```
+
+The H5198's advertisement format comes from one community decoder and hasn't been checked on many units. If the
+probes stay empty while the thermometer shows temperatures, add `log_raw: true` under `govee_h5198:`, reflash, and
+send the logged packets (they contain no personal data).
+
+**Home Assistant entities.** Set the slot's source to *Home Assistant*, then type the entity (e.g.
+`sensor.kitchen_probe_temperature`) into the box that appears, or set the helper **Smoker external probe N entity**
+in Settings → Devices & services → Helpers. Slot N reads helper N. Home Assistant passes it on in °F; change
+`weather_temperature_unit` if your Home Assistant uses °C.

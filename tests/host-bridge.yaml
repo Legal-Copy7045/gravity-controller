@@ -46,8 +46,14 @@ sensor:
   - platform: gravity980
     pit_temperature: {id: pit_temp, name: Pit temperature}
     pit_target: {id: pit_target_reported, name: Pit target reported}
-    food1_temperature: {id: food1_temp, name: Food 1 temperature}
-    food1_target: {id: food1_target_reported, name: Food 1 target reported}
+    food1_temperature: {id: food1_temp, name: Grill probe 1 temperature}
+    food1_target: {id: food1_target_reported, name: Grill probe 1 target reported}
+  - platform: template
+    id: spare_probe
+    name: Spare probe
+    unit_of_measurement: "°C"
+    lambda: return 60.0f;
+    update_interval: 2s
 binary_sensor:
   - platform: gravity980
     connected: {id: grill_connected, name: Grill connected}
@@ -56,6 +62,7 @@ binary_sensor:
 number:
   - platform: gravity980
     pit_target: {id: pit_setpoint, name: Pit target}
+    food1_target: {id: grill_food1_target, name: Grill probe 1 target}
 cook_assistant:
   id: smoker
   temperature_unit: F
@@ -77,8 +84,17 @@ cook_assistant:
   probes:
     - key: food1
       name: Food 1
-      temperature: food1_temp
-      target: food1_target_reported
+      sources:
+        - name: Grill probe 1
+          temperature: food1_temp
+          target: food1_target_reported
+          sync: grill_food1_target
+        - name: Spare
+          temperature: spare_probe
+          unit: C
+      source: {name: Food 1 probe}
+      target_number: {name: Food 1 target}
+      reading: {name: Food 1 temperature}
       profile: {name: Food 1 protein}
       weight: {name: Food 1 weight}
       time_remaining: {name: Food 1 time remaining}
@@ -88,6 +104,12 @@ cook_assistant:
       pulled: {name: Food 1 pulled}
       pull_at: {name: Food 1 pull at}
       rest_ready: {name: Food 1 rest ready in}
+    - key: food2
+      name: Food 2
+      temperature: spare_probe
+      unit: C
+      phase: {name: Food 2 phase}
+      reading: {name: Food 2 temperature}
   program_status: {name: Program status}
   program_state: {name: Program state}
   program_error: {name: Program error}

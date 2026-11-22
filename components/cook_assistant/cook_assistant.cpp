@@ -75,19 +75,20 @@ class BlobStore {
     BlobHeader h{0x5C0CB10B, uint32_t(len_), crc32_bytes(p, len_)};
     return header_.save(&h) && ok;
   }
-  bool load(void *data) {
+  bool load(void *data) { return this->load_len(data, len_); }
+  /// Load a blob saved with a different (older, shorter) length into `data` (at least `len` bytes).
+  bool load_len(void *data, size_t len) {
     BlobHeader h{};
-    if (!header_.load(&h) || h.magic != 0x5C0CB10B || h.len != len_)
+    if (len > len_ || !header_.load(&h) || h.magic != 0x5C0CB10B || h.len != len)
       return false;
     uint8_t *p = static_cast<uint8_t *>(data);
-    for (size_t i = 0; i < chunks_.size(); i++) {
+    for (size_t i = 0, off = 0; off < len; i++, off += CHUNK) {
       Chunk c{};
       if (!chunks_[i].load(&c))
         return false;
-      size_t off = i * CHUNK;
-      std::memcpy(p + off, c.d, std::min(CHUNK, len_ - off));
+      std::memcpy(p + off, c.d, std::min(CHUNK, len - off));
     }
-    return crc32_bytes(p, len_) == h.crc;
+    return crc32_bytes(p, len) == h.crc;
   }
 
  protected:
@@ -158,9 +159,9 @@ void CANumber::control(float value) {
 
 void CASelect::setup() {
   this->pref_ = this->make_entity_preference<uint32_t>();
-  uint32_t idx = 0;
+  uint32_t idx = this->initial_;
   if (!this->restore_ || !this->pref_.load(&idx) || idx >= this->size())
-    idx = 0;
+    idx = this->initial_ < this->size() ? this->initial_ : 0;
   this->publish_state(size_t(idx));
   if (this->on_change_ && this->restore_)
     this->on_change_(idx);
@@ -239,8 +240,23 @@ void CookAssistant::setup() {
     auto *blob = new HistoryBlob();  // NOLINT: 1.9 kB, keep off the stack
     history_store.init(HISTORY_KEY, sizeof(HistoryBlob));
     program_store.init(PROGRAM_KEY, sizeof(ProgramBlob));
-    if (history_store.load(blob))
+    if (history_store.load(blob)) {
       this->history_.load(blob->r, cook::CookHistory::CAPACITY);
+    } else {
+      // 0.1.x saved 48-byte records (the same fields without the rest results): convert them.
+      static const size_t OLD_REC = 48;
+      auto *old = new uint8_t[OLD_REC * cook::CookHistory::CAPACITY];  // NOLINT
+      if (history_store.load_len(old, OLD_REC * cook::CookHistory::CAPACITY)) {
+        for (size_t i = 0; i < cook::CookHistory::CAPACITY; i++) {
+          blob->r[i] = cook::CookRecord{};
+          std::memcpy(&blob->r[i], old + i * OLD_REC, OLD_REC);
+        }
+        this->history_.load(blob->r, cook::CookHistory::CAPACITY);
+        ESP_LOGI(TAG, "Cook history converted from 0.1.x (%u cooks)", (unsigned) this->history_.count());
+        this->save_history_();
+      }
+      delete[] old;
+    }
     delete blob;
   }
   // Program
@@ -285,6 +301,14 @@ void CookAssistant::setup() {
   }
   for (size_t i = 0; i < this->probes_.size(); i++) {
     auto *p = this->probes_[i];
+    if (p->source != nullptr) {
+      p->source->set_on_change([this, p](size_t idx) { this->select_source_(p, idx); });
+      auto idx = p->source->active_index();
+      if (idx.has_value())
+        this->select_source_(p, *idx);
+    }
+    if (p->target_number != nullptr)
+      p->target_number->set_on_change([this, p](float v) { this->sync_target_(p, v); });
     if (p->pulled != nullptr) {
       p->pulled->set_on_change([this, i](bool on) { this->set_pulled(i, on); });
       if (p->pulled->state)
@@ -365,8 +389,11 @@ cook::Environment CookAssistant::environment_() const {
 float CookAssistant::probe_target_c_(FoodProbe *p) const {
   if (p->target_number != nullptr && p->target_number->has_state() && !std::isnan(p->target_number->state))
     return this->to_c_(p->target_number->state);
-  if (p->target != nullptr && p->target->has_state() && !std::isnan(p->target->state))
-    return this->to_c_(p->target->state);
+  if (p->active < p->sources.size()) {
+    const auto &src = p->sources[p->active];
+    if (src.target != nullptr && src.target->has_state() && !std::isnan(src.target->state))
+      return src.fahrenheit ? (src.target->state - 32.0f) * 5.0f / 9.0f : src.target->state;
+  }
   return NAN;
 }
 
@@ -407,15 +434,36 @@ void CookAssistant::tick_second_() {
 
   for (auto *p : this->probes_) {
     float t = NAN;
-    if (p->temperature != nullptr && p->temperature->has_state() && !std::isnan(p->temperature->state))
-      t = this->to_c_(p->temperature->state);
+    if (p->active < p->sources.size()) {
+      const auto &src = p->sources[p->active];
+      if (src.temperature != nullptr && src.temperature->has_state() && !std::isnan(src.temperature->state))
+        t = src.fahrenheit ? (src.temperature->state - 32.0f) * 5.0f / 9.0f : src.temperature->state;
+      // A target changed on the source itself (e.g. on the grill's panel) becomes the slot's target.
+      if (src.target != nullptr && src.target->has_state() && !std::isnan(src.target->state) &&
+          src.target->state != p->last_source_target) {
+        p->last_source_target = src.target->state;
+        float c = src.fahrenheit ? (src.target->state - 32.0f) * 5.0f / 9.0f : src.target->state;
+        if (p->target_number != nullptr && (!p->target_number->has_state() ||
+                                            std::fabs(this->to_c_(p->target_number->state) - c) > 0.3f))
+          p->target_number->publish_state(std::round(this->from_c_(c) * 2.0f) / 2.0f);
+      }
+    }
+    if (p->reading != nullptr) {
+      float shown = std::isnan(t) ? NAN : std::round(this->from_c_(t) * 10.0f) / 10.0f;
+      bool changed = std::isnan(shown) != std::isnan(p->reading->state) ||
+                     (!std::isnan(shown) && std::fabs(shown - p->reading->state) >= 0.1f);
+      if (!p->reading->has_state() || changed || millis() - p->reading_ms > 60000) {
+        p->reading->publish_state(shown);
+        p->reading_ms = millis();
+      }
+    }
     p->predictor.set_target(this->probe_target_c_(p));
     p->predictor.add_sample(now / 60.0, t, pit, this->pit_setpoint_c_());
     p->stall_started_tick = p->predictor.take_stall_started();
     p->stall_ended_tick = p->predictor.take_stall_ended();
     bool done_ev = p->predictor.take_done();
     in.temp_c.push_back(t);
-    in.done.push_back(p->predictor.phase() == cook::Phase::DONE);
+    in.done.push_back(p->predictor.phase() == cook::Phase::DONE || p->predictor.phase() == cook::Phase::RESTING);
     in.stall_started.push_back(p->stall_started_tick);
     in.stall_ended.push_back(p->stall_ended_tick);
 
@@ -463,8 +511,9 @@ void CookAssistant::tick_second_() {
 
     // Rest coach.
     float pull = p->predictor.pull_at();
+    // (Not once it's done: "is done" covers that, and a reboot mustn't repeat "time to pull".)
     if (!std::isnan(t) && !std::isnan(pull) && !p->predictor.pulled() && t >= pull && !p->pull_notified &&
-        p->predictor.phase() != cook::Phase::WAITING) {
+        p->predictor.phase() != cook::Phase::WAITING && p->predictor.phase() != cook::Phase::DONE) {
       p->pull_notified = true;
       this->notify(p->name + ": time to pull", p->name + " is " + this->fmt_temp_(t) + ". Pull it now and it should coast to about " +
                        this->fmt_temp_(target) + " while it rests.",
@@ -472,6 +521,8 @@ void CookAssistant::tick_second_() {
     } else if (!std::isnan(t) && !std::isnan(pull) && t < pull - 5.0f) {
       p->pull_notified = false;
     }
+    if (p->pulled != nullptr && p->pulled->state != p->predictor.pulled())
+      p->pulled->publish_state(p->predictor.pulled());  // e.g. the probe was unplugged mid-rest
     if (p->predictor.pulled()) {
       float slice = this->slice_c_();
       float left = p->predictor.rest_minutes_to(slice, 21.0f);
@@ -481,7 +532,7 @@ void CookAssistant::tick_second_() {
                      "rest_" + p->key);
       }
       float carry, coolk;
-      if (p->predictor.take_rest_result(carry, coolk) && p->last_record_seq != 0) {
+      if (p->predictor.take_rest_result(carry, coolk) && p->predictor.rest_has_record() && p->last_record_seq != 0) {
         if (this->history_.set_rest(p->last_record_seq, carry, coolk))
           this->save_history_();
         ESP_LOGI(TAG, "%s: carryover %.1f°C, rest cooling %.2f/h saved", p->name.c_str(), carry, coolk);
@@ -659,7 +710,7 @@ void CookAssistant::tick_minute_() {
       p->rest_ready->publish_state(std::isnan(m) ? NAN : std::round(m));
     }
   }
-  this->tick_fuel_();
+  this->tick_fuel_(true);  // the minute tick
   if (this->cook_elapsed_ != nullptr)
     this->cook_elapsed_->publish_state(this->cook_active_ ? std::round(now - this->cook_start_min_) : NAN);
 }
@@ -1070,17 +1121,17 @@ void CookAssistant::fuel_level(float percent) {
     ESP_LOGI(TAG, "Fuel burn rate re-learned (actual/predicted %.2f)", this->fuel_.last_ratio());
     this->save_fuel_();
   }
-  this->tick_fuel_();
+  this->tick_fuel_(false);
 }
 void CookAssistant::fuel_refilled(float percent) {
   this->fuel_.refill_to(this->now_min_() / 60.0, percent / 100.0f);
   this->fuel_low_notified_ = this->fuel_short_notified_ = false;
-  this->tick_fuel_();
+  this->tick_fuel_(false);
 }
 void CookAssistant::fuel_added(float percent) {
   this->fuel_.add(this->now_min_() / 60.0, percent / 100.0f);
   this->fuel_low_notified_ = this->fuel_short_notified_ = false;
-  this->tick_fuel_();
+  this->tick_fuel_(false);
 }
 void CookAssistant::fuel_end(float percent) {
   this->fuel_.end(this->now_min_() / 60.0, percent / 100.0f);
@@ -1088,12 +1139,14 @@ void CookAssistant::fuel_end(float percent) {
     ESP_LOGI(TAG, "Fuel burn rate re-learned at the end of the cook (actual/predicted %.2f)", this->fuel_.last_ratio());
     this->save_fuel_();
   }
-  this->tick_fuel_();
+  this->tick_fuel_(false);
 }
 
-void CookAssistant::tick_fuel_() {
-  // Fan duty over the last 10 minutes (bridge: the stock controller's fan-on bit).
-  if (this->fan_ != nullptr && this->fan_->has_state()) {
+void CookAssistant::tick_fuel_(bool minute) {
+  // Fan duty over the last 10 minutes (bridge: the stock controller's fan-on bit), one sample per minute tick
+  // and only while the grill link is up (a stale state isn't the fan).
+  bool link_ok = this->link_ == nullptr || (this->link_->has_state() && this->link_->state);
+  if (minute && link_ok && this->fan_ != nullptr && this->fan_->has_state()) {
     this->fan_hist_.push_back(this->fan_->state ? 1 : 0);
     if (this->fan_hist_.size() > 10)
       this->fan_hist_.erase(this->fan_hist_.begin());
@@ -1153,7 +1206,7 @@ void CookAssistant::tick_fuel_() {
     this->fuel_short_notified_ = true;
     this->notify("Charcoal won't last", "The hopper should run out " + this->fmt_minutes_(finish - hrs * 60.0f) +
                                             " before the food is done. Top it up within " + this->fmt_minutes_(hrs * 60.0f * 0.7f) + ".",
-                 1, "fuel");
+                 1, "fuel_short");
   }
 }
 
@@ -1172,6 +1225,35 @@ void CookAssistant::set_forecast(const std::vector<float> &minutes, const std::v
   ESP_LOGD(TAG, "Forecast: %u points", (unsigned) f.size());
 }
 
+void CookAssistant::select_source_(FoodProbe *p, size_t idx) {
+  if (idx >= p->sources.size())
+    return;
+  if (idx != p->active) {
+    ESP_LOGI(TAG, "%s now reads %s", p->name.c_str(), p->sources[idx].name.c_str());
+    // A different thermometer: its history isn't this one's. Start the slot afresh (learned history is kept).
+    p->predictor.reset();
+    p->pull_notified = false;
+  }
+  p->active = idx;
+  p->last_source_target = NAN;  // pick up the new source's own target, if it has one
+}
+
+void CookAssistant::sync_target_(FoodProbe *p, float value) {
+  if (p->active >= p->sources.size() || std::isnan(value))
+    return;
+  auto &src = p->sources[p->active];
+  if (src.sync == nullptr)
+    return;
+  // The slot's target is in the controller's unit; the source's in its own.
+  float c = this->to_c_(value);
+  float v = src.fahrenheit ? c * 9.0f / 5.0f + 32.0f : c;
+  if (src.sync->has_state() && std::fabs(src.sync->state - v) < 0.5f)
+    return;
+  auto call = src.sync->make_call();
+  call.set_value(std::round(v));
+  call.perform();
+}
+
 void CookAssistant::set_pulled(size_t probe, bool pulled) {
   if (probe >= this->probes_.size())
     return;
@@ -1179,8 +1261,9 @@ void CookAssistant::set_pulled(size_t probe, bool pulled) {
   p->predictor.set_pulled(this->now_min_() / 60.0, pulled);
   if (pulled)
     p->rest_notified = false;
-  if (p->pulled != nullptr && p->pulled->state != pulled)
-    p->pulled->publish_state(pulled);
+  // The switch shows what the predictor did (no probe reading: nothing to rest).
+  if (p->pulled != nullptr)
+    p->pulled->publish_state(p->predictor.pulled());
 }
 
 std::string CookAssistant::history_json() {

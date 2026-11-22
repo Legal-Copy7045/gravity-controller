@@ -13,12 +13,8 @@ substitutions:
   wind_speed_unit: "mph"           # mph, km/h or m/s
   ntfy_server: https://ntfy.sh
   update_manifest: https://legal-copy7045.github.io/gravity-controller/firmware/manifest.json
-  # Govee H5198 probes, via Home Assistant: the HA package maps your Govee entities onto these
-  # (Settings > Helpers > "Smoker Govee probe N entity"), so no firmware change is needed.
-  govee_probe_1: sensor.smoker_govee_probe_1
-  govee_probe_2: sensor.smoker_govee_probe_2
-  govee_probe_3: sensor.smoker_govee_probe_3
-  govee_probe_4: sensor.smoker_govee_probe_4
+  # Each food slot (Food 1-6) can read a grill probe, an H5198 probe (direct Bluetooth), or a Home Assistant
+  # entity: pick it per slot with "Food N probe". The HA package maps entities onto sensor.smoker_external_probe_N.
 
 esphome:
   name: ${name}
@@ -196,18 +192,18 @@ sensor:
       name: Pit target (reported)
       entity_category: diagnostic
     food1_temperature:
-      id: food1_temp
-      name: Food 1 temperature
+      id: grill_probe1_temp
+      name: Grill probe 1 temperature
     food1_target:
-      id: food1_target_reported
-      name: Food 1 target (reported)
+      id: grill_probe1_target_reported
+      name: Grill probe 1 target (reported)
       entity_category: diagnostic
     food2_temperature:
-      id: food2_temp
-      name: Food 2 temperature
+      id: grill_probe2_temp
+      name: Grill probe 2 temperature
     food2_target:
-      id: food2_target_reported
-      name: Food 2 target (reported)
+      id: grill_probe2_target_reported
+      name: Grill probe 2 target (reported)
       entity_category: diagnostic
   - platform: homeassistant
     id: outdoor_temp
@@ -225,29 +221,29 @@ sensor:
     attribute: wind_speed
     internal: true
   - platform: homeassistant
-    id: govee1_temp
-    entity_id: ${govee_probe_1}
+    id: ext_probe1
+    entity_id: sensor.smoker_external_probe_1
     internal: true
-    filters:
-      - filter_out: nan
   - platform: homeassistant
-    id: govee2_temp
-    entity_id: ${govee_probe_2}
+    id: ext_probe2
+    entity_id: sensor.smoker_external_probe_2
     internal: true
-    filters:
-      - filter_out: nan
   - platform: homeassistant
-    id: govee3_temp
-    entity_id: ${govee_probe_3}
+    id: ext_probe3
+    entity_id: sensor.smoker_external_probe_3
     internal: true
-    filters:
-      - filter_out: nan
   - platform: homeassistant
-    id: govee4_temp
-    entity_id: ${govee_probe_4}
+    id: ext_probe4
+    entity_id: sensor.smoker_external_probe_4
     internal: true
-    filters:
-      - filter_out: nan
+  - platform: homeassistant
+    id: ext_probe5
+    entity_id: sensor.smoker_external_probe_5
+    internal: true
+  - platform: homeassistant
+    id: ext_probe6
+    entity_id: sensor.smoker_external_probe_6
+    internal: true
   - platform: wifi_signal
     name: Wi-Fi signal
     update_interval: 60s
@@ -288,11 +284,13 @@ number:
       id: pit_setpoint
       name: Pit target
     food1_target:
-      id: food1_target
-      name: Food 1 target
+      id: grill_probe1_target
+      name: Grill probe 1 target
+      entity_category: config
     food2_target:
-      id: food2_target
-      name: Food 2 target
+      id: grill_probe2_target
+      name: Grill probe 2 target
+      entity_category: config
 
 switch:
   - platform: gravity980
@@ -309,6 +307,28 @@ switch:
       - lambda: id(grill).set_log_raw(true);
     on_turn_off:
       - lambda: id(grill).set_log_raw(false);
+
+# ----------------------------------------------------------------- Govee H5198 (direct Bluetooth)
+
+govee_h5198:
+  id: h5198_hub
+  temperature_unit: ${temperature_unit}
+  probe_1:
+    id: h5198_p1
+    name: H5198 probe 1
+  probe_2:
+    id: h5198_p2
+    name: H5198 probe 2
+  probe_3:
+    id: h5198_p3
+    name: H5198 probe 3
+  probe_4:
+    id: h5198_p4
+    name: H5198 probe 4
+  rssi:
+    name: H5198 signal
+  connected:
+    name: H5198 connected
 
 # ----------------------------------------------------------------- cook assistant
 
@@ -382,8 +402,33 @@ cook_assistant:
   probes:
     - key: food1
       name: Food 1
-      temperature: food1_temp
-      target: food1_target_reported
+      sources:
+        - name: Grill probe 1
+          temperature: grill_probe1_temp
+          target: grill_probe1_target_reported
+          sync: grill_probe1_target
+        - name: Grill probe 2
+          temperature: grill_probe2_temp
+          target: grill_probe2_target_reported
+          sync: grill_probe2_target
+        - name: H5198 probe 1
+          temperature: h5198_p1
+        - name: H5198 probe 2
+          temperature: h5198_p2
+        - name: H5198 probe 3
+          temperature: h5198_p3
+        - name: H5198 probe 4
+          temperature: h5198_p4
+        - name: Home Assistant
+          temperature: ext_probe1
+          unit: ${weather_temperature_unit}
+      source:
+        name: Food 1 probe
+      default_source: Grill probe 1
+      target_number:
+        name: Food 1 target
+      reading:
+        name: Food 1 temperature
       profile:
         name: Food 1 protein
       weight:
@@ -420,8 +465,33 @@ cook_assistant:
         name: Food 1 rest ready in
     - key: food2
       name: Food 2
-      temperature: food2_temp
-      target: food2_target_reported
+      sources:
+        - name: Grill probe 1
+          temperature: grill_probe1_temp
+          target: grill_probe1_target_reported
+          sync: grill_probe1_target
+        - name: Grill probe 2
+          temperature: grill_probe2_temp
+          target: grill_probe2_target_reported
+          sync: grill_probe2_target
+        - name: H5198 probe 1
+          temperature: h5198_p1
+        - name: H5198 probe 2
+          temperature: h5198_p2
+        - name: H5198 probe 3
+          temperature: h5198_p3
+        - name: H5198 probe 4
+          temperature: h5198_p4
+        - name: Home Assistant
+          temperature: ext_probe2
+          unit: ${weather_temperature_unit}
+      source:
+        name: Food 2 probe
+      default_source: Grill probe 2
+      target_number:
+        name: Food 2 target
+      reading:
+        name: Food 2 temperature
       profile:
         name: Food 2 protein
       weight:
@@ -456,146 +526,258 @@ cook_assistant:
         name: Food 2 pull at
       rest_ready:
         name: Food 2 rest ready in
-    - key: govee1
-      name: Govee 1
-      temperature: govee1_temp
+    - key: food3
+      name: Food 3
+      sources:
+        - name: Grill probe 1
+          temperature: grill_probe1_temp
+          target: grill_probe1_target_reported
+          sync: grill_probe1_target
+        - name: Grill probe 2
+          temperature: grill_probe2_temp
+          target: grill_probe2_target_reported
+          sync: grill_probe2_target
+        - name: H5198 probe 1
+          temperature: h5198_p1
+        - name: H5198 probe 2
+          temperature: h5198_p2
+        - name: H5198 probe 3
+          temperature: h5198_p3
+        - name: H5198 probe 4
+          temperature: h5198_p4
+        - name: Home Assistant
+          temperature: ext_probe3
+          unit: ${weather_temperature_unit}
+      source:
+        name: Food 3 probe
+      default_source: H5198 probe 1
       target_number:
-        name: Govee 1 target
+        name: Food 3 target
+      reading:
+        name: Food 3 temperature
       profile:
-        name: Govee 1 protein
+        name: Food 3 protein
       weight:
-        name: Govee 1 weight
+        name: Food 3 weight
       wrapped:
-        name: Govee 1 wrapped
+        name: Food 3 wrapped
       time_remaining:
-        name: Govee 1 time remaining
+        name: Food 3 time remaining
       time_remaining_low:
-        name: Govee 1 time remaining (early)
+        name: Food 3 time remaining (early)
       time_remaining_high:
-        name: Govee 1 time remaining (late)
+        name: Food 3 time remaining (late)
       estimated_total:
-        name: Govee 1 estimated total cook time
+        name: Food 3 estimated total cook time
+      stall_remaining:
+        name: Food 3 stall remaining
       rate:
-        name: Govee 1 rate
+        name: Food 3 rate
       finish_time:
-        name: Govee 1 finish time
+        name: Food 3 finish time
       phase:
-        name: Govee 1 phase
+        name: Food 3 phase
+      estimate_info:
+        name: Food 3 estimate basis
       stall:
-        name: Govee 1 stall
+        name: Food 3 stall
       probe_warning:
-        name: Govee 1 probe warning
+        name: Food 3 probe warning
       pulled:
-        name: Govee 1 pulled
+        name: Food 3 pulled
       pull_at:
-        name: Govee 1 pull at
+        name: Food 3 pull at
       rest_ready:
-        name: Govee 1 rest ready in
-    - key: govee2
-      name: Govee 2
-      temperature: govee2_temp
+        name: Food 3 rest ready in
+    - key: food4
+      name: Food 4
+      sources:
+        - name: Grill probe 1
+          temperature: grill_probe1_temp
+          target: grill_probe1_target_reported
+          sync: grill_probe1_target
+        - name: Grill probe 2
+          temperature: grill_probe2_temp
+          target: grill_probe2_target_reported
+          sync: grill_probe2_target
+        - name: H5198 probe 1
+          temperature: h5198_p1
+        - name: H5198 probe 2
+          temperature: h5198_p2
+        - name: H5198 probe 3
+          temperature: h5198_p3
+        - name: H5198 probe 4
+          temperature: h5198_p4
+        - name: Home Assistant
+          temperature: ext_probe4
+          unit: ${weather_temperature_unit}
+      source:
+        name: Food 4 probe
+      default_source: H5198 probe 2
       target_number:
-        name: Govee 2 target
+        name: Food 4 target
+      reading:
+        name: Food 4 temperature
       profile:
-        name: Govee 2 protein
+        name: Food 4 protein
       weight:
-        name: Govee 2 weight
+        name: Food 4 weight
       wrapped:
-        name: Govee 2 wrapped
+        name: Food 4 wrapped
       time_remaining:
-        name: Govee 2 time remaining
+        name: Food 4 time remaining
       time_remaining_low:
-        name: Govee 2 time remaining (early)
+        name: Food 4 time remaining (early)
       time_remaining_high:
-        name: Govee 2 time remaining (late)
+        name: Food 4 time remaining (late)
       estimated_total:
-        name: Govee 2 estimated total cook time
+        name: Food 4 estimated total cook time
+      stall_remaining:
+        name: Food 4 stall remaining
       rate:
-        name: Govee 2 rate
+        name: Food 4 rate
       finish_time:
-        name: Govee 2 finish time
+        name: Food 4 finish time
       phase:
-        name: Govee 2 phase
+        name: Food 4 phase
+      estimate_info:
+        name: Food 4 estimate basis
       stall:
-        name: Govee 2 stall
+        name: Food 4 stall
       probe_warning:
-        name: Govee 2 probe warning
+        name: Food 4 probe warning
       pulled:
-        name: Govee 2 pulled
+        name: Food 4 pulled
       pull_at:
-        name: Govee 2 pull at
+        name: Food 4 pull at
       rest_ready:
-        name: Govee 2 rest ready in
-    - key: govee3
-      name: Govee 3
-      temperature: govee3_temp
+        name: Food 4 rest ready in
+    - key: food5
+      name: Food 5
+      sources:
+        - name: Grill probe 1
+          temperature: grill_probe1_temp
+          target: grill_probe1_target_reported
+          sync: grill_probe1_target
+        - name: Grill probe 2
+          temperature: grill_probe2_temp
+          target: grill_probe2_target_reported
+          sync: grill_probe2_target
+        - name: H5198 probe 1
+          temperature: h5198_p1
+        - name: H5198 probe 2
+          temperature: h5198_p2
+        - name: H5198 probe 3
+          temperature: h5198_p3
+        - name: H5198 probe 4
+          temperature: h5198_p4
+        - name: Home Assistant
+          temperature: ext_probe5
+          unit: ${weather_temperature_unit}
+      source:
+        name: Food 5 probe
+      default_source: H5198 probe 3
       target_number:
-        name: Govee 3 target
+        name: Food 5 target
+      reading:
+        name: Food 5 temperature
       profile:
-        name: Govee 3 protein
+        name: Food 5 protein
       weight:
-        name: Govee 3 weight
+        name: Food 5 weight
       wrapped:
-        name: Govee 3 wrapped
+        name: Food 5 wrapped
       time_remaining:
-        name: Govee 3 time remaining
+        name: Food 5 time remaining
       time_remaining_low:
-        name: Govee 3 time remaining (early)
+        name: Food 5 time remaining (early)
       time_remaining_high:
-        name: Govee 3 time remaining (late)
+        name: Food 5 time remaining (late)
       estimated_total:
-        name: Govee 3 estimated total cook time
+        name: Food 5 estimated total cook time
+      stall_remaining:
+        name: Food 5 stall remaining
       rate:
-        name: Govee 3 rate
+        name: Food 5 rate
       finish_time:
-        name: Govee 3 finish time
+        name: Food 5 finish time
       phase:
-        name: Govee 3 phase
+        name: Food 5 phase
+      estimate_info:
+        name: Food 5 estimate basis
       stall:
-        name: Govee 3 stall
+        name: Food 5 stall
       probe_warning:
-        name: Govee 3 probe warning
+        name: Food 5 probe warning
       pulled:
-        name: Govee 3 pulled
+        name: Food 5 pulled
       pull_at:
-        name: Govee 3 pull at
+        name: Food 5 pull at
       rest_ready:
-        name: Govee 3 rest ready in
-    - key: govee4
-      name: Govee 4
-      temperature: govee4_temp
+        name: Food 5 rest ready in
+    - key: food6
+      name: Food 6
+      sources:
+        - name: Grill probe 1
+          temperature: grill_probe1_temp
+          target: grill_probe1_target_reported
+          sync: grill_probe1_target
+        - name: Grill probe 2
+          temperature: grill_probe2_temp
+          target: grill_probe2_target_reported
+          sync: grill_probe2_target
+        - name: H5198 probe 1
+          temperature: h5198_p1
+        - name: H5198 probe 2
+          temperature: h5198_p2
+        - name: H5198 probe 3
+          temperature: h5198_p3
+        - name: H5198 probe 4
+          temperature: h5198_p4
+        - name: Home Assistant
+          temperature: ext_probe6
+          unit: ${weather_temperature_unit}
+      source:
+        name: Food 6 probe
+      default_source: H5198 probe 4
       target_number:
-        name: Govee 4 target
+        name: Food 6 target
+      reading:
+        name: Food 6 temperature
       profile:
-        name: Govee 4 protein
+        name: Food 6 protein
       weight:
-        name: Govee 4 weight
+        name: Food 6 weight
       wrapped:
-        name: Govee 4 wrapped
+        name: Food 6 wrapped
       time_remaining:
-        name: Govee 4 time remaining
+        name: Food 6 time remaining
       time_remaining_low:
-        name: Govee 4 time remaining (early)
+        name: Food 6 time remaining (early)
       time_remaining_high:
-        name: Govee 4 time remaining (late)
+        name: Food 6 time remaining (late)
       estimated_total:
-        name: Govee 4 estimated total cook time
+        name: Food 6 estimated total cook time
+      stall_remaining:
+        name: Food 6 stall remaining
       rate:
-        name: Govee 4 rate
+        name: Food 6 rate
       finish_time:
-        name: Govee 4 finish time
+        name: Food 6 finish time
       phase:
-        name: Govee 4 phase
+        name: Food 6 phase
+      estimate_info:
+        name: Food 6 estimate basis
       stall:
-        name: Govee 4 stall
+        name: Food 6 stall
       probe_warning:
-        name: Govee 4 probe warning
+        name: Food 6 probe warning
       pulled:
-        name: Govee 4 pulled
+        name: Food 6 pulled
       pull_at:
-        name: Govee 4 pull at
+        name: Food 6 pull at
       rest_ready:
-        name: Govee 4 rest ready in
+        name: Food 6 rest ready in
   cook_active:
     name: Cook active
   cook_elapsed:

@@ -128,6 +128,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
 
   <h2 class="sec">Food</h2>
   <div class="grid" id="probes"></div>
+  <details class="fold" data-k="sources"><summary>Probe sources (grill, H5198, Home Assistant)</summary><div id="sources"></div></details>
 
   <h2 class="sec">Temperatures <span class="seg" id="range" style="float:right;margin-top:2px"></span></h2>
   <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
@@ -156,10 +157,10 @@ const DEV = 'Smoker';
 const PROBES = [
   { key: 'food1', label: 'Food 1', color: 'var(--food1)' },
   { key: 'food2', label: 'Food 2', color: 'var(--food2)' },
-  { key: 'govee1', label: 'Govee 1', color: 'var(--g1)' },
-  { key: 'govee2', label: 'Govee 2', color: 'var(--g2)' },
-  { key: 'govee3', label: 'Govee 3', color: 'var(--g3)' },
-  { key: 'govee4', label: 'Govee 4', color: 'var(--g4)' },
+  { key: 'food3', label: 'Food 3', color: 'var(--g1)' },
+  { key: 'food4', label: 'Food 4', color: 'var(--g2)' },
+  { key: 'food5', label: 'Food 5', color: 'var(--g3)' },
+  { key: 'food6', label: 'Food 6', color: 'var(--g4)' },
 ];
 const cache = {};
 function E(name, doms) {
@@ -208,6 +209,8 @@ window.act = {
   targetSet(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' target', ['number']), parseFloat(v)); },
   profile(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' protein', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
   weight(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' weight', ['number']), parseFloat(v) || 0); },
+  source(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' probe', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast(p.label + ' reads ' + v)).catch(fail); },
+  extEntity(n, v) { const e = byName('Smoker external probe ' + n + ' entity', ['input_text']); e && H().call('input_text', 'set_value', e, { value: v.trim() }).then(() => toast('Saved')).catch(fail); },
   wrap(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' wrapped', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   preset(v) { clean('progtext'); const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
   // The typed text stays until the controller shows it as its program (a refused program keeps your text).
@@ -226,7 +229,7 @@ window.act = {
   range(h) { chartHours = h; lastChart = 0; render(); },
   fuelMode(m) { fuelMode = m; renderFuel(); },
   fuel(pct) {
-    const svc = { start: 'fuel_level', check: 'fuel_level', refill: 'fuel_refilled', add: 'fuel_added', end: 'fuel_end' }[fuelMode];
+    const svc = { start: 'fuel_refilled', check: 'fuel_level', refill: 'fuel_refilled', add: 'fuel_added', end: 'fuel_end' }[fuelMode];
     esph(svc, { percent: pct }).then(() => toast({ start: 'Starting level', check: 'Level', refill: 'Topped up to', add: 'Added', end: 'Finished with' }[fuelMode] + ' ' + pct + '%'));
   },
   fuelType(v) { const e = E('Charcoal type', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
@@ -242,7 +245,7 @@ window.act = {
   },
   assign(id, probe) {
     const items = (journal.draft.items || []).map(i => i.id === id ? Object.assign({}, i, { probe: probe || null }) : i);
-    H().api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); toast(probe ? 'Probe set from the label' : 'Unassigned'); }).catch(fail);
+    H().api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); toast(d.problems && d.problems.length ? d.problems.join('; ') : probe ? 'Probe set from the label' : 'Unassigned'); }).catch(fail);
   },
   dropItem(id) {
     const items = (journal.draft.items || []).filter(i => i.id !== id);
@@ -269,6 +272,7 @@ function probeState(p) {
     stallRem: num(E(p.label + ' stall remaining', ['sensor'])),
     rate: num(E(p.label + ' rate', ['sensor'])),
     finish: val(E(p.label + ' finish time', ['sensor'])),
+    source: val(E(p.label + ' probe', ['select'])),
     stall: val(E(p.label + ' stall', ['binary_sensor'])) === 'on',
     warn: val(E(p.label + ' probe warning', ['binary_sensor'])) === 'on',
     profile: S(E(p.label + ' protein', ['select'])),
@@ -399,7 +403,7 @@ function renderProbes() {
     const wrapped = val(s.wrapE) === 'on';
     const phaseChip = s.stall ? '<span class="chip warn">Stall</span>' : s.phase ? `<span class="chip ${/Done/.test(s.phase) ? 'ok' : ''}">${esc(s.phase)}</span>` : '';
     cards.push(`<section class="tc probe"><span class="edge" style="background:${p.color}"></span>
-      <h3>${esc(p.label)} ${phaseChip}</h3>
+      <h3>${esc(p.label)} ${phaseChip}${s.source ? ` <span class="muted small">· ${esc(s.source)}</span>` : ''}</h3>
       <div class="ptemp">${fmt(s.t)}<small>${esc(TU())}${s.tgt != null ? ' / ' + fmt(s.tgt) + esc(TU()) : ''}</small></div>
       ${s.warn ? '<div class="err">Probe jumped towards pit temperature – is it still in the meat?</div>' : ''}
       <div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
@@ -420,6 +424,25 @@ function renderProbes() {
     </section>`);
   });
   put('probes', cards.join('') || '<div class="empty">No food probes connected.</div>');
+  renderSources();
+}
+
+// Each Food slot reads one thermometer: a grill probe, an H5198 probe (direct Bluetooth) or a Home Assistant entity.
+function renderSources() {
+  const rows = PROBES.map((p, i) => {
+    const selE = E(p.label + ' probe', ['select']); if (!selE) return '';
+    const st = S(selE), opts = (st.attributes && st.attributes.options) || [];
+    const t = num(E(p.label + ' temperature', ['sensor']));
+    const ha = st.state === 'Home Assistant';
+    const txtE = byName('Smoker external probe ' + (i + 1) + ' entity', ['input_text']);
+    return `<div class="row"><span>${esc(p.label)} <span class="muted small">${t != null ? fmt(t) + esc(TU()) : 'no reading'}</span></span>
+      <select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>` +
+      (ha && txtE ? `<div class="row"><span class="small muted">Home Assistant entity</span><input id="ext${i + 1}" placeholder="sensor.…" value="${esc(val(txtE) || '')}"
+        onchange="clean('ext${i + 1}'); act.extEntity(${i + 1}, this.value)" style="min-width:220px"></div>` : '');
+  }).join('');
+  const conn = val(E('H5198 connected', ['binary_sensor'])), rssi = num(E('H5198 signal', ['sensor']));
+  put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">H5198: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
+    Grill probes keep their targets in step with the grill.</div>` : '<div class="empty">This controller has fixed probes.</div>');
 }
 
 function renderPlan() {
@@ -477,9 +500,9 @@ function renderScan(force) {
     <div class="btns"><button class="btn pri" id="scanbtn" onclick="act.scan()">Read the labels</button></div>
     ${photos.length ? `<div class="thumbs">${photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
     ${items.map(i => `<div class="item"><span class="n">${esc(i.name)}</span>
-        <select onchange="act.assign('${esc(i.id)}', this.value)">${probeOptions(i.probe)}</select>
+        <select data-id="${esc(i.id)}" onchange="act.assign(this.dataset.id, this.value)">${probeOptions(i.probe)}</select>
         <span class="m">${esc(i.profile)}${i.weight_lb ? ' · ' + fmt(i.weight_lb, 1) + ' lb' : ''}${i.notes ? ' · ' + esc(i.notes) : ''}
-          <button class="btn" style="min-height:26px;padding:2px 8px;margin-left:6px" onclick="act.dropItem('${esc(i.id)}')" aria-label="remove">×</button></span></div>`).join('')}`;
+          <button class="btn" style="min-height:26px;padding:2px 8px;margin-left:6px" data-id="${esc(i.id)}" onclick="act.dropItem(this.dataset.id)" aria-label="remove">×</button></span></div>`).join('')}`;
   if (force) { const el = $('scancard'); if (el) el._h = null; }
   put('scancard', html);
 }

@@ -49,7 +49,7 @@ weighed meat (starting with 2) encode price or weight, not the product. One line
 
 
 def _entity_slug(key: str) -> str:
-    """food1 -> food_1, govee2 -> govee_2 (the ids HA builds from "Food 1", "Govee 2")."""
+    """food1 -> food_1 (the ids HA builds from "Food 1")."""
     m = re.fullmatch(r"([a-z]+)(\d+)", key or "")
     return f"{m.group(1)}_{m.group(2)}" if m else key
 
@@ -159,7 +159,10 @@ class Journal:
                     e["notes"] = str(changes["notes"])[:2000]
                 if "rating" in changes:
                     r = changes["rating"]
-                    e["rating"] = None if r in (None, "") else max(1, min(5, int(r)))
+                    try:
+                        e["rating"] = None if r in (None, "") else max(1, min(5, int(r)))
+                    except (TypeError, ValueError):
+                        raise ValueError("rating must be 1-5") from None
                 self._save()
                 return e
         return None
@@ -178,10 +181,14 @@ class Journal:
         for i in items[:12]:
             prof = i.get("profile") if i.get("profile") in PROFILES else "Auto"
             w = i.get("weight_lb")
-            keep.append({"id": str(i.get("id") or uuid.uuid4().hex[:8])[:12], "name": str(i.get("name", ""))[:120],
+            iid = str(i.get("id") or "")
+            if not re.fullmatch(r"[0-9a-f]{1,12}", iid):
+                iid = uuid.uuid4().hex[:8]  # ids end up in the page's markup: hex only
+            probe = i.get("probe")
+            keep.append({"id": iid, "name": str(i.get("name", ""))[:120],
                          "profile": prof, "weight_lb": float(w) if isinstance(w, (int, float)) and w > 0 else None,
                          "barcode": re.sub(r"\D", "", str(i.get("barcode", "")))[:20], "notes": str(i.get("notes", ""))[:200],
-                         "probe": i.get("probe") if isinstance(i.get("probe"), str) else None})
+                         "probe": probe if isinstance(probe, str) and re.fullmatch(r"[a-z0-9_]{1,16}", probe) else None})
         self.data["draft"]["items"] = keep
         self._save()
 
@@ -198,6 +205,11 @@ class Journal:
         if item.get("weight_lb") and self.hass.states.get(num):
             st = self.hass.states.get(num)
             w = item["weight_lb"] if (st.attributes.get("unit_of_measurement") or "lb") == "lb" else item["weight_lb"] * 0.4536
+            lo, hi = st.attributes.get("min"), st.attributes.get("max")
+            if isinstance(hi, (int, float)):
+                w = min(w, hi)
+            if isinstance(lo, (int, float)):
+                w = max(w, lo)
             await self.hass.services.async_call("number", "set_value", {"entity_id": num, "value": round(w, 1)},
                                                 blocking=True)
 
@@ -218,7 +230,7 @@ class Journal:
             self.photo_dir.mkdir(parents=True, exist_ok=True)
             for n, (ctype, body) in enumerate(images[:MAX_PHOTOS]):
                 ext = ".png" if "png" in ctype else ".jpg"
-                name = f"{stamp}-{n}{ext}"
+                name = f"{stamp}-{uuid.uuid4().hex[:6]}-{n}{ext}"
                 (media_root / name).write_bytes(body)
                 (self.photo_dir / name).write_bytes(body)
                 saved.append(name)
@@ -267,7 +279,10 @@ class JournalEntryView(HomeAssistantView):
             body = await request.json()
         except ValueError:
             return self.json_message("invalid JSON", 400)
-        e = _journal(request).update_entry(entry_id, body if isinstance(body, dict) else {})
+        try:
+            e = _journal(request).update_entry(entry_id, body if isinstance(body, dict) else {})
+        except ValueError as err:
+            return self.json_message(str(err), 400)
         return self.json(e) if e else self.json_message("not found", 404)
 
     async def delete(self, request: web.Request, entry_id: str) -> web.Response:
@@ -292,10 +307,15 @@ class DraftView(HomeAssistantView):
             return self.json_message("items must be a list", 400)
         old = {i["id"]: i.get("probe") for i in j.data["draft"]["items"]}
         j.set_draft_items(items)
+        problems = []
         for i in j.data["draft"]["items"]:
             if i.get("probe") and old.get(i["id"]) != i["probe"]:
-                await j.apply_item_to_probe(i)  # newly assigned: set the probe's protein and weight
-        return self.json(j.data["draft"])
+                try:
+                    await j.apply_item_to_probe(i)  # newly assigned: set the probe's protein and weight
+                except Exception as err:  # noqa: BLE001 - one bad item mustn't stop the rest
+                    _LOGGER.warning("Couldn't set %s from %s: %s", i["probe"], i.get("name"), err)
+                    problems.append(f"{i.get('name') or 'item'}: {err}")
+        return self.json({**j.data["draft"], "problems": problems})
 
 
 class IdentifyView(HomeAssistantView):
@@ -313,9 +333,11 @@ class IdentifyView(HomeAssistantView):
             ctype = part.headers.get("Content-Type", "image/jpeg")
             if not ctype.startswith("image/"):
                 continue
-            body = await part.read(decode=False)
-            if len(body) > MAX_PHOTO_BYTES:
-                return self.json_message("photo too large (max 8 MB)", 413)
+            body = bytearray()
+            while chunk := await part.read_chunk(64 * 1024):
+                body.extend(chunk)
+                if len(body) > MAX_PHOTO_BYTES:
+                    return self.json_message("photo too large (max 8 MB)", 413)
             images.append((ctype, bytes(body)))
         try:
             items = await j.identify(images, request.query.get("ai_task") or None)
@@ -331,7 +353,7 @@ class PhotoView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request, name: str) -> web.StreamResponse:
-        if not re.fullmatch(r"[0-9-]+\.(jpg|png)", name):
+        if not re.fullmatch(r"[0-9a-f-]+\.(jpg|png)", name):
             return self.json_message("not found", 404)
         path = _journal(request).photo_dir / name
         if not await request.app["hass"].async_add_executor_job(path.is_file):

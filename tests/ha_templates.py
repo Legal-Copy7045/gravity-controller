@@ -46,12 +46,24 @@ async def main():
     # 1. probe key mapping used by the notification buttons
     seq = autos["smoker_notification_actions"]["actions"][1]["choose"]
     plus = next(c for c in seq if "FOOD_PLUS_5" in str(c["conditions"]))["sequence"][0]["variables"]["key"]
-    for a, want in [("SMOKER_FOOD_PLUS_5_FOOD1", "food_1"), ("SMOKER_FOOD_PLUS_5_GOVEE3", "govee_3")]:
+    for a, want in [("SMOKER_FOOD_PLUS_5_FOOD1", "food_1"), ("SMOKER_FOOD_PLUS_5_FOOD3", "food_3")]:
         got = render(plus, a=a)
         check(got == want, f"button key {a} -> {got!r}")
     wrap = next(c for c in seq if "WRAPPED" in str(c["conditions"]))["sequence"][0]["target"]["entity_id"]
-    got = render(wrap, a="SMOKER_WRAPPED_GOVEE2")
-    check(got == "switch.smoker_govee_2_wrapped", f"wrapped entity -> {got!r}")
+    got = render(wrap, a="SMOKER_WRAPPED_FOOD2")
+    check(got == "switch.smoker_food_2_wrapped", f"wrapped entity -> {got!r}")
+
+    # 1b. external probe mapping: follows the named entity and converts °C sources to °F
+    tsens = [x for blk in pkg["template"] if "sensor" in blk for x in blk["sensor"]]
+    ext3 = next(x for x in tsens if x.get("unique_id") == "smoker_external_probe_3")["state"]
+    hass.states.async_set("input_text.smoker_external_probe_3_entity", "sensor.probe_c")
+    hass.states.async_set("sensor.probe_c", "60", {"unit_of_measurement": "°C"})
+    got = render(ext3)
+    check(float(got) == 140.0, f"external probe in °C -> {got!r} °F")
+    hass.states.async_set("sensor.probe_c", "151.5", {"unit_of_measurement": "°F"})
+    check(float(render(ext3)) == 151.5, "external probe in °F passes through")
+    hass.states.async_set("input_text.smoker_external_probe_3_entity", "")
+    check(render(ext3) is None or str(render(ext3)) in ("None", ""), f"no entity -> {render(ext3)!r}")
 
     # 2. buttons variable renders to a real list
     fwd = autos["smoker_forward_notifications"]["actions"][0]["variables"]
@@ -60,7 +72,7 @@ async def main():
             self.data = {"title": title, "tag": tag}
     for title, tag, n in [("Food 1 is done", "done_food1", 2), ("Pit temperature off", "pit_band", 2),
                           ("Program paused", "program", 1), ("Controller restarted", "program", 1),
-                          ("Govee 2 stall", "stall_govee2", 1), ("Food 1 stall over", "stall_food1", 0)]:
+                          ("Food 6 stall", "stall_food6", 1), ("Food 1 stall over", "stall_food1", 0)]:
         b = render(fwd["buttons"], tag=tag, trigger={"event": Ev(title, tag)})
         check(isinstance(b, list) and len(b) == n, f"buttons for {title!r}: {b!r}")
 

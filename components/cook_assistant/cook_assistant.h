@@ -55,12 +55,14 @@ class CASelect : public select::Select, public Component {
   void setup() override;
   void set_on_change(std::function<void(size_t)> &&f) { this->on_change_ = std::move(f); }
   void set_restore(bool r) { this->restore_ = r; }
+  void set_initial_index(size_t i) { this->initial_ = i; }
 
  protected:
   void control(size_t index) override;
   std::function<void(size_t)> on_change_;
   ESPPreferenceObject pref_;
   bool restore_{true};
+  size_t initial_{0};
 };
 
 class CASwitch : public switch_::Switch, public Component {
@@ -96,12 +98,23 @@ class CAText : public text::Text, public Component {
 
 // ---- per probe ----
 
+/// One place a probe temperature can come from (a grill probe, a Bluetooth thermometer, a Home Assistant entity).
+struct ProbeSource {
+  std::string name;
+  sensor::Sensor *temperature{nullptr};
+  bool fahrenheit{true};               // unit of `temperature` and `target`
+  sensor::Sensor *target{nullptr};     // the source's own target (e.g. the grill's probe target), optional
+  number::Number *sync{nullptr};       // set this when the slot's target changes (e.g. the grill's probe target)
+};
+
 struct FoodProbe {
   std::string key;   // "food1"
   std::string name;  // "Brisket"
-  sensor::Sensor *temperature{nullptr};
-  sensor::Sensor *target{nullptr};  // optional external target source
-  CANumber *target_number{nullptr}; // optional local target
+  std::vector<ProbeSource> sources;  // choose with `source`
+  CASelect *source{nullptr};
+  size_t active{0};
+  CANumber *target_number{nullptr};  // the slot's target (synced to the source's own target when it has one)
+  float last_source_target{NAN};     // to notice target changes made on the source (grill panel)
   CASelect *profile{nullptr};
   CANumber *weight{nullptr};
   CASwitch *wrapped{nullptr};
@@ -111,6 +124,8 @@ struct FoodProbe {
   sensor::Sensor *remaining_high{nullptr};
   sensor::Sensor *estimated_total{nullptr};
   sensor::Sensor *rate{nullptr};
+  sensor::Sensor *reading{nullptr};    // the active source's temperature
+  uint32_t reading_ms{0};
   sensor::Sensor *stall_remaining{nullptr};
   text_sensor::TextSensor *finish_time{nullptr};
   text_sensor::TextSensor *phase{nullptr};
@@ -277,9 +292,11 @@ class CookAssistant : public Component {
   bool fuel_low_notified_{false};
   bool fuel_short_notified_{false};
   void save_fuel_();
+  void select_source_(FoodProbe *p, size_t idx);
+  void sync_target_(FoodProbe *p, float value);
   float slice_c_() const;
   ESPPreferenceObject fuel_pref_;
-  void tick_fuel_();
+  void tick_fuel_(bool minute = false);
 #ifdef USE_TIME
   time::RealTimeClock *time_{nullptr};
 #endif

@@ -2,7 +2,7 @@
 
 A program is a list of steps separated by `;` or new lines. Each step has actions, then optionally `until` and one
 or more conditions joined by `or`. The program runs **on the controller**, so it keeps going if Wi-Fi or Home
-Assistant drop (conditions on Govee probes pause while their data is unavailable).
+Assistant drop (conditions on probes whose data comes through Home Assistant pause while it is unavailable).
 
 ```
 name: Pork butt
@@ -20,7 +20,7 @@ hold 200 notify "Pork is done - rest it"
 
 | Conditions | |
 |---|---|
-| `food1 >= N [for 30m]` | probe at or above N (held for a time). Also `<=`. Probes: `pit`, `food1`, `food2`, `govee1`…`govee4` |
+| `food1 >= N [for 30m]` | probe at or above N (held for a time). Also `<=`. Probes: `pit`, `food1` … `food6` (each slot reads the source chosen for it) |
 | `food1 done` | the probe reached its own target |
 | `after 2h` / `after 90m` | time spent in this step |
 | `at 17:30` | clock time |

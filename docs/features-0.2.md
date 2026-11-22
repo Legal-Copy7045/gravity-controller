@@ -65,3 +65,12 @@ so an overnight brisket's finish time accounts for the 3 a.m. low.
 
 The sentences are automations in `homeassistant/packages/smoker.yaml` (conversation triggers), so they work with
 any Assist device or the Companion app.
+
+## Food probes from anywhere
+
+Six food slots, **Food 1-6**. Each reads one thermometer, picked with **Food N probe** (dashboard: *Probe sources*):
+the grill's own probes (*Grill probe 1/2*, targets kept in step with the grill), a **Govee H5198** read directly over
+Bluetooth by the controller (*H5198 probe 1-4*), or any temperature entity in Home Assistant (*Home Assistant*, the
+entity named in helper *Smoker external probe N entity*). Every slot gets predictions, stall detection, the rest
+coach and voice, and works in cook programs (`food4 >= 165`). Changing a slot's source mid-cook restarts that slot's
+estimate (the learned history is kept). Setup: [install.md §5](install.md).

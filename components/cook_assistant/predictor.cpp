@@ -79,6 +79,7 @@ void Predictor::reset() {
   rest_start_min_ = rest_peak_min_ = -1;
   rest_pull_c_ = rest_peak_c_ = rest_cool_k_ = NAN;
   rest_result_pending_ = rest_result_taken_ = false;
+  rest_has_record_ = false;
   ev_stall_start_ = ev_stall_end_ = ev_done_ = false;
   pit_sum_ = 0;
   pit_n_ = 0;
@@ -131,7 +132,20 @@ void Predictor::add_sample(double now_h, float food_c, float pit_c, float pit_se
 
 void Predictor::set_pulled(double now_h, bool pulled) {
   if (pulled && phase_ != Phase::RESTING && phase_ != Phase::NO_PROBE && !std::isnan(last_food_)) {
+    // Pulled before reaching the target (the coach's "pull at"): the cook still finished here.
+    if (!cand_valid_ && !completed_taken_ && cook_start_min_ >= 0 &&
+        (phase_ == Phase::WARMING || phase_ == Phase::STALL || phase_ == Phase::FINISHING)) {
+      if (phase_ == Phase::STALL)
+        stall_end_min_ = minutes_;
+      CookRecord r = make_record_();
+      if (r.total_h > 0) {
+        cand_ = r;
+        cand_valid_ = true;
+      }
+      done_from_cook_ = true;
+    }
     commit_candidate_();  // the cook is over
+    rest_has_record_ = completed_taken_;
     phase_ = Phase::RESTING;
     rest_start_min_ = minutes_;
     rest_pull_c_ = last_food_;
@@ -200,23 +214,30 @@ float Predictor::rest_minutes_to(float slice_c, float room_c) const {
   return peak_left + 60.0f * std::log((from - room) / (slice_c - room)) / k;
 }
 
-float Predictor::forecast_offset_(float minutes) const {
-  if (forecast_.empty() || std::isnan(env_.ambient_c))
-    return 0;
-  // Interpolate the forecast at `minutes`.
-  float amb = forecast_.back().second;
+float Predictor::forecast_at_(float minutes) const {
+  // Forecast ambient `minutes` after it was received (linear between points, flat beyond the ends).
+  if (minutes <= forecast_.front().first)
+    return forecast_.front().second;
   for (size_t i = 0; i + 1 < forecast_.size(); i++) {
     if (minutes <= forecast_[i + 1].first) {
       float t0 = forecast_[i].first, t1 = forecast_[i + 1].first;
       float f = t1 > t0 ? std::max(0.0f, std::min(1.0f, (minutes - t0) / (t1 - t0))) : 0;
-      amb = forecast_[i].second + f * (forecast_[i + 1].second - forecast_[i].second);
-      break;
+      return forecast_[i].second + f * (forecast_[i + 1].second - forecast_[i].second);
     }
   }
-  if (minutes < forecast_.front().first)
-    amb = forecast_.front().second;
-  // Only a colder future costs pit temperature (a warmer one doesn't make the controller overshoot).
-  return forecast_beta * std::max(0.0f, env_.ambient_c - amb);
+  return forecast_.back().second;
+}
+
+float Predictor::forecast_offset_(float minutes) const {
+  if (forecast_.empty())
+    return 0;
+  // The forecast's minutes count from when it arrived; a forecast older than 3 h isn't trusted.
+  float age = float(minutes_ - forecast_at_min_);
+  if (age < 0 || age > 180)
+    return 0;
+  // Relative to the forecast for *now*: the fitted k and pit deficit already reflect today's conditions, so only
+  // a colder future than now costs pit temperature (a warmer one doesn't make the controller overshoot).
+  return forecast_beta * std::max(0.0f, forecast_at_(age) - forecast_at_(age + minutes));
 }
 
 void Predictor::process_minute_(float food, float pit) {
@@ -425,27 +446,7 @@ void Predictor::update_phase_() {
       phase_ = Phase::DONE;
       ev_done_ = true;
       if (done_from_cook_ && !completed_taken_ && !cand_valid_ && cook_start_min_ >= 0) {
-        const Profile &pp = profiles()[profile_];
-        CookRecord r;
-        r.profile = uint8_t(profile_);
-        r.flags = (wrapped_ ? 1 : 0) | (stalled_once_ ? 2 : 0);
-        r.weight_kg = weight_kg_;
-        r.pit_c = pit_n_ ? float(pit_sum_ / pit_n_) : NAN;
-        r.start_c = start_food_;
-        r.target_c = target_c_;
-        r.k_pre = k_data(false);
-        r.k_post = k_data(true);
-        r.stall_h = stalled_once_ && stall_end_min_ > stall_start_min_
-                        ? float((stall_end_min_ - stall_start_min_) / 60.0)
-                        : (pp.stalls ? 0.0f : NAN);
-        r.total_h = float((minutes_ - cook_start_min_) / 60.0);
-        r.stall_onset_c = stall_onset_temp_;
-        if (env_n_[0])
-          r.ambient_c = float(env_sum_[0] / env_n_[0]);
-        if (env_n_[1])
-          r.humidity = uint8_t(std::max(0.0, std::min(100.0, env_sum_[1] / env_n_[1])));
-        if (env_n_[2])
-          r.wind_kmh = uint8_t(std::max(0.0, std::min(254.0, env_sum_[2] / env_n_[2])));
+        CookRecord r = make_record_();
         if (r.total_h > 0) {
           cand_ = r;
           cand_valid_ = true;
@@ -504,6 +505,31 @@ void Predictor::update_phase_() {
       stall_end_min_ = minutes_ - std::min<float>(above_min_, stall_exit_min);
     }
   }
+}
+
+CookRecord Predictor::make_record_() const {
+  const Profile &pp = profiles()[profile_];
+  CookRecord r;
+  r.profile = uint8_t(profile_);
+  r.flags = (wrapped_ ? 1 : 0) | (stalled_once_ ? 2 : 0);
+  r.weight_kg = weight_kg_;
+  r.pit_c = pit_n_ ? float(pit_sum_ / pit_n_) : NAN;
+  r.start_c = start_food_;
+  r.target_c = target_c_;
+  r.k_pre = k_data(false);
+  r.k_post = k_data(true);
+  r.stall_h = stalled_once_ && stall_end_min_ > stall_start_min_
+                  ? float((stall_end_min_ - stall_start_min_) / 60.0)
+                  : (pp.stalls ? 0.0f : NAN);
+  r.total_h = float((minutes_ - cook_start_min_) / 60.0);
+  r.stall_onset_c = stall_onset_temp_;
+  if (env_n_[0])
+    r.ambient_c = float(env_sum_[0] / env_n_[0]);
+  if (env_n_[1])
+    r.humidity = uint8_t(std::max(0.0, std::min(100.0, env_sum_[1] / env_n_[1])));
+  if (env_n_[2])
+    r.wind_kmh = uint8_t(std::max(0.0, std::min(254.0, env_sum_[2] / env_n_[2])));
+  return r;
 }
 
 void Predictor::commit_candidate_() {

@@ -36,24 +36,34 @@ input_number:
     icon: mdi:timer-sand
 
 input_text:
-  # Govee H5198 (or any thermometer in HA): the entity for each extra probe. The controller reads
-  # sensor.smoker_govee_probe_N, which follows whatever entity you put here (°F, like the rest of HA).
-  smoker_govee_probe_1_entity:
-    name: Smoker Govee probe 1 entity
+  # Any thermometer already in Home Assistant (a Wi-Fi/Bluetooth probe, another grill...): put its temperature
+  # entity here, then pick "Home Assistant" as the source on that food slot (select.smoker_food_N_probe).
+  # The controller reads sensor.smoker_external_probe_N, which follows whatever entity you name (stated in °F;
+  # Home Assistant shows and passes it in your unit system, which is `weather_temperature_unit` on the controller).
+  smoker_external_probe_1_entity:
+    name: Smoker external probe 1 entity
     max: 120
-    icon: mdi:thermometer-bluetooth
-  smoker_govee_probe_2_entity:
-    name: Smoker Govee probe 2 entity
+    icon: mdi:thermometer-probe
+  smoker_external_probe_2_entity:
+    name: Smoker external probe 2 entity
     max: 120
-    icon: mdi:thermometer-bluetooth
-  smoker_govee_probe_3_entity:
-    name: Smoker Govee probe 3 entity
+    icon: mdi:thermometer-probe
+  smoker_external_probe_3_entity:
+    name: Smoker external probe 3 entity
     max: 120
-    icon: mdi:thermometer-bluetooth
-  smoker_govee_probe_4_entity:
-    name: Smoker Govee probe 4 entity
+    icon: mdi:thermometer-probe
+  smoker_external_probe_4_entity:
+    name: Smoker external probe 4 entity
     max: 120
-    icon: mdi:thermometer-bluetooth
+    icon: mdi:thermometer-probe
+  smoker_external_probe_5_entity:
+    name: Smoker external probe 5 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_external_probe_6_entity:
+    name: Smoker external probe 6 entity
+    max: 120
+    icon: mdi:thermometer-probe
   smoker_ai_summary:
     name: Smoker AI summary
     max: 255
@@ -116,42 +126,66 @@ template:
           summary: "{{ trigger.event.data.summary }}"
           items: "{{ trigger.event.data['items'] }}"
   - sensor:
-      - name: Smoker Govee probe 1
-        unique_id: smoker_govee_probe_1
+      - name: Smoker external probe 1
+        unique_id: smoker_external_probe_1
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_govee_probe_1_entity') %}
+          {% set e = states('input_text.smoker_external_probe_1_entity') %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
-          {{ v | float if is_number(v) else none }}
-      - name: Smoker Govee probe 2
-        unique_id: smoker_govee_probe_2
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+      - name: Smoker external probe 2
+        unique_id: smoker_external_probe_2
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_govee_probe_2_entity') %}
+          {% set e = states('input_text.smoker_external_probe_2_entity') %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
-          {{ v | float if is_number(v) else none }}
-      - name: Smoker Govee probe 3
-        unique_id: smoker_govee_probe_3
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+      - name: Smoker external probe 3
+        unique_id: smoker_external_probe_3
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_govee_probe_3_entity') %}
+          {% set e = states('input_text.smoker_external_probe_3_entity') %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
-          {{ v | float if is_number(v) else none }}
-      - name: Smoker Govee probe 4
-        unique_id: smoker_govee_probe_4
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+      - name: Smoker external probe 4
+        unique_id: smoker_external_probe_4
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_govee_probe_4_entity') %}
+          {% set e = states('input_text.smoker_external_probe_4_entity') %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
-          {{ v | float if is_number(v) else none }}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+      - name: Smoker external probe 5
+        unique_id: smoker_external_probe_5
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set e = states('input_text.smoker_external_probe_5_entity') %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+      - name: Smoker external probe 6
+        unique_id: smoker_external_probe_6
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set e = states('input_text.smoker_external_probe_6_entity') %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
       - name: Smoker food 1 finish
         unique_id: smoker_food1_finish
         device_class: timestamp
@@ -252,7 +286,7 @@ script:
             Steps separated by ';'. Each step: actions then optional 'until' conditions joined by 'or'.
             Actions: 'pit N' (set pit °F), 'hold N' (set and stay), 'notify "text"', 'shutdown'.
             Conditions: 'food1 >= N [for Nm]', 'food1 <= N', 'food1 done', 'after Nh|Nm', 'at HH:MM',
-            'stall_start food1', 'stall_end food1'. Probes: pit, food1, food2. Temperatures in °F.
+            'stall_start food1', 'stall_end food1'. Probes: pit, food1 to food6. Temperatures in °F.
             Start with 'name: <short name>;'. Keep it under 240 characters. Example:
             name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"
             Current time: {{ now().strftime('%a %H:%M') }}. Outdoor: {{ state_attr('weather.forecast_home', 'temperature') }}°F,
@@ -477,7 +511,7 @@ automation:
           - conditions: "{{ a.startswith('SMOKER_FOOD_PLUS_5_') }}"
             sequence:
               - variables:
-                  # food1 -> food_1, govee2 -> govee_2 (the entity ids HA builds from "Food 1", "Govee 2")
+                  # food1 -> food_1 (the entity ids HA builds from "Food 1")
                   key: "{% set k = a.split('_')[-1] | lower %}{{ k[:-1] ~ '_' ~ k[-1:] }}"
                   n: "number.smoker_{{ key }}_target"
               - action: number.set_value
@@ -580,7 +614,7 @@ automation:
           - "how long [is] left on the smoker"
     actions:
       - variables:
-          probes: [food_1, food_2, govee_1, govee_2, govee_3, govee_4]
+          probes: [food_1, food_2, food_3, food_4, food_5, food_6]
           want: "{{ (trigger.slots.food | default('')) | lower }}"
           lines: >
             {% set out = namespace(l=[]) %}
@@ -625,7 +659,9 @@ automation:
     actions:
       - variables:
           v: "{{ (trigger.slots.temp | regex_replace('[^0-9.]', '')) | float(0) }}"
-      - if: "{{ 200 <= v <= 700 }}"
+          lo: "{{ state_attr('number.smoker_pit_target', 'min') | float(200) }}"
+          hi: "{{ state_attr('number.smoker_pit_target', 'max') | float(700) }}"
+      - if: "{{ lo | float <= v <= hi | float }}"
         then:
           - action: number.set_value
             target: {entity_id: number.smoker_pit_target}
@@ -633,7 +669,7 @@ automation:
           - set_conversation_response: >
               Setting the smoker to {{ v | round(0) }} degrees{% if states('sensor.smoker_program_state') == 'Running' %}. That pauses the cook program{% endif %}.
         else:
-          - set_conversation_response: "The smoker can be set between 200 and 700 degrees."
+          - set_conversation_response: "The smoker can be set between {{ lo | float | round(0) }} and {{ hi | float | round(0) }} degrees."
 
   - id: smoker_voice_fuel
     alias: Smoker voice - charcoal
@@ -655,12 +691,12 @@ automation:
         command:
           - "the hopper is {level} [full]"
           - "I (filled|topped up|refilled) the hopper [to] {level} [full]"
-          - "I added {level} [of a] hopper"
+          - "I added {level} [of] [a] hopper"
     actions:
       - variables:
           words: {"full": 100, "all the way": 100, "three quarters": 75, "3/4": 75, "half": 50, "1/2": 50,
                   "a quarter": 25, "quarter": 25, "1/4": 25, "an eighth": 12.5, "empty": 0, "a third": 33, "two thirds": 67}
-          raw: "{{ trigger.slots.level | lower | trim }}"
+          raw: "{{ trigger.slots.level | lower | trim | regex_replace(' (a|an|of|of a)$', '') }}"
           pct: >
             {% set n = raw | regex_replace('[^0-9.]', '') %}
             {% if n and 'percent' in raw %}{{ n | float }}{% elif raw in words %}{{ words[raw] }}{% elif n %}{{ n | float }}{% else %}-1{% endif %}
@@ -683,29 +719,53 @@ automation:
           - "is [the] {food} [still] stalled"
           - "is [the] {food} in the stall"
     actions:
+      - variables:
+          want: "{{ (trigger.slots.food | default('')) | lower | trim }}"
+          lines: >
+            {% set out = namespace(l=[]) %}
+            {% for p in ['food_1', 'food_2', 'food_3', 'food_4', 'food_5', 'food_6'] %}
+              {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% if is_number(t) and (not want or want == p | replace('_', ' ') or want in ['meat', 'food', 'it', 'cook']
+                    or (prot not in ['auto', 'unknown'] and want in prot)) %}
+                {% set name = p | replace('_', ' ') %}
+                {% if is_state('binary_sensor.smoker_' ~ p ~ '_stall', 'on') %}
+                  {% set r = states('sensor.smoker_' ~ p ~ '_stall_remaining') %}
+                  {% set out.l = out.l + [name ~ ' is still in the stall' ~ (', about ' ~ ((r | float / 60) | round(1)) ~ ' more hours expected' if is_number(r) else '')] %}
+                {% else %}
+                  {% set out.l = out.l + [name ~ ' is not stalled; it is ' ~ (states('sensor.smoker_' ~ p ~ '_phase') | lower)] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}{{ out.l | join('. ') }}
       - set_conversation_response: >
-          {% set s = states('binary_sensor.smoker_food_1_stall') %}
-          {% if s == 'on' %}Yes, it's still in the stall{% set r = states('sensor.smoker_food_1_stall_remaining') %}{% if is_number(r) %}, about {{ (r | float / 60) | round(1) }} more hours expected{% endif %}. Wrapping will push it through faster.{% else %}No, it's not stalled; it's {{ states('sensor.smoker_food_1_phase') | lower }}.{% endif %}
+          {{ (lines ~ '.') if lines | trim else "I don't have a food probe reading for that." }}{% if 'still in the stall' in lines %} Wrapping will push it through faster.{% endif %}
 
   - id: smoker_voice_pulled
-    alias: Smoker voice - pulled the meat
+    alias: Smoker voice - pulled off the grill
     triggers:
       - trigger: conversation
         command:
           - "I (pulled|took off|took out) the {food}"
-          - "the {food} is (off|resting)"
+          - "the {food} is resting"
     actions:
       - variables:
-          want: "{{ trigger.slots.food | lower }}"
+          want: "{{ trigger.slots.food | lower | trim }}"
           probe: >
-            {% set ns = namespace(p='food_1') %}
-            {% for p in ['food_1', 'food_2', 'govee_1', 'govee_2', 'govee_3', 'govee_4'] %}
-              {% if want in (states('select.smoker_' ~ p ~ '_protein') | lower) or want == p | replace('_', ' ') %}{% set ns.p = p %}{% endif %}
-            {% endfor %}{{ ns.p }}
-      - action: switch.turn_on
-        target: {entity_id: "switch.smoker_{{ probe }}_pulled"}
-      - set_conversation_response: >
-          Resting. I'll tell you when it's down to {{ states('number.smoker_slice_at') | float(150) | round(0) }} degrees and ready to slice.
+            {% set ns = namespace(p='', n=0) %}
+            {% for p in ['food_1', 'food_2', 'food_3', 'food_4', 'food_5', 'food_6'] %}
+              {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% if is_number(t) and (want == p | replace('_', ' ') or (prot not in ['auto', 'unknown'] and want in prot)
+                    or want in ['meat', 'food', 'it', 'cook']) %}{% set ns.p = p %}{% set ns.n = ns.n + 1 %}{% endif %}
+            {% endfor %}{{ ns.p if ns.n == 1 else '' }}
+      - if: "{{ probe != '' }}"
+        then:
+          - action: switch.turn_on
+            target: {entity_id: "switch.smoker_{{ probe }}_pulled"}
+          - set_conversation_response: >
+              Resting {{ probe | replace('_', ' ') }}. I'll tell you when it's down to {{ states('number.smoker_slice_at') | float(150) | round(0) }} degrees and ready to slice.
+        else:
+          - set_conversation_response: "Which probe? Say, for example, I pulled food 1."
 
   - id: smoker_voice_start_program
     alias: Smoker voice - start a program

@@ -16,6 +16,7 @@
 // factor learned from *all* past cooks (how this grill compares to typical).
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -41,6 +42,8 @@ struct CookRecord {
   float rest_cool_k{NAN};   // cooling coefficient during the rest, 1/h (towards room temperature)
 };
 static_assert(sizeof(CookRecord) == 56, "CookRecord layout is persisted; keep it stable");
+// 0.1.x saved the first 48 bytes (up to ambient_c); the loader converts those.
+static_assert(offsetof(CookRecord, carryover_c) == 48, "new fields must stay after the 0.1.x layout");
 
 struct Environment {
   float ambient_c{NAN};

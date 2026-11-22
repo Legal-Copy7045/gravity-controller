@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "../components/govee_h5198/h5198_decode.h"
 #include "../components/cook_assistant/fuel.h"
 #include "../components/cook_assistant/history.h"
 #include "../components/cook_assistant/predictor.h"
@@ -670,6 +671,14 @@ static void test_forecast_and_rest() {
   }
   r.set_pulled(t, true);
   CHECK(r.phase() == cook::Phase::RESTING);
+  // Pulled at "pull at", below the target: the cook is still recorded and the rest belongs to it.
+  {
+    cook::CookRecord pr;
+    CHECK(r.take_completed(pr));
+    NEAR(pr.target_c, 93.0f, 0.01f);
+    CHECK(pr.total_h > 0);
+    CHECK(r.rest_has_record());
+  }
   float rest_before = r.rest_minutes_to(65.0f, 21.0f);
   // coast up 2.5 °C over 15 min, then Newton cooling with k = 0.4/h
   float peak = core + 2.5f;
@@ -696,8 +705,53 @@ static void test_forecast_and_rest() {
   CHECK(pri2.carryover_c > pri.carryover_c);
 }
 
+static void test_sources_and_upgrade() {
+  std::printf("h5198 / fuel idle gap / record layout\n");
+  // H5198: probes 1&2 packet, probe 2 unplugged; probes 3&4 packet.
+  uint8_t a[16] = {0};
+  a[6] = 0xC1;
+  a[8] = 0x1F;  // 0x1F40 = 8000 -> 80.00 C
+  a[9] = 0x40;
+  a[14] = 0xFF;
+  a[15] = 0xFF;
+  auto ra = h5198::decode(a, sizeof(a));
+  CHECK(ra.first_probe == 0);
+  NEAR(ra.temp_c[0], 80.0f, 0.001f);
+  CHECK(std::isnan(ra.temp_c[1]));
+  uint8_t b[16] = {0};
+  b[6] = 0xC2;
+  b[8] = 0x09;  // 0x09C4 = 2500 -> 25.00 C
+  b[9] = 0xC4;
+  b[14] = 0x00;
+  b[15] = 0x64;  // 1.00 C
+  auto rb = h5198::decode(b, sizeof(b));
+  CHECK(rb.first_probe == 2);
+  NEAR(rb.temp_c[0], 25.0f, 0.001f);
+  NEAR(rb.temp_c[1], 1.0f, 0.001f);
+  b[6] = 0x01;
+  CHECK(h5198::decode(b, sizeof(b)).first_probe == -1);  // not a probe packet
+  CHECK(h5198::decode(b, 10).first_probe == -1);          // too short
+
+  // Fuel: a check after the grill sat cold for hours (top-ups between cooks) must not teach the burn rate.
+  cook::FuelGauge g;
+  float k0 = g.k(cook::FuelGauge::BRIQUETTES);
+  g.level(0, 1.0f);
+  for (int m = 0; m <= 180; m++)
+    g.update(m / 60.0, 110, 15, 0.5f);  // 3 h cooking
+  for (int m = 181; m <= 60 * 15; m += 10)
+    g.update(m / 60.0, 15, 15, 0);  // cold overnight
+  g.level(15.0, 0.75f);  // "started at 3/4" next morning, after an unreported top-up
+  CHECK(g.k(cook::FuelGauge::BRIQUETTES) == k0);
+  CHECK(!g.take_k_updated());
+
+  // 0.1.x records are the first 48 bytes of today's.
+  CHECK(offsetof(cook::CookRecord, carryover_c) == 48);
+  CHECK(sizeof(cook::CookRecord) == 56);
+}
+
 int main() {
   test_protocol();
+  test_sources_and_upgrade();
   test_program();
   test_regressions();
   test_fuel();

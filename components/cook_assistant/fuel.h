@@ -73,6 +73,7 @@ class FuelGauge {
   bool known_{false};
   float kg_{0};             // estimated fuel now
   double last_h_{-1};
+  double last_burn_h_{-1};  // last time the model burned fuel
   float rate_{NAN};
   // Calibration stretch: fuel known at its start + known additions, model burn integrated over it.
   bool stretch_open_{false};

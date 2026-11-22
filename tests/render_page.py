@@ -66,13 +66,18 @@ STATES = dict([
        "Smoker Food 1 estimate basis"),
     st("binary_sensor.smoker_food_1_probe_warning", "off", "Smoker Food 1 probe warning"),
     st("sensor.smoker_food_2_temperature", "unknown", "Smoker Food 2 temperature", **F),
-    st("sensor.smoker_govee_1_temperature", 171, "Smoker Govee 1 temperature", **F),
-    st("number.smoker_govee_1_target", 175, "Smoker Govee 1 target", **F),
-    st("sensor.smoker_govee_1_phase", "Finishing", "Smoker Govee 1 phase"),
-    st("sensor.smoker_govee_1_time_remaining", 22, "Smoker Govee 1 time remaining", **MIN),
-    st("sensor.smoker_govee_1_time_remaining_early", 15, "Smoker Govee 1 time remaining (early)", **MIN),
-    st("sensor.smoker_govee_1_time_remaining_late", 30, "Smoker Govee 1 time remaining (late)", **MIN),
-    st("select.smoker_govee_1_protein", "Poultry", "Smoker Govee 1 protein", options=["Auto", "Poultry"]),
+    st("sensor.smoker_food_3_temperature", 171, "Smoker Food 3 temperature", **F),
+    st("number.smoker_food_3_target", 175, "Smoker Food 3 target", **F),
+    st("sensor.smoker_food_3_phase", "Finishing", "Smoker Food 3 phase"),
+    st("sensor.smoker_food_3_time_remaining", 22, "Smoker Food 3 time remaining", **MIN),
+    st("sensor.smoker_food_3_time_remaining_early", 15, "Smoker Food 3 time remaining (early)", **MIN),
+    st("sensor.smoker_food_3_time_remaining_late", 30, "Smoker Food 3 time remaining (late)", **MIN),
+    st("select.smoker_food_3_protein", "Poultry", "Smoker Food 3 protein", options=["Auto", "Poultry"]),
+    st("select.smoker_food_1_probe", "Grill probe 1", "Smoker Food 1 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
+    st("select.smoker_food_2_probe", "Grill probe 2", "Smoker Food 2 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
+    st("select.smoker_food_3_probe", "Home Assistant", "Smoker Food 3 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
+    st("input_text.smoker_external_probe_3_entity", "sensor.example_probe", "Smoker external probe 3 entity"),
+    st("binary_sensor.smoker_h5198_connected", "off", "Smoker H5198 connected"),
     st("sensor.smoker_program_state", "Running", "Smoker Program state"),
     st("sensor.smoker_program_status", "Step 1/3, pit 250°F, until food1 158/165°F (held 0/30 min)", "Smoker Program status"),
     st("sensor.smoker_program_error", "", "Smoker Program error"),
@@ -173,12 +178,13 @@ def main():
                     "fuel": fr.inner_text("#fuelcard"),
                     "scan": fr.inner_text("#scancard"),
                     "journal": fr.inner_text("#journal"),
+                    "sources": fr.inner_html("#sources"),
                 }
                 if errors:
                     failures.append(f"{scheme}/{name}: JS errors {errors}")
                 if "251" not in checks["pit"]:
                     failures.append(f"{scheme}/{name}: pit temp missing: {checks['pit']!r}")
-                if "Food 1" not in checks["probes"] or "Govee 1" not in checks["probes"]:
+                if "Food 1" not in checks["probes"] or "Food 3" not in checks["probes"]:
                     failures.append(f"{scheme}/{name}: probe cards missing")
                 if "Food 2" in checks["probes"]:
                     failures.append(f"{scheme}/{name}: unplugged Food 2 should be hidden")
@@ -188,6 +194,11 @@ def main():
                     failures.append(f"{scheme}/{name}: scanned item missing")
                 if "Pork shoulder" not in checks["journal"] or "11.6 h" not in checks["journal"]:
                     failures.append(f"{scheme}/{name}: journal entry missing: {checks['journal'][:120]!r}")
+                src = checks["sources"]
+                if src.count("<select") != 3 or "sensor.example_probe" not in src or "H5198 probe 4" not in src:
+                    failures.append(f"{scheme}/{name}: probe sources: {src[:160]!r}")
+                if "Home Assistant" not in checks["probes"]:
+                    failures.append(f"{scheme}/{name}: Food 3's source not shown on its card")
                 if "Pull at" not in checks["probes"]:
                     failures.append(f"{scheme}/{name}: pull-at row missing")
                 if "Wrap in butcher paper" not in checks["recs"]:

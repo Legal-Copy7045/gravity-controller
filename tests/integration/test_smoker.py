@@ -110,6 +110,22 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     data = await r.json()
     assert data["entries"][0]["rating"] == 3
 
+    r = await client.post(f"/api/smoker/journal/{entry['id']}", json={"rating": "abc"})
+    assert r.status == 400
+
+    # Draft ids end up in the page's markup: anything but short hex is replaced.
+    r = await client.post("/api/smoker/draft", json={"items": [{"id": "'+alert()+'", "name": "x", "probe": "food1'"}]})
+    assert r.status == 200
+    d = await r.json()
+    assert d["items"][0]["id"] != "'+alert()+'" and all(c in "0123456789abcdef" for c in d["items"][0]["id"])
+    assert d["items"][0]["probe"] is None
+
+    # A photo over the limit is refused without reading all of it.
+    from custom_components.smoker import journal as jmod
+    big = aiohttp.FormData()
+    big.add_field("photo", b"\xff" * (jmod.MAX_PHOTO_BYTES + 1), filename="c.jpg", content_type="image/jpeg")
+    assert (await client.post("/api/smoker/identify", data=big)).status == 413
+
     # A garbled summary is ignored.
     hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": "not json"})
     await hass.async_block_till_done()

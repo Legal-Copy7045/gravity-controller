@@ -86,7 +86,7 @@ async def main():
         check(await wait_for(lambda: val("grill_connected") is True, 20, "grill connected"), "bridge connects to grill")
         check(await wait_for(lambda: isinstance(val("pit_temperature"), float) and val("pit_temperature") == val("pit_temperature"), 10, "pit temp"),
               f"pit temperature published ({val('pit_temperature')})")
-        check(await wait_for(lambda: isinstance(val("food_1_temperature"), float), 10, "food temp"),
+        check(await wait_for(lambda: isinstance(val("food_1_temperature"), float) and val("food_1_temperature") == val("food_1_temperature"), 15, "food temp"),
               f"food 1 temperature published ({val('food_1_temperature')})")
         check(val("pit_target_reported") == 225.0, f"pit target reported 225 ({val('pit_target_reported')})")
 
@@ -137,6 +137,22 @@ async def main():
         await asyncio.sleep(1)
         check(dev.poll() is None, "device still running after a forecast")
         check(val("food_1_pull_at") is not None, f"pull-at recommendation published ({val('food_1_pull_at')})")
+
+        # Probe sources: the slot target follows to the grill probe it reads.
+        check(await wait_for(lambda: val("food_1_target") is not None, 5, "slot target"), f"food 1 target ({val('food_1_target')})")
+        cli.number_command(by_id["food_1_target"].key, 195)
+        check(await wait_for(lambda: val("grill_probe_1_target_reported") == 195.0, 10, "grill target 195"),
+              f"slot target synced to the grill probe ({val('grill_probe_1_target_reported')})")
+        # A slot with one fixed °C source shows it in the controller's unit (60 °C = 140 °F).
+        check(await wait_for(lambda: val("food_2_temperature") == 140.0, 10, "food 2 140"),
+              f"single-source slot in °C converted ({val('food_2_temperature')})")
+        # Switch Food 1 to the other source.
+        opts = list(getattr(by_id.get("food_1_probe"), "options", []) or [])
+        check(opts == ["Grill probe 1", "Spare"], f"source options {opts}")
+        cli.select_command(by_id["food_1_probe"].key, "Spare")
+        check(await wait_for(lambda: val("food_1_temperature") == 140.0, 10, "food 1 from spare"),
+              f"food 1 now reads the spare probe ({val('food_1_temperature')})")
+        check(val("food_1_probe") == "Spare", f"source select state ({val('food_1_probe')})")
 
         # Grill disappears -> link lost and values unknown.
         grill.terminate()

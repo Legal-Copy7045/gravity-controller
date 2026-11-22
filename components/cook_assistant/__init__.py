@@ -9,6 +9,7 @@ import esphome.codegen as cg
 from esphome.components import binary_sensor, button, number, select, sensor, switch, text, text_sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    DEVICE_CLASS_TEMPERATURE,
     CONF_ID,
     CONF_NAME,
     CONF_TIME_ID,
@@ -64,18 +65,52 @@ def _min_sensor(icon):
     )
 
 
-PROBE_SCHEMA = cv.Schema(
+SOURCE_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_NAME): cv.string,
+        cv.Required("temperature"): _ref(sensor.Sensor),
+        cv.Optional("unit"): cv.one_of("F", "C", upper=True),  # default: the cook assistant's unit
+        cv.Optional("target"): _ref(sensor.Sensor),  # the source's own target (e.g. grill probe target)
+        cv.Optional("sync"): _ref(number.Number),  # set it when the slot's target changes
+    }
+)
+
+
+def _probe_sources(conf):
+    if "sources" not in conf and "temperature" not in conf:
+        raise cv.Invalid("a probe needs `temperature` or `sources`")
+    names = ([conf[CONF_NAME]] if "temperature" in conf else []) + [s[CONF_NAME] for s in conf.get("sources", [])]
+    if len(set(names)) != len(names):
+        raise cv.Invalid(f"probe {conf[CONF_KEY]}: source names must be unique ({names})")
+    if "default_source" in conf and conf["default_source"] not in names:
+        raise cv.Invalid(f"probe {conf[CONF_KEY]}: default_source {conf['default_source']!r} is not one of {names}")
+    if len(names) > 1 and "source" not in conf:
+        raise cv.Invalid(f"probe {conf[CONF_KEY]}: several sources need a `source` select to choose between them")
+    return conf
+
+
+PROBE_SCHEMA = cv.All(cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(FoodProbe),
         cv.Required(CONF_KEY): cv.All(cv.string, cv.Length(min=1, max=16)),
         cv.Required(CONF_NAME): cv.string,
-        cv.Required("temperature"): _ref(sensor.Sensor),
+        # Either one fixed source (temperature/target) or several to choose from (sources + source select).
+        cv.Optional("temperature"): _ref(sensor.Sensor),
         cv.Optional("target"): _ref(sensor.Sensor),
+        cv.Optional("unit"): cv.one_of("F", "C", upper=True),  # unit of `temperature` (default: the assistant's)
+        cv.Optional("sources"): cv.All(cv.ensure_list(SOURCE_SCHEMA), cv.Length(min=1, max=12)),
+        cv.Optional("source"): select.select_schema(CASelect, icon="mdi:thermometer-lines").extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("default_source"): cv.string,
         cv.Optional("target_number"): number.number_schema(CANumber, icon="mdi:target").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("profile"): select.select_schema(CASelect, icon="mdi:food-steak").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("weight"): number.number_schema(CANumber, icon="mdi:weight").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("wrapped"): switch.switch_schema(CASwitch, icon="mdi:package-variant-closed").extend(
             cv.COMPONENT_SCHEMA
+        ),
+        # The slot's temperature from whichever source it reads, in the controller's unit.
+        cv.Optional("reading"): sensor.sensor_schema(
+            accuracy_decimals=1, device_class=DEVICE_CLASS_TEMPERATURE, state_class=STATE_CLASS_MEASUREMENT,
+            icon="mdi:thermometer",
         ),
         cv.Optional("time_remaining"): _min_sensor("mdi:timer-sand"),
         cv.Optional("time_remaining_low"): _min_sensor("mdi:timer-sand-complete"),
@@ -98,7 +133,7 @@ PROBE_SCHEMA = cv.Schema(
         cv.Optional("pull_at"): sensor.sensor_schema(accuracy_decimals=0, icon="mdi:thermometer-chevron-down"),
         cv.Optional("rest_ready"): _min_sensor("mdi:timer-sand-paused"),
     }
-)
+), _probe_sources)
 
 PRESET_SCHEMA = cv.Schema({cv.Required(CONF_NAME): cv.string, cv.Required(CONF_PROGRAM): cv.string})
 
@@ -247,11 +282,28 @@ async def to_code(config):
         pv = cg.new_Pvariable(p[CONF_ID])
         cg.add(cg.RawExpression(f"{pv}->key = {cg.safe_exp(p[CONF_KEY])}"))
         cg.add(cg.RawExpression(f"{pv}->name = {cg.safe_exp(p[CONF_NAME])}"))
-        t = await cg.get_variable(p["temperature"])
-        cg.add(cg.RawExpression(f"{pv}->temperature = {t}"))
-        if "target" in p:
-            tg = await cg.get_variable(p["target"])
-            cg.add(cg.RawExpression(f"{pv}->target = {tg}"))
+        srcs = list(p.get("sources", []))
+        if "temperature" in p:
+            legacy = {CONF_NAME: p[CONF_NAME], "temperature": p["temperature"]}
+            for k in ("target", "unit"):
+                if k in p:
+                    legacy[k] = p[k]
+            srcs.insert(0, legacy)
+        for src in srcs:
+            t = await cg.get_variable(src["temperature"])
+            tg = await cg.get_variable(src["target"]) if "target" in src else "nullptr"
+            sy = await cg.get_variable(src["sync"]) if "sync" in src else "nullptr"
+            f = src.get("unit", config[CONF_TEMPERATURE_UNIT]) == "F"
+            cg.add(cg.RawExpression(
+                f"{pv}->sources.push_back(esphome::cook_assistant::ProbeSource{{{cg.safe_exp(src[CONF_NAME])}, {t}, "
+                f"{'true' if f else 'false'}, {tg}, {sy}}})"))
+        if "source" in p:
+            names = [src[CONF_NAME] for src in srcs]
+            s = await select.new_select(p["source"], options=names)
+            await cg.register_component(s, p["source"])
+            if p.get("default_source") in names:
+                cg.add(s.set_initial_index(names.index(p["default_source"])))
+            cg.add(cg.RawExpression(f"{pv}->source = {s}"))
         if "target_number" in p:
             c = dict(p["target_number"])
             c.setdefault("unit_of_measurement", tunit)
@@ -301,6 +353,11 @@ async def to_code(config):
             s = await switch.new_switch(p["pulled"])
             await cg.register_component(s, p["pulled"])
             cg.add(cg.RawExpression(f"{pv}->pulled = {s}"))
+        if "reading" in p:
+            c = dict(p["reading"])
+            c["unit_of_measurement"] = tunit
+            s = await sensor.new_sensor(c)
+            cg.add(cg.RawExpression(f"{pv}->reading = {s}"))
         if "pull_at" in p:
             c = dict(p["pull_at"])
             c["unit_of_measurement"] = tunit

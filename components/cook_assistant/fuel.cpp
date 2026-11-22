@@ -19,11 +19,14 @@ void FuelGauge::clear() {
   kg_ = 0;
   stretch_open_ = false;
   rate_ = NAN;
+  last_burn_h_ = -1;
 }
 
 void FuelGauge::level(double now_h, float fraction) {
   float kg = clamp01(fraction) * capacity_kg_;
-  if (stretch_open_)
+  // A stretch that has been cold for hours spans the time between cooks (top-ups nobody told us about): don't
+  // learn from it.
+  if (stretch_open_ && (last_burn_h_ < 0 || now_h - last_burn_h_ <= 6.0))
     calibrate_(kg);
   kg_ = kg;
   known_ = true;
@@ -96,6 +99,8 @@ void FuelGauge::update(double now_h, float pit_c, float ambient_c, float fan_fra
   double dt = std::min(1.0, now_h - last_h_);  // ignore gaps > 1 h (controller off)
   last_h_ = now_h;
   float burn = rate_ * float(dt);
+  if (burn > 0)
+    last_burn_h_ = now_h;
   kg_ = std::max(0.0f, kg_ - burn);
   if (stretch_open_ && k_[fuel_] > 0)
     stretch_model_kg_ += burn / k_[fuel_];

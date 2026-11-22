@@ -2,14 +2,27 @@
 
 ## [0.2.0] - 2026-11-22
 
-Five new features ([docs/features-0.2.md](docs/features-0.2.md)).
+Five new features ([docs/features-0.2.md](docs/features-0.2.md)) and selectable food probes.
+
+**Upgrading from 0.1.x:** the grill's probes are now *Grill probe 1/2*; Food 1 and Food 2 read them by default, so
+nothing changes unless you used the Govee helpers: set those slots (Food 3-6) to *Home Assistant* or use the H5198
+directly (below). Cook programs use `food3`…`food6` instead of `govee1`…`govee4`. Learned cook history is kept.
 
 ### Firmware
+- Six food slots (Food 1-6), each reading a grill probe, a **Govee H5198 read directly over Bluetooth** (new
+  `govee_h5198` component, no Home Assistant needed) or any temperature entity in Home Assistant, chosen per slot
+  with *Food N probe*. A slot's target stays in step with the grill's own probe target.
 - Charcoal fuel gauge: start level, checks, top-ups (to a level, or an amount added) and the end level; burn rate
   learned per fuel type; level, hours left, empty time, low-fuel and "won't last" alerts.
 - Forecast-aware predictions: the hourly forecast from Home Assistant adjusts the expected pit temperature ahead.
 - Rest coach: recommended pull temperature from learned carryover, "pulled" switch per probe, ready-to-slice time and
   alert; carryover and cooling are saved with each cook.
+- **Fix:** pulling the meat at the recommended pull temperature (below the target) records the cook, ends "until
+  done" program steps, and no longer writes the rest result into an older cook.
+- **Fix:** cook history saved by 0.1.x is converted, not discarded.
+- **Fix:** the "pulled" switch always shows whether a rest is running; the "time to pull" alert doesn't repeat after
+  a restart; the fuel gauge doesn't learn from stretches that span hours with the grill cold; "running low" and
+  "won't last" alerts no longer replace each other; forecast adjustments age with the forecast.
 
 ### Home Assistant
 - Cook journal (Smoker integration): every finished cook with ratings, notes and curve comparison.
@@ -17,6 +30,12 @@ Five new features ([docs/features-0.2.md](docs/features-0.2.md)).
   weight.
 - Voice: ask for finish times, pit temperature, charcoal; set the pit; log the hopper; start presets; mark pulled.
 - AI advisor and planner use journal ratings/notes and scanned packages; forecast sent to the controller.
+- Dashboard: *Probe sources* picks each slot's thermometer (and the Home Assistant entity); the probe card shows it.
+- Helpers *Smoker external probe 1-6 entity* replace the Govee helpers; °C sources are converted.
+- **Fix:** voice no longer takes over "the grill is off", asks which probe when it's ambiguous, answers the stall
+  question for the food you name, uses the pit's own range (°C too), and understands "half a hopper".
+- **Fix:** photo uploads are size-limited while reading; scanned item ids are checked (they ended up in the page);
+  bad weights and ratings return a message instead of an error; photo names can't collide.
 
 ## [0.1.1] - 2026-11-22
 

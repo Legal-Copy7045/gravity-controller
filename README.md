@@ -17,8 +17,8 @@ Bluetooth, and adds:
   critical alarms when Home Assistant is down.
 - **Home Assistant AI** (any `ai_task` entity): plan a cook from a sentence, a second-opinion ETA every 30 minutes,
   a review after each cook.
-- **Bluetooth proxy**: the closest radio to the grill, for wireless thermometers (e.g. Govee H5198, whose probes can
-  feed the predictor and cook programs).
+- **Six food probe slots**, each reading the grill's own probes, a **Govee H5198** directly over Bluetooth, or any
+  temperature entity in Home Assistant. Plus a **Bluetooth proxy**: the closest radio to the grill.
 - **Charcoal fuel gauge** from what you tell it (started ¾ full, topped up to ½, finished with ⅛), learning your
   grill's burn rate; low-fuel and "won't last to the finish" alerts.
 - **Forecast-aware** finish times, a **pull-temperature and rest coach** (learned carryover and cooling), a

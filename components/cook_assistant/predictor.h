@@ -82,13 +82,19 @@ class Predictor {
   void set_environment(const Environment &e) { env_ = e; }
   /// Hourly outdoor forecast as (minutes from now, °C). Colder hours ahead widen the pit's shortfall
   /// (forecast_beta °C of pit deficit per °C colder, applied to the forecast part of the simulation).
-  void set_ambient_forecast(const std::vector<std::pair<float, float>> &f) { forecast_ = f; }
+  /// Outdoor forecast: (minutes from now, °C) pairs, ascending. Ages with the predictor's clock.
+  void set_ambient_forecast(const std::vector<std::pair<float, float>> &f) {
+    forecast_ = f;
+    forecast_at_min_ = minutes_;
+  }
   float forecast_beta{0.15f};
 
   // ---- rest coach ----
   /// The meat came off the grill (probe still in it). Starts tracking carryover and cooling.
   void set_pulled(double now_h, bool pulled);
   bool pulled() const { return phase_ == Phase::RESTING; }
+  /// True while resting a cook that produced a history record (the rest result belongs to that record).
+  bool rest_has_record() const { return phase_ == Phase::RESTING && rest_has_record_; }
   /// Recommended pull temperature (target minus the expected carryover), NAN without a target.
   float pull_at() const;
   float carryover_so_far() const { return std::isnan(rest_peak_c_) ? NAN : rest_peak_c_ - rest_pull_c_; }
@@ -161,16 +167,19 @@ class Predictor {
   float simulate_(float start_t, Phase start_phase, const std::vector<PlanSegment> &plan, float pit_now,
                   float k_scale, float stall_scale, float *stall_start_in) const;
   float forecast_offset_(float minutes) const;
+  float forecast_at_(float minutes) const;
   void update_rest_();
   float stall_left_h_(float stall_scale) const;
   double cook_minutes_() const;
   void commit_candidate_();
+  CookRecord make_record_() const;
 
   int profile_{0};
   float target_c_{NAN};
   Priors priors_{};
   float weight_kg_{NAN};
   std::vector<std::pair<float, float>> forecast_;
+  double forecast_at_min_{0};
   double rest_start_min_{-1};
   float rest_pull_c_{NAN};
   float rest_peak_c_{NAN};
@@ -178,6 +187,7 @@ class Predictor {
   float rest_cool_k_{NAN};
   bool rest_result_pending_{false};
   bool rest_result_taken_{false};
+  bool rest_has_record_{false};
   Environment env_{};
   double env_sum_[3]{0, 0, 0};
   int env_n_[3]{0, 0, 0};

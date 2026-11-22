@@ -67,3 +67,28 @@ async def test_voice(hass: HomeAssistant):
     assert "still in the stall" in a and "1.5 more hours" in a, a
     a = await _ask(hass, "I pulled the brisket")
     assert calls[-1] == ("switch", "turn_on", {"entity_id": "switch.smoker_food_1_pulled"}), calls[-1]
+
+    # A second probe on chicken (Food 3, e.g. an H5198 probe): answers and actions follow the named food.
+    hass.states.async_set("sensor.smoker_food_3_temperature", "150")
+    hass.states.async_set("select.smoker_food_3_protein", "Poultry")
+    hass.states.async_set("binary_sensor.smoker_food_3_stall", "off")
+    hass.states.async_set("sensor.smoker_food_3_phase", "Finishing")
+    a = await _ask(hass, "is the poultry stalled")
+    assert "food 3 is not stalled" in a and "food 1" not in a, a
+    a = await _ask(hass, "I pulled the poultry")
+    assert calls[-1] == ("switch", "turn_on", {"entity_id": "switch.smoker_food_3_pulled"}), calls[-1]
+    # Two foods cooking and "the meat" is ambiguous: ask, don't guess.
+    n = len(calls)
+    a = await _ask(hass, "I pulled the meat")
+    assert "Which probe" in a and len(calls) == n, a
+    # "the grill is off" is not a smoker sentence any more (it used to flip Food 1 to resting).
+    await _ask(hass, "the grill is off")
+    assert len(calls) == n, calls[-1]
+    # The range comes from the pit target number (°C controllers too).
+    hass.states.async_set("number.smoker_pit_target", "120", {"min": 93, "max": 371})
+    a = await _ask(hass, "set the smoker to 150 degrees")
+    assert calls[-1] == ("number", "set_value", {"entity_id": "number.smoker_pit_target", "value": 150.0}), a
+    a = await _ask(hass, "set the smoker to 400")
+    assert "between 93 and 371" in a, a
+    await _ask(hass, "I added half a hopper")
+    assert calls[-1] == ("esphome", "gravity980_fuel_added", {"percent": 50.0}), calls[-1]
