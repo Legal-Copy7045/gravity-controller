@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""Stand-in for ESPHome's web_server, for testing the device page (firmware/device-ui) against the host build.
+
+ESPHome's host platform has no web_server (2026.11 limits it to ESP32/ESP8266/BK72xx/LN882x/RP2040/RTL87xx), so
+this serves the same HTTP interface from the host firmware's native API, mimicking web_server v3 on ESP-IDF
+(esphome/components/web_server/web_server.cpp, web_server_idf/sse_chunk.cpp):
+
+  GET  /                          the index ESPHome builds (build_index_html() of core.yaml's web_server block)
+  GET  /0.js, /0.css              js_include / css_include, gzipped (Content-Encoding: gzip)
+  GET  /events                    SSE: "ping" {title, comment, ota, log, lang, uptime} (retry 30000), then one
+                                  "state" event per entity with detail (domain, name, icon, entity_category,
+                                  uom / option / min_value...), then "state" events with id + value + state;
+                                  {"uptime"} pings every 10 s
+  GET  /<domain>/<name>           state JSON (?detail=all for the detail fields)
+  POST /<domain>/<name>/<action>  switch turn_on|turn_off|toggle, button press, number set?value=,
+                                  select set?option=, text set?value=  -> 200, or 404
+
+Ids are "<domain>/<entity name>" (names, not object ids, since ESPHome 2026.x). Values follow the C++ JSON:
+sensor value float (null when NaN) and state "NA" or "<value> <uom>"; number value/min/max/step as strings
+("NaN" / state "NA" when unknown); switch/binary_sensor value bool, state "ON"/"OFF".
+
+    python3 tests/webui_bridge.py --http 18080 --api 127.0.0.1:6053
+"""
+
+import argparse
+import asyncio
+import gzip
+import json
+import math
+import os
+import sys
+import time
+
+import yaml
+from aiohttp import web
+from aioesphomeapi import (APIClient, BinarySensorInfo, ButtonInfo, NumberInfo, SelectInfo, SensorInfo, SwitchInfo,
+                           TextInfo, TextSensorInfo)
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CORE = os.path.join(ROOT, "firmware", "core.yaml")
+DOMAINS = [(BinarySensorInfo, "binary_sensor"), (SensorInfo, "sensor"), (SwitchInfo, "switch"), (ButtonInfo, "button"),
+           (TextSensorInfo, "text_sensor"), (NumberInfo, "number"), (TextInfo, "text"), (SelectInfo, "select")]
+
+
+class AnyTag(yaml.SafeLoader):
+    pass
+
+
+AnyTag.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
+def web_server_config():
+    """core.yaml's web_server block, with ESPHome's defaults for version 3."""
+    with open(CORE, encoding="utf-8") as f:
+        conf = yaml.load(f, Loader=AnyTag)["web_server"]
+    conf.setdefault("css_url", "")
+    conf.setdefault("js_url", "https://oi.esphome.io/v3/www.js")
+    return conf
+
+
+def index_html(conf):
+    try:  # ESPHome's own builder when it's installed (it is wherever the host firmware is built)
+        from esphome.components.web_server import build_index_html
+        return build_index_html(conf)
+    except ImportError:  # the same markup, copied from esphome 2026.11 web_server/__init__.py
+        h = "<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:>"
+        if conf.get("css_include"):
+            h += "<link rel=stylesheet href=/0.css>"
+        if conf["css_url"]:
+            h += f'<link rel=stylesheet href="{conf["css_url"]}">'
+        h += "</head><body>"
+        if conf.get("js_include"):
+            h += "<script type=module src=/0.js></script>"
+        h += "<esp-app></esp-app>"
+        if conf["js_url"]:
+            h += f'<script src="{conf["js_url"]}"></script>'
+        return h + "</body></html>"
+
+
+def accuracy(step):  # step_to_accuracy_decimals(): decimals of the step at five significant digits
+    if not step or not math.isfinite(step):
+        return 0
+    s = f"{abs(step):.5g}"
+    return len(s.split(".")[1]) if "." in s and "e" not in s else 0
+
+
+def fnum(v, d):
+    return f"{v:.{max(d, 0)}f}"
+
+
+class Bridge:
+    def __init__(self, title):
+        self.title = title
+        self.info = {}      # key -> (domain, info)
+        self.by_name = {}   # (domain, name) -> key
+        self.state = {}     # key -> state object
+        self.clients = set()
+        self.t0 = time.monotonic()
+        self.cli = None
+
+    def json(self, key, detail):
+        dom, info = self.info[key]
+        st = self.state.get(key)
+        o = {"id": f"{dom}/{info.name}"}
+        if dom == "sensor":
+            v = None if st is None or st.missing_state or not math.isfinite(st.state) else st.state
+            o["value"] = v
+            o["state"] = "NA" if v is None else fnum(v, info.accuracy_decimals) + (f" {info.unit_of_measurement}" if info.unit_of_measurement else "")
+        elif dom == "number":
+            d = accuracy(info.step)
+            v = None if st is None or st.missing_state or not math.isfinite(st.state) else st.state
+            o["value"] = "NaN" if v is None else fnum(v, d)
+            o["state"] = "NA" if v is None else fnum(v, d) + (f" {info.unit_of_measurement}" if info.unit_of_measurement else "")
+            if detail:
+                o.update(min_value=fnum(info.min_value, d), max_value=fnum(info.max_value, d), step=fnum(info.step, d),
+                         mode=int(info.mode or 0))
+                if info.unit_of_measurement:
+                    o["uom"] = info.unit_of_measurement
+        elif dom in ("binary_sensor", "switch"):
+            v = bool(st and st.state)
+            o["value"], o["state"] = v, "ON" if v else "OFF"
+            if detail and dom == "switch":
+                o["assumed_state"] = info.assumed_state
+        elif dom in ("text_sensor", "select", "text"):
+            v = st.state if st is not None and not getattr(st, "missing_state", False) else ""
+            o["value"] = o["state"] = v
+            if dom == "text":
+                o.update(min_length=info.min_length, max_length=info.max_length, pattern=info.pattern)
+                if detail:
+                    o["mode"] = int(info.mode or 0)
+            if dom == "select" and detail:
+                o["option"] = list(info.options)
+        if detail:
+            o.update(domain=dom, name=info.name, icon=info.icon, entity_category=int(info.entity_category or 0))
+            if info.disabled_by_default:
+                o["is_disabled_by_default"] = True
+            if dom == "sensor" and info.unit_of_measurement:
+                o["uom"] = info.unit_of_measurement
+        return o
+
+    async def send(self, resp, event, data, eid=0, retry=0):
+        msg = (f"retry: {retry}\r\n" if retry else "") + (f"id: {eid}\r\n" if eid else "") + f"event: {event}\r\n"
+        msg += f"data: {json.dumps(data, separators=(',', ':'))}\r\n\r\n"
+        await resp.write(msg.encode())
+
+    def on_state(self, s):
+        if s.key not in self.info:
+            return
+        self.state[s.key] = s
+        data = self.json(s.key, False)
+        for resp in list(self.clients):
+            asyncio.ensure_future(self._safe(resp, data))
+
+    async def _safe(self, resp, data):
+        try:
+            await self.send(resp, "state", data)
+        except Exception:
+            self.clients.discard(resp)
+
+    async def events(self, request):
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
+        await resp.prepare(request)
+        up = int(time.monotonic() - self.t0)
+        ms = int((time.monotonic() - self.t0) * 1000) or 1
+        await self.send(resp, "ping", {"title": self.title, "comment": "", "ota": False, "log": True, "lang": "en",
+                                       "uptime": up}, ms, 30000)
+        for key in list(self.info):
+            await self.send(resp, "state", self.json(key, True))
+        self.clients.add(resp)
+        try:
+            while True:
+                await asyncio.sleep(10)
+                ms = int((time.monotonic() - self.t0) * 1000)
+                await resp.write(f"retry: 30000\r\nid: {ms}\r\nevent: ping\r\ndata: {{\"uptime\":{ms // 1000}}}\r\n\r\n".encode())
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        finally:
+            self.clients.discard(resp)
+        return resp
+
+    def find(self, request):
+        dom, name = request.match_info["domain"], request.match_info["name"]
+        return self.by_name.get((dom, name)), dom
+
+    async def get(self, request):
+        key, _ = self.find(request)
+        if key is None:
+            return web.Response(status=404)
+        return web.json_response(self.json(key, request.query.get("detail") == "all"))
+
+    async def post(self, request):
+        key, dom = self.find(request)
+        act = request.match_info["action"]
+        if key is None:
+            return web.Response(status=404)
+        q = dict(request.query)
+        if request.can_read_body:
+            q.update(await request.post())
+        st = self.state.get(key)
+        c = self.cli
+        if dom == "switch" and act in ("toggle", "turn_on", "turn_off"):
+            c.switch_command(key, (not (st and st.state)) if act == "toggle" else act == "turn_on")
+        elif dom == "button" and act == "press":
+            c.button_command(key)
+        elif dom == "number" and act == "set":
+            try:
+                v = float(q.get("value", ""))
+            except ValueError:
+                return web.Response(status=200)  # parse_number fails: nothing set, still 200
+            c.number_command(key, v)
+        elif dom == "select" and act == "set":
+            if "option" in q:
+                c.select_command(key, q["option"])
+        elif dom == "text" and act == "set":
+            if "value" in q:
+                c.text_command(key, q["value"])
+        else:
+            return web.Response(status=404)
+        return web.Response(status=200)
+
+
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--http", type=int, default=18080)
+    ap.add_argument("--api", default="127.0.0.1:6053")
+    a = ap.parse_args()
+    conf = web_server_config()
+    here = os.path.dirname(CORE)
+    files = {}
+    for k, path, ctype in (("js_include", "/0.js", "text/javascript"), ("css_include", "/0.css", "text/css")):
+        if conf.get(k):
+            with open(os.path.join(here, conf[k]), "rb") as f:
+                files[path] = (gzip.compress(f.read()), ctype)
+    index = index_html(conf)
+
+    host, port = a.api.split(":")
+    cli = APIClient(host, int(port), None)
+    for _ in range(60):
+        try:
+            await cli.connect(login=True)
+            break
+        except Exception:
+            await asyncio.sleep(0.5)
+    else:
+        sys.exit("cannot reach the device API")
+    dev = await cli.device_info()
+    entities, _ = await cli.list_entities_services()
+    br = Bridge(dev.friendly_name or dev.name)
+    br.cli = cli
+    for cls, dom in DOMAINS:
+        for e in entities:
+            if type(e) is cls:
+                br.info[e.key] = (dom, e)
+                br.by_name[(dom, e.name)] = e.key
+    cli.subscribe_states(br.on_state)
+
+    app = web.Application()
+
+    async def root(_):
+        return web.Response(text=index, content_type="text/html")
+
+    def static(path):
+        body, ctype = files[path]
+        return lambda _: web.Response(body=body, headers={"Content-Type": ctype, "Content-Encoding": "gzip"})
+
+    app.router.add_get("/", root)
+    for p in files:
+        app.router.add_get(p, static(p))
+    app.router.add_get("/events", br.events)
+    app.router.add_get("/{domain}/{name}", br.get)
+    app.router.add_post("/{domain}/{name}/{action}", br.post)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", a.http).start()
+    print(f"web_server stand-in on http://127.0.0.1:{a.http}/ ({len(br.info)} entities)", flush=True)
+    await asyncio.Event().wait()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

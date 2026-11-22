@@ -30,12 +30,11 @@ function start() {
   doc.head.appendChild(f);
   const app = doc.querySelector('esp-app'); if (app) app.remove();
   doc.body.insertAdjacentHTML('afterbegin', `<div class="wrap">
-  <header class="hero" id="hero"></header>
-  <nav class="secbar" aria-label="Sections"><a href="#s-pit">Pit</a><a href="#s-food">Food</a><a href="#s-fuel">Charcoal</a><a href="#s-prog">Program</a><a href="#s-setup">Setup</a></nav>
-  <section class="sect" id="s-pit"><h2 class="sec">Pit</h2><div class="card" id="pit"></div></section>
+  <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
+  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">Food</a><a href="#s-pit">Pit &amp; program</a><a href="#s-fuel">Charcoal</a><a href="#s-setup">Setup</a></nav>
   <section class="sect" id="s-food"><h2 class="sec">Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
+  <section class="sect" id="s-pit"><h2 class="sec">Pit &amp; program</h2><div class="grid"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
   <section class="sect" id="s-fuel"><h2 class="sec">Charcoal</h2><div class="card" id="fuel"></div></section>
-  <section class="sect" id="s-prog"><h2 class="sec">Program</h2><div class="card" id="prog"></div></section>
   <section class="sect" id="s-setup"><h2 class="sec">Setup</h2><div class="grid"><div class="card" id="conn"></div><div class="card" id="sources"></div><div class="card" id="dev"></div></div></section>
   <footer id="foot"></footer></div><div id="toast" role="status" aria-live="polite"></div>`);
   wire();
@@ -133,6 +132,12 @@ const ACT = {
   ip() { const v = $('ipin').value.trim(); post('text', 'Grill IP address', 'set', { value: v }).then(ok => { if (ok) { delete $('ipin').dataset.dirty; toast(v ? 'Grill address set' : 'Finding the grill automatically'); } }); },
 };
 function wire() {
+  doc.addEventListener('click', e => {  // a part of the grill drawing -> its section
+    const g = e.target.closest('#grillpic [data-go]'); if (!g) return;
+    const el = $(g.dataset.go), bar = $('secbar');
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - (bar ? bar.offsetHeight : 0) - 10, behavior: 'smooth' });
+  });
+  doc.addEventListener('keydown', e => { const g = e.target.closest && e.target.closest('#grillpic [data-go]'); if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); g.dispatchEvent(new MouseEvent('click', { bubbles: true })); } });
   doc.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b && !b.disabled && ACT[b.dataset.a]) ACT[b.dataset.a](b); });
   doc.addEventListener('change', e => {
     const t = e.target, n = t.dataset && t.dataset.n; if (!n) return;
@@ -186,7 +191,85 @@ function render() {
       ${on(E('binary_sensor', 'Lid')) ? '<span class="chip warn">Lid open</span>' : ''}
       ${on(E('binary_sensor', 'Grill alarm')) ? '<span class="chip bad">Grill alarm</span>' : ''}</div>
     ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}`);
-  renderPit(u, pit, tgt); renderFood(u); renderFuel(); renderProg(); renderSetup(u);
+  renderGrill(u, pit, tgt); renderPit(u, pit, tgt); renderFood(u); renderFuel(); renderProg(); renderSetup(u);
+}
+
+// The grill, drawn (ported from the HA panel's renderGrill(), page.html): controller (left shelf) · barrel
+// (pit, food) · hopper tower (charcoal) · ash box (fan). Tap a part to jump to its section.
+const FOODC = ['var(--food1)', 'var(--food2)', 'var(--g1)', 'var(--g2)', 'var(--g3)', 'var(--g4)'];
+function renderGrill(u0, pit, tgt) {
+  const conn = on(E('binary_sensor', 'Grill connected')), via = T('Grill link');
+  const lid = on(E('binary_sensor', 'Lid')), fan = on(E('binary_sensor', 'Fan')), cook = on(E('binary_sensor', 'Cook active'));
+  const lvl = S('Charcoal level'), hrs = S('Charcoal hours left');
+  const u = u0.replace('°', ''), deg = '°';
+  const heat = pit == null ? 0 : Math.max(0, Math.min(1, ((isF() ? pit : pit * 9 / 5 + 32) - 120) / 480));
+  const foods = [];
+  for (let i = 1; i <= 6; i++) { const t = S('Food ' + i + ' temperature'); if (t != null) foods.push({ i, t }); }
+  const tw = foods.length ? Math.min(150, 500 / foods.length - 8) : 0, fs = foods.length > 4 ? 16 : foods.length > 3 ? 20 : 23;
+  const tags = foods.map(({ i, t }, k) => {
+    const x = 258 + k * (tw + 8);
+    return `<g class="hot" tabindex="0" role="link" data-go="s-food" aria-label="Food ${i} ${fmt(t)} degrees">
+      <rect class="hl" x="${x}" y="248" width="${tw}" height="38" rx="19" fill="var(--surface)" stroke="${FOODC[i - 1]}" stroke-width="3"/>
+      <text x="${x + tw / 2}" y="275" text-anchor="middle" font-size="${fs}" font-weight="700" fill="var(--ink)">F${i} ${fmt(t)}${deg}</text></g>`;
+  }).join('');
+  const fill = lvl == null ? 0 : Math.max(0, Math.min(1, lvl / 100)), fh = 330 * fill;
+  const lk = !conn ? ['not connected', 'var(--bad)'] : via === 'wifi' ? ['via Wi-Fi', 'var(--ok)'] : via === 'bluetooth' ? ['via Bluetooth', 'var(--ok)'] : ['connected', 'var(--ok)'];
+  const ly = Math.min(392, Math.max(118, 400 - fh / 2 + 10));
+  put('grillpic', `<svg viewBox="0 0 1000 640" role="img" aria-label="Grill: pit ${fmt(pit)} degrees, target ${fmt(tgt)}, charcoal ${lvl == null ? 'unknown' : fmt(lvl) + ' percent'}">
+  <defs>
+    <pattern id="perf" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="3.2" fill="rgba(0,0,0,.45)"/></pattern>
+    <pattern id="mesh" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="2.4" fill="rgba(0,0,0,.4)"/></pattern>
+    <radialGradient id="heat" cx="50%" cy="100%" r="80%"><stop offset="0" stop-color="var(--pit)" stop-opacity=".95"/><stop offset="1" stop-color="var(--pit)" stop-opacity="0"/></radialGradient>
+    <linearGradient id="lidg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  </defs>
+  <ellipse cx="500" cy="612" rx="430" ry="14" fill="var(--line)" opacity=".7"/>
+  <path d="M296 288 L268 580 L294 580 L322 288 Z M672 288 L704 580 L730 580 L698 288 Z" fill="var(--steel)"/>
+  <rect x="300" y="288" width="396" height="92" rx="3" fill="var(--steel)"/>
+  <text x="498" y="348" text-anchor="middle" font-size="44" font-weight="800" fill="none" stroke="var(--steel2)" stroke-width="2.5" letter-spacing="6" class="lbl">GRAVITY</text>
+  <rect x="272" y="512" width="452" height="20" rx="3" fill="var(--steel2)"/><rect x="272" y="512" width="452" height="20" fill="url(#mesh)"/>
+  <rect x="262" y="578" width="40" height="10" rx="3" fill="var(--steel2)"/><circle cx="282" cy="600" r="12" fill="var(--steel)"/>
+  <circle cx="718" cy="586" r="36" fill="var(--steel)"/><circle cx="718" cy="586" r="24" fill="none" stroke="var(--steel2)" stroke-width="4"/><circle cx="718" cy="586" r="7" fill="var(--steel2)"/>
+  <g class="hot" tabindex="0" role="link" data-go="s-pit" aria-label="Controller: pit target ${fmt(tgt)}">
+    <rect class="hl" x="40" y="230" width="210" height="58" rx="4" fill="var(--steel)" stroke="transparent"/>
+    <rect x="40" y="222" width="210" height="12" fill="var(--steel2)"/><rect x="40" y="222" width="210" height="12" fill="url(#mesh)"/>
+    <rect x="62" y="238" width="166" height="42" rx="4" fill="var(--panel)"/>
+    <circle cx="96" cy="259" r="11" fill="var(--steel)"/>
+    <rect x="118" y="245" width="100" height="28" rx="3" fill="#13241a"/>
+    <text x="168" y="266" text-anchor="middle" font-size="20" font-weight="600" fill="#7dfca0">${tgt != null ? fmt(tgt) : '---'}</text>
+    <text x="145" y="318" text-anchor="middle" font-size="22" class="lbl" fill="${lk[1]}" font-weight="700">● ${lk[0]}</text>
+  </g>
+  <g class="hot" tabindex="0" role="link" data-go="${foods.length ? 's-food' : 's-pit'}" aria-label="Pit ${fmt(pit)} degrees">
+    <rect class="hl" x="245" y="66" width="525" height="190" rx="95" fill="var(--steel)" stroke="transparent"/>
+    <rect x="300" y="150" width="415" height="100" fill="url(#heat)" opacity="${(0.15 + 0.75 * heat).toFixed(2)}"/>
+    <rect x="270" y="58" width="475" height="150" rx="72" fill="var(--lid)"/>
+    <rect x="270" y="58" width="475" height="150" rx="72" fill="url(#lidg)"/>
+    <rect x="378" y="186" width="260" height="11" rx="5.5" fill="#cfd6dc"/>
+    <text x="507" y="136" text-anchor="middle" font-size="62" font-weight="700" fill="#fff">${fmt(pit)}${deg}</text>
+    <text x="507" y="170" text-anchor="middle" font-size="24" fill="rgba(255,255,255,.9)" class="lbl">${tgt != null ? 'target ' + fmt(tgt) + deg + esc(u) : 'pit ' + deg + esc(u)}</text>
+    ${lid ? '<rect x="432" y="18" width="150" height="30" rx="15" fill="var(--warn)"/><text x="507" y="39" text-anchor="middle" font-size="16" font-weight="700" fill="#fff" class="lbl">LID OPEN</text>' : ''}
+  </g>
+  <rect x="245" y="244" width="525" height="44" rx="4" fill="var(--steel2)"/>
+  ${tags || '<text x="507" y="274" text-anchor="middle" font-size="20" fill="var(--panel)" class="lbl" opacity=".85">no food probes reading</text>'}
+  <g class="hot" tabindex="0" role="link" data-go="s-fuel" aria-label="Charcoal ${lvl == null ? 'level unknown' : fmt(lvl) + ' percent'}">
+    <rect class="hl" x="775" y="20" width="132" height="392" rx="6" fill="var(--steel)" stroke="transparent"/>
+    <rect x="770" y="14" width="142" height="40" rx="4" fill="var(--steel2)"/>
+    <rect x="792" y="70" width="98" height="330" fill="var(--coal)" opacity=".55"/>
+    <rect x="792" y="${400 - fh}" width="98" height="${fh}" fill="var(--coal)"/>
+    ${cook && fill > 0 ? '<rect class="ember" x="792" y="384" width="98" height="16" fill="var(--pit)" opacity=".9"/>' : ''}
+    <rect x="792" y="70" width="98" height="330" fill="url(#perf)"/>
+    <rect x="792" y="70" width="98" height="330" fill="none" stroke="var(--steel2)" stroke-width="3"/>
+    <text x="841" y="${ly}" text-anchor="middle" font-size="36" font-weight="700" fill="#fff">${lvl == null ? '?' : fmt(lvl) + '%'}</text>
+    <text x="841" y="${ly + 24}" text-anchor="middle" font-size="20" fill="rgba(255,255,255,.9)" class="lbl">${lvl == null ? 'no level' : hrs != null ? fmt(hrs, 1) + ' h left' : 'charcoal'}</text>
+  </g>
+  <rect x="785" y="414" width="120" height="132" rx="5" fill="var(--steel)"/>
+  <text x="845" y="494" text-anchor="middle" font-size="34" font-weight="800" fill="none" stroke="var(--steel2)" stroke-width="2" class="lbl">980</text>
+  <g class="hot" tabindex="0" role="link" data-go="s-pit" aria-label="Fan ${fan ? 'running' : 'off'}">
+    <rect class="hl" x="905" y="446" width="50" height="70" rx="5" fill="var(--steel2)" stroke="transparent"/>
+    <g class="fan${fan ? ' on' : ''}"><circle cx="930" cy="481" r="17" fill="var(--steel)"/>
+      <path d="M930 481 L930 466 A15 15 0 0 1 943 474 Z M930 481 L945 486 A15 15 0 0 1 936 496 Z M930 481 L920 492 A15 15 0 0 1 916 474 Z" fill="${fan ? 'var(--page)' : 'var(--muted)'}"/></g>
+    <text x="930" y="544" text-anchor="middle" font-size="20" class="lbl" fill="var(--ink-2)" font-weight="600">fan ${fan ? 'on' : 'off'}</text>
+  </g>
+</svg>`);
 }
 
 function renderPit(u, pit, tgt) {
@@ -213,7 +296,7 @@ function renderFood(u) {
     const prot = str(E('select', L + ' protein')), pulled = on(E('switch', L + ' pulled')), rest = S(L + ' rest ready in');
     const w = E('number', L + ' weight'), rate = E('sensor', L + ' rate');
     const chip = stall ? '<span class="chip warn">Stall</span>' : phase ? `<span class="chip${/Done/.test(phase) ? ' ok' : ''}">${esc(phase)}</span>` : '';
-    cards.push(`<article class="card food" data-slot="${i}"><span class="edge"></span>
+    cards.push(`<article class="card food" data-slot="${i}"><span class="edge" style="background:${FOODC[i - 1]}"></span>
       <h3><span>${esc(L)}${prot && !/^Auto/i.test(prot) ? ` <small>· ${esc(prot)}</small>` : ''}</span>${chip}</h3>
       <div class="ptemp">${fmt(t)}<small>${esc(u)}${tg != null ? ' / ' + fmt(tg) + esc(u) : ''}</small></div>
       ${warn ? '<p class="err">The probe jumped towards pit temperature: is it still in the meat?</p>' : ''}
