@@ -44,7 +44,7 @@ h2.sec .seg{margin-left:auto}
 .topbar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
 .topbar .conn{display:flex;align-items:center;gap:9px;font:700 15px "Instrument Sans",system-ui,sans-serif}
 .topbar .conn .dot{width:12px;height:12px}
-.topbar .conn small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2)}
+.topbar .conn small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2);display:block}
 .topbar .alerts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
 .topbar .alerts .chip{font-size:12.5px;padding:3px 10px}
 .topbar.bad{border-color:color-mix(in srgb,var(--bad) 55%,var(--line));background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
@@ -492,8 +492,8 @@ function renderGrill() {
     ${cook && fill > 0 ? `<rect class="ember" x="792" y="384" width="98" height="16" fill="var(--pit)" opacity=".9"/>` : ''}
     <rect x="792" y="70" width="98" height="330" fill="url(#perf)"/>
     <rect x="792" y="70" width="98" height="330" fill="none" stroke="var(--steel2)" stroke-width="3"/>
-    <text x="841" y="${Math.min(392, Math.max(118, 400 - fh / 2 + 10))}" text-anchor="middle" font-size="36" font-weight="700" fill="#fff">${lvl == null ? '?' : fmt(lvl) + '%'}</text>
-    <text x="841" y="${Math.min(392, Math.max(118, 400 - fh / 2 + 10)) + 24}" text-anchor="middle" font-size="20" fill="rgba(255,255,255,.9)" class="lbl">${lvl == null ? 'tell it' : hrs != null ? fmt(hrs, 1) + ' h left' : 'charcoal'}</text>
+    <text x="841" y="${lvl == null ? 230 : Math.min(372, Math.max(118, 400 - fh / 2 + 10))}" text-anchor="middle" font-size="36" font-weight="700" fill="#fff">${lvl == null ? '?' : fmt(lvl) + '%'}</text>
+    <text x="841" y="${(lvl == null ? 230 : Math.min(372, Math.max(118, 400 - fh / 2 + 10))) + 24}" text-anchor="middle" font-size="20" fill="rgba(255,255,255,.9)" class="lbl">${lvl == null ? 'tell it' : hrs != null ? fmt(hrs, 1) + ' h left' : 'charcoal'}</text>
   </g>
   <!-- ash box + fan -->
   <rect x="785" y="414" width="120" height="132" rx="5" fill="var(--steel)"/>
@@ -526,7 +526,16 @@ window.setGrillPhoto = url => { grillPhoto = url || null; rerender(); };
 let photoAsked = false;
 function findPhoto() {  // asked once Home Assistant is connected (see render)
   if (photoAsked) return; photoAsked = true;
-  H().api('GET', '/api/smoker/grill_photo').then(r => { if (r && r.url) { grillPhoto = r.url; rerender(); } }).catch(() => {});
+  H().api('GET', '/api/smoker/grill_photo').then(r => {
+    if (!r || !r.url) return;
+    grillPhoto = r.url; rerender();
+    // The controller's own page can show it too: tell the controller where it is (its "Grill photo URL").
+    const txt = E('Grill photo URL', ['text']); if (!txt) return;
+    let origin = ''; try { origin = window.parent.location.origin; } catch (e) { origin = location.origin; }
+    if (!/^https?:/.test(origin)) return;
+    const abs = origin + r.url;
+    if (val(txt) !== abs) H().call('text', 'set_value', txt, { value: abs }).catch(() => {});
+  }).catch(() => {});
 }
 document.addEventListener('click', e => {  // a part of the grill → its section
   const g = e.target.closest && e.target.closest('#grillpic [data-go]'); if (!g) return;
@@ -545,17 +554,18 @@ function renderTop() {
   const add = (cls, t) => a.push(`<span class="chip ${cls}">${esc(t)}</span>`);
   if (val(E('Grill alarm', ['binary_sensor'])) === 'on') add('bad', 'Grill alarm');
   if (val(E('Lid', ['binary_sensor'])) === 'on') add('warn', 'Lid open');
-  if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) add('warn', pit > tgt ? 'Running hot' : 'Running cold');
+  const cooking = val(E('Cook active', ['binary_sensor'])) === 'on';
+  if (cooking && pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) add('warn', pit > tgt ? 'Running hot' : 'Running cold');
   PROBES.forEach(p => { if (val(E(p.label + ' probe warning', ['binary_sensor'])) === 'on') add('warn', p.label + ': check the probe'); });
   const hrs = num(E('Charcoal hours left', ['sensor']));
   if (hrs != null && hrs < 1.5 && val(E('Cook active', ['binary_sensor'])) === 'on') add(hrs < 0.75 ? 'bad' : 'warn', 'Charcoal ~' + fmt(hrs, 1) + ' h left');
   const pst = val(E('Program state', ['sensor']));
   if (pst === 'Paused') add('warn', 'Program paused');
   let head, cls;
-  if (!conn || via === 'none') { head = 'Grill not connected'; cls = 'bad';
-    head += `<small>${val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?'}</small>`; }
+  if (!conn || via === 'none') { head = '<span class="t">Grill not connected'; cls = 'bad';
+    head += `<small>${val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?'}</small></span>`; }
   else { const how = via === 'wifi' ? 'Wi-Fi' : 'Bluetooth', ctl = via === 'wifi' || ble;
-    head = `Grill connected · ${how}<small>${ctl ? 'the app controls it' : 'read-only: turn on Bluetooth control in Setup'}</small>`; cls = ctl ? '' : 'warn'; }
+    head = `<span class="t">Grill connected · ${how}<small>${ctl ? 'the app controls it' : 'read-only: turn on Bluetooth control in Setup'}</small></span>`; cls = ctl ? '' : 'warn'; }
   const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
   put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span>${head}</span>
     <span class="alerts">${a.join('') || '<span class="chip ok">All good</span>'}</span>`);

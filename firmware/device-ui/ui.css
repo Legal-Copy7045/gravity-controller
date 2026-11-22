@@ -118,3 +118,18 @@
 .gx .topbar.warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
 @media (max-width:560px){.gx .topbar .alerts{margin-left:0}}
 .gx .dot.stale{background:var(--warn)}
+.gx .topbar .conn .t small{display:block;font-weight:500}
+/* your grill photo with the readings pinned on it */
+.gx .gphoto{position:relative;width:100%;max-width:640px;margin:0 auto}
+.gx .gphoto img{width:100%;height:auto;display:block}
+.gx .gphoto .pin{position:absolute;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer;
+  font:700 clamp(11px,1.7vw,15px) "Instrument Sans",system-ui,sans-serif;color:var(--ink);background:color-mix(in srgb,var(--surface) 92%,transparent);
+  border:2px solid var(--line);border-radius:999px;padding:3px 10px;box-shadow:0 2px 8px rgba(0,0,0,.25);text-decoration:none}
+.gx .gphoto .pin .m{font-family:"JetBrains Mono",ui-monospace,monospace}
+.gx .gphoto .pin.big{font-size:clamp(15px,2.8vw,24px);padding:4px 14px;border-color:var(--page)}
+.gx .gphoto .pin.warn{background:var(--warn);border-color:var(--warn);color:#fff}
+.gx .gphoto .shelf{position:absolute;left:49.5%;top:38%;transform:translate(-50%,-50%);display:flex;gap:5px}
+.gx .gphoto .shelf .pin{position:static;transform:none}
+@keyframes gx-spin2{to{transform:rotate(360deg)}}
+.gx .gphoto .spin{display:inline-block;animation:gx-spin2 1.1s linear infinite}
+@media (prefers-reduced-motion:reduce){.gx .gphoto .spin{animation:none}}

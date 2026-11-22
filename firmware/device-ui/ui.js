@@ -187,7 +187,7 @@ function render() {
   const al = [], add = (c, t) => al.push(`<span class="chip ${c}">${esc(t)}</span>`);
   if (on(E('binary_sensor', 'Grill alarm'))) add('bad', 'Grill alarm');
   if (on(E('binary_sensor', 'Lid'))) add('warn', 'Lid open');
-  if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) add('warn', pit > tgt ? 'Running hot' : 'Running cold');
+  if (active && pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) add('warn', pit > tgt ? 'Running hot' : 'Running cold');
   for (let i = 1; i <= 6; i++) if (on(E('binary_sensor', `Food ${i} probe warning`))) add('warn', `Food ${i}: check the probe`);
   const hl = S('Charcoal hours left');
   if (hl != null && hl < 1.5 && active) add(hl < 0.75 ? 'bad' : 'warn', `Charcoal ~${fmt(hl, 1)} h left`);
@@ -195,8 +195,8 @@ function render() {
   if (!live) add('warn', 'Page reconnecting to the controller');
   const ok = conn && via !== 'none';
   const how = via === 'wifi' ? ' · Wi-Fi' : via === 'bluetooth' ? ' · Bluetooth' : '';
-  const head = ok ? `Grill connected${how}<small>${L.cls === 'ok' ? 'this page controls it' : esc(L.why || 'read-only')}</small>`
-    : `Grill not connected<small>${esc(L.why && /bridge/i.test(L.why) ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?')}</small>`;
+  const head = ok ? `<span class="t">Grill connected${how}<small>${L.cls === 'ok' ? 'this page controls it' : esc(L.why || 'read-only')}</small></span>`
+    : `<span class="t">Grill not connected<small>${esc(L.why && /bridge/i.test(L.why) ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?')}</small></span>`;
   const tb = $('topbar');
   if (tb) tb.className = 'topbar' + (!ok || al.some(x => /chip bad/.test(x)) ? ' bad' : L.cls !== 'ok' || al.length ? ' warn' : '');
   put('topbar', `<span class="conn"><i class="dot ${!ok ? 'off' : L.cls === 'ok' ? 'on' : 'stale'}"></i>${head}</span>
@@ -206,6 +206,8 @@ function render() {
 
 // The grill, drawn (ported from the HA panel's renderGrill(), page.html): controller (left shelf) · barrel
 // (pit, food) · hopper tower (charcoal) · ash box (fan). Tap a part to jump to its section.
+const photoBad = {};
+window.__gxPhotoBad = url => { if (url && !photoBad[url]) { photoBad[url] = true; render(); } };  // unreachable: the drawing
 const FOODC = ['var(--food1)', 'var(--food2)', 'var(--g1)', 'var(--g2)', 'var(--g3)', 'var(--g4)'];
 function renderGrill(u0, pit, tgt) {
   const conn = on(E('binary_sensor', 'Grill connected')), via = T('Grill link');
@@ -224,7 +226,20 @@ function renderGrill(u0, pit, tgt) {
   }).join('');
   const fill = lvl == null ? 0 : Math.max(0, Math.min(1, lvl / 100)), fh = 330 * fill;
   const lk = !conn ? ['not connected', 'var(--bad)'] : via === 'wifi' ? ['via Wi-Fi', 'var(--ok)'] : via === 'bluetooth' ? ['via Bluetooth', 'var(--ok)'] : ['connected', 'var(--ok)'];
-  const ly = Math.min(392, Math.max(118, 400 - fh / 2 + 10));
+  const ly = lvl == null ? 230 : Math.min(372, Math.max(118, 400 - fh / 2 + 10));
+  // Your grill photo (text "Grill photo URL", filled in by the Smoker dashboard) with the readings pinned on it.
+  const photo = str(E('text', 'Grill photo URL'));
+  if (photo && /^https?:\/\//i.test(photo) && !photoBad[photo]) {
+    const pin = (x, y, go, html, cls) => `<a class="pin ${cls || ''}" style="left:${x}%;top:${y}%" data-go="${go}" tabindex="0" role="link">${html}</a>`;
+    put('grillpic', `<div class="gphoto"><img src="${esc(photo)}" alt="The grill" onerror="window.__gxPhotoBad(this.getAttribute('src'))">
+      ${pin(50, 17, foods.length ? 's-food' : 's-pit', `<span class="m">${fmt(pit)}${deg}${esc(u)}</span>${tgt != null ? `<small>→ ${fmt(tgt)}${deg}</small>` : ''}`, 'big')}
+      ${lid ? pin(50, 6, 's-pit', 'Lid open', 'warn') : ''}
+      ${pin(14.5, 35, 's-pit', `<span class="m">${tgt != null ? fmt(tgt) + deg : '---'}</span> <span style="color:${lk[1]}">● ${esc(lk[0].replace('via ', ''))}</span>`)}
+      <span class="shelf">${foods.map(({ i, t }) => `<a class="pin" data-go="s-food" tabindex="0" role="link" style="border-color:${FOODC[i - 1]}"><span class="m">F${i} ${fmt(t)}${deg}</span></a>`).join('')}</span>
+      ${pin(82, 30, 's-fuel', `<span class="m">${lvl == null ? '?' : fmt(lvl) + '%'}</span>${hrs != null ? `<small>${fmt(hrs, 1)} h</small>` : ''}`)}
+      ${pin(82, 58, 's-pit', `<span class="${fan ? 'spin' : ''}">✱</span> fan ${fan ? 'on' : 'off'}`)}</div>`);
+    return;
+  }
   put('grillpic', `<svg viewBox="0 0 1000 640" role="img" aria-label="Grill: pit ${fmt(pit)} degrees, target ${fmt(tgt)}, charcoal ${lvl == null ? 'unknown' : fmt(lvl) + ' percent'}">
   <defs>
     <pattern id="perf" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="3.2" fill="rgba(0,0,0,.45)"/></pattern>

@@ -45,6 +45,21 @@ def get(path):
         return json.loads(r.read())
 
 
+def post(path, **params):
+    q = ("?" + urllib.parse.urlencode(params)) if params else ""
+    req = urllib.request.Request(BASE + urllib.parse.quote(path) + q, method="POST", data=b"")
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return r.status
+
+
+def tiny_png(w=40, h=29):
+    import struct, zlib
+    raw = b"".join(b"\x00" + b"\x88\x88\x88" * w for _ in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
 def value(domain, name):
     try:
         v = get(f"/{domain}/{name}")["value"]
@@ -152,6 +167,23 @@ def run_page(browser, width, height, shots):
     wait(lambda: abs((value("sensor", "Food 1 temperature") or 0) - 135.5) > 0.6, 15, "food 1 back on its probe")
     pg.locator("body").click(position={"x": 1, "y": 1})
     pg.wait_for_timeout(3000)  # let the toast go
+    # Your grill photo: with "Grill photo URL" set, the readings are pinned on the photo; cleared, the drawing returns.
+    png = tiny_png()
+    pg.context.route("http://photo.test/**", lambda r: r.fulfill(status=200, content_type="image/png", body=png))
+    post("/text/Grill photo URL/set", value="http://photo.test/grill.png")
+    try:
+        pg.wait_for_selector("#grillpic .gphoto img", timeout=10000)
+        pins = pg.locator("#grillpic .gphoto .pin").count()
+        txt = pg.inner_text("#grillpic")
+        check(pins >= 5 and "°" in txt, f"photo mode pins the readings on the photo ({pins} pins)")
+    except Exception as e:
+        check(False, f"photo mode didn't show ({e})")
+    post("/text/Grill photo URL/set", value="")
+    try:
+        pg.wait_for_selector("#grillpic svg", timeout=10000)
+        check(True, "photo cleared: the drawing is back")
+    except Exception:
+        check(False, "drawing didn't come back after clearing the photo")
     over = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     check(over <= 0, f"no horizontal overflow at {width}px ({over}px)")
     check(not errors, f"no console errors at {width}px {errors[:3]}")

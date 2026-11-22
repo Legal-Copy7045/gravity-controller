@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.8] - 2026-11-22
+
+- The controller's own page shows **your grill photo** too: new *Grill photo URL* setting, filled in automatically by
+  the Smoker dashboard when it finds the photo in Home Assistant (`/config/www/smoker/grill.png`). Unreachable or
+  empty: the drawing.
+- **Fix:** "Running cold/hot" only during a cook (it showed with the grill idle).
+- **Fix:** the hopper's "no level" label no longer runs into the ash box; the status strip's explanation sits on its
+  own line on phones.
+
 ## [0.2.7] - 2026-11-22
 
 - **Restart** button for the controller (device page in Home Assistant, the dashboard's Setup → Controller, and the

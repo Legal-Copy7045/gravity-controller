@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.7"
+  project_version: "0.2.8"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -187,6 +187,18 @@ text:
     initial_value: ""
     on_value:
       - lambda: id(grill).set_host(x);
+  # A photo of your grill for the controller's own page (any http(s) URL it can load, e.g. Home Assistant's
+  # /local/smoker/grill.png). The Smoker dashboard fills this in when it finds your photo; empty = the drawing.
+  - platform: template
+    id: grill_photo_url
+    name: Grill photo URL
+    icon: mdi:image
+    entity_category: config
+    mode: text
+    max_length: 255
+    optimistic: true
+    restore_value: true
+    initial_value: ""
   - platform: template
     id: ntfy_topic
     name: ntfy topic

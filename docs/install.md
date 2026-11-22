@@ -87,7 +87,8 @@ appears in the sidebar.
 `.webp`) in Home Assistant (e.g. through the File editor or Samba add-on). The dashboard then shows it at the top
 with the live readings pinned on it (pit on the barrel, target and link on the controller, food on the front shelf,
 charcoal on the hopper, fan on the ash box); without it, a drawing of the grill is used. The pins are placed for a
-straight front view like the one in Char-Griller's product photos.
+straight front view like the one in Char-Griller's product photos. Opening the dashboard also passes the photo's
+address to the controller (*Grill photo URL*), so the controller's own page shows it too.
 
 ## 5. Food probes: grill, H5198 or anything in Home Assistant
 

@@ -115,3 +115,10 @@ cook_assistant:
   program_status: {name: Program status}
   program_state: {name: Program state}
   program_error: {name: Program error}
+text:
+  - platform: template
+    name: Grill photo URL
+    mode: text
+    max_length: 255
+    optimistic: true
+    initial_value: ""
