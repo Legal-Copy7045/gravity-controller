@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.19] - 2026-11-22
+
+- **The package now updates itself with the integration.** After a HACS update, a package that
+  `smoker.install_package` installed is brought up to date on start-up (same phone, AI task and weather; the previous
+  file kept as a backup, last three) and reloaded, so there's no second restart. A "Smoker package" notification says
+  when it happened. A package copied in by hand is left alone.
+
 ## [0.2.18] - 2026-11-22
 
 - **The integration installs the Home Assistant package for you**: action `smoker.install_package` (admin) writes

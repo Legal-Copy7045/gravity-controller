@@ -213,3 +213,31 @@ async def test_install_package(hass: HomeAssistant, tmp_path):
     with pytest.raises(Exception):
         await hass.services.async_call(DOMAIN, "install_package", {"notify": "light.kitchen"}, blocking=True,
                                        return_response=True)
+
+
+async def test_package_kept_up_to_date(hass: HomeAssistant, tmp_path):
+    """An integration update rewrites a package it installed (same choices) and reloads it; hand copies are left."""
+    from custom_components.smoker import package_install as pi
+
+    hass.config.config_dir = str(tmp_path)
+    (tmp_path / "configuration.yaml").write_text("homeassistant:\n  packages: !include_dir_named packages\n")
+    pkg = tmp_path / "packages/smoker.yaml"
+    pkg.parent.mkdir()
+    pkg.write_text("# my own copy\ninput_boolean: {}\n")
+    await _setup(hass, tmp_path)
+    res = await pi.async_update_installed(hass, "9.9.9")
+    assert res.get("skipped") and pkg.read_text().startswith("# my own copy")
+
+    await hass.services.async_call(DOMAIN, "install_package", {"notify": "notify.mobile_app_test_phone"},
+                                   blocking=True, return_response=True)
+    # Same content, newer version: nothing to do.
+    assert not (await pi.async_update_installed(hass, "9.9.9"))["changed"]
+    # The installed package is older than the bundled one: rewritten with the same phone, and reloaded.
+    pkg.write_text(pkg.read_text().replace("Smoker AI advisor", "Old name"))
+    reloaded = []
+    hass.services.async_register("automation", "reload", lambda call: reloaded.append("automation"))
+    res = await pi.async_update_installed(hass, "9.9.9")
+    text = pkg.read_text()
+    assert res["changed"] and not res["restart_needed"] and reloaded == ["automation"]
+    assert "Old name" not in text and "notify.mobile_app_test_phone" in text and "9.9.9" in text.split("\n", 1)[0]
+    assert len(list(pkg.parent.glob("smoker.yaml.bak-*"))) <= pi.KEEP_BACKUPS

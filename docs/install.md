@@ -67,7 +67,7 @@ with every entity and the logs is at `http://gravity980.local/?classic` (that on
 (Developer tools → Actions, `smoker.install_package`) with your phone's notify action, e.g.
 `notify: notify.mobile_app_my_phone` (AI task and weather default to `ai_task.google_ai_task` and
 `weather.forecast_home`). It writes `/config/packages/smoker.yaml` for you; restart Home Assistant. Run it again after
-updating the integration to update the package. Your `configuration.yaml` still needs the `packages:` line below.
+updating the integration to update the package (from 0.2.19 that happens by itself on each update). Your `configuration.yaml` still needs the `packages:` line below.
 
 By hand: Copy `homeassistant/packages/smoker.yaml` to `/config/packages/smoker.yaml`. If you don't use packages yet, add to
 `configuration.yaml`:
