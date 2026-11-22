@@ -28,16 +28,42 @@
 .kpi .v small{font:500 13px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:3px}
 .kpi .n{font-size:12.5px;color:var(--ink-2)}
 @media (max-width:560px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.kpi .v{font-size:21px}}
-h2.sec{font:700 22px/1.2 "Bricolage Grotesque";padding-top:14px;border-top:2px solid var(--page);margin:0}
+h2.sec{font:700 22px/1.2 "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;padding-top:14px;border-top:2px solid var(--page);margin:0 0 12px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;letter-spacing:-.01em}
+h2.sec small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--muted)}
+h2.sec .seg{margin-left:auto}
+.sect{display:flex;flex-direction:column;gap:12px;scroll-margin-top:60px}
+.sect>h2.sec{margin-bottom:0}
+/* section bar (as on the Energy / EV9 pages): sticks to the top, marks the section in view */
+.secbar{position:sticky;top:0;z-index:900;display:flex;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;background:var(--ground);margin:-8px 0 -6px;padding:8px 0;border-bottom:1px solid var(--line);min-width:0;max-width:100%}
+.secbar::-webkit-scrollbar{display:none}
+.secbar a{flex:none;font:600 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2);text-decoration:none;white-space:nowrap;padding:5px 13px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.secbar a:hover,.secbar a:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
+.secbar a[aria-current="true"]{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
+@media (max-width:560px){.secbar a{padding:4px 11px;font-size:12.5px}}
+/* hero: "Coming up" */
+.hero-next{align-items:stretch!important;min-width:min(100%,300px)}
+.next{display:flex;flex-direction:column;gap:6px}
+.next .it{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:baseline;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.next .it i{width:10px;height:10px;border-radius:50%;align-self:center}
+.next .it b{font:600 14px "Instrument Sans",system-ui,sans-serif}
+.next .it .t{font:600 16px "JetBrains Mono",monospace}
+.next .it .s{grid-column:2 / span 2;font-size:12.5px;color:var(--ink-2)}
+/* food card: rarely changed settings fold away (kept open across live redraws) */
+details.more{border-top:1px solid var(--line);margin-top:6px}
+details.more>summary{cursor:pointer;list-style:none;padding:8px 0 2px;font:600 13px "Instrument Sans",system-ui,sans-serif;color:var(--page)}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::after{content:" ▾"}details.more[open]>summary::after{content:" ▴"}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:14px;align-items:start}
 .tc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;position:relative;overflow:hidden}
 .tc.probe .edge{position:absolute;left:0;top:0;bottom:0;width:4px}
-.tc h3{margin:0 0 8px;font:700 16px "Bricolage Grotesque";display:flex;justify-content:space-between;gap:8px;align-items:center}
+.tc h3{margin:0 0 8px;font:700 16px "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;display:flex;justify-content:space-between;gap:8px;align-items:center}
 .tc h3 small{font:500 12px "Instrument Sans",system-ui,sans-serif;color:var(--muted)}
 .ptemp{font:600 38px/1.05 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums}
 .ptemp small{font:500 15px "Instrument Sans",system-ui,sans-serif;color:var(--muted);margin-left:4px}
 .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:13.5px;align-items:center}
 .row .r{font:500 12.5px "JetBrains Mono",monospace;text-align:right}
+.row>span:first-child{flex:none;max-width:60%}
 .btn{border:1px solid var(--line);background:var(--sunk);color:var(--ink);border-radius:8px;padding:7px 12px;font:600 13px "Instrument Sans",sans-serif;cursor:pointer;min-height:36px}
 .btn:hover{border-color:var(--page)}.btn.pri{background:var(--page);color:var(--on-page,#fff);border-color:var(--page)}
 .btn:disabled{opacity:.45;cursor:default}
@@ -67,7 +93,7 @@ input[type=number]{width:84px}
 .seg button{border:0;background:var(--surface);color:var(--ink-2);padding:5px 10px;font:600 12px "Instrument Sans",system-ui,sans-serif;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--page);color:var(--on-page,#fff)}
 details.fold{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
-details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque"}
+details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif}
 .err{color:var(--bad);font-size:12.5px;margin-top:6px}
 .recs{display:grid;gap:0}
 .rec{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:10px 0;border-top:1px solid var(--line);align-items:baseline}
@@ -87,7 +113,7 @@ details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque"}
 .je{padding:12px 0;border-top:1px solid var(--line)}
 .je:first-child{border-top:0}
 .je .h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
-.je .t{font:700 15px "Bricolage Grotesque"}
+.je .t{font:700 15px "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif}
 .je .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 .stars button{border:0;background:none;font-size:20px;cursor:pointer;color:var(--line);padding:0 1px}
 .stars button.on{color:var(--warn)}
@@ -107,46 +133,76 @@ footer{color:var(--muted);font-size:12px;text-align:center}
       <h1 id="title">Smoker</h1>
       <div class="big" id="pitbig">--<small>°F pit</small></div>
       <div class="chips" id="chips"></div>
+      <p class="sub small" id="gstatus" style="margin-top:8px"></p>
     </div>
-    <div class="art">
-      <span class="l">Status</span>
-      <span class="statusline"><span class="dot" id="ldot"></span><span id="lstatus">Connecting to Home Assistant…</span></span>
-      <span class="n small" id="gstatus"></span>
+    <div class="art hero-next">
+      <span class="l">Coming up</span>
+      <div id="heronext" class="next"><span class="muted small">No food on the grill yet.</span></div>
     </div>
   </header>
 
-  <div class="kpis" id="kpis"></div>
+  <!-- section bar: sticks to the top, marks the section in view (script: "section bar") -->
+  <nav class="secbar" id="secbar" aria-label="Sections on this page">
+    <a href="#now">Now</a><a href="#food">Food</a><a href="#pit">Pit &amp; program</a><a href="#charcoal">Charcoal</a><a href="#temps">Chart</a><a href="#plan">Plan</a><a href="#journal-sec">Journal</a><a href="#setup">Setup</a>
+  </nav>
 
-  <section class="live" id="recs"></section>
-
-  <h2 class="sec">Pit &amp; program</h2>
-  <div class="grid">
-    <section class="tc" id="pitcard"></section>
-    <section class="tc" id="progcard"></section>
-    <section class="tc" id="aicard"></section>
-    <section class="tc" id="fuelcard"></section>
+  <div class="sect" id="now">
+    <section class="live" aria-live="polite">
+      <div class="live-head"><div class="lt-wrap"><span class="dot" id="ldot"></span><h2 class="lh">Right now</h2></div>
+        <span class="live-status" id="lstatus">Connecting to Home Assistant…</span></div>
+      <div class="kpis" id="kpis"></div>
+    </section>
+    <section class="live" id="recs"></section>
   </div>
 
-  <h2 class="sec">Food</h2>
-  <div class="grid" id="probes"></div>
-  <details class="fold" data-k="sources"><summary>Probe sources (grill, H5198, Home Assistant)</summary><div id="sources"></div></details>
-
-  <h2 class="sec">Temperatures <span class="seg" id="range" style="float:right;margin-top:2px"></span></h2>
-  <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
-
-  <h2 class="sec">Plan</h2>
-  <div class="grid">
-    <section class="tc" id="plancard"></section>
-    <section class="tc" id="scancard"></section>
-    <section class="tc" id="learncard"></section>
+  <div class="sect" id="food">
+    <h2 class="sec">Food <small id="foodsub"></small></h2>
+    <div class="grid" id="probes"></div>
   </div>
 
-  <h2 class="sec">Cook journal</h2>
-  <section class="tc" id="journal"><div id="jlist"><div class="empty">Loading…</div></div>
-    <div id="jcmp" style="display:none"><h3 id="jcmptitle" style="margin-top:14px">Compared with similar cooks</h3>
-      <div class="chart" id="jchart"></div><div class="legend" id="jlegend"></div></div></section>
+  <div class="sect" id="pit">
+    <h2 class="sec">Pit &amp; program</h2>
+    <div class="grid">
+      <section class="tc" id="pitcard"></section>
+      <section class="tc" id="progcard"></section>
+      <section class="tc" id="aicard"></section>
+    </div>
+  </div>
 
-  <details class="fold" data-k="diag"><summary>Controller &amp; connection</summary><div id="diag"></div></details>
+  <div class="sect" id="charcoal">
+    <h2 class="sec">Charcoal</h2>
+    <div class="grid"><section class="tc" id="fuelcard"></section></div>
+  </div>
+
+  <div class="sect" id="temps">
+    <h2 class="sec">Temperatures <span class="seg" id="range"></span></h2>
+    <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
+  </div>
+
+  <div class="sect" id="plan">
+    <h2 class="sec">Plan the next cook</h2>
+    <div class="grid">
+      <section class="tc" id="plancard"></section>
+      <section class="tc" id="scancard"></section>
+      <section class="tc" id="learncard"></section>
+    </div>
+  </div>
+
+  <div class="sect" id="journal-sec">
+    <h2 class="sec">Cook journal</h2>
+    <section class="tc" id="journal"><div id="jlist"><div class="empty">Loading…</div></div>
+      <div id="jcmp" style="display:none"><h3 id="jcmptitle" style="margin-top:14px">Compared with similar cooks</h3>
+        <div class="chart" id="jchart"></div><div class="legend" id="jlegend"></div></div></section>
+  </div>
+
+  <div class="sect" id="setup">
+    <h2 class="sec">Setup <small>connection, probes and the controller</small></h2>
+    <div class="grid">
+      <section class="tc" id="controlcard"></section>
+      <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
+      <section class="tc"><h3>Controller</h3><div id="diag"></div></section>
+    </div>
+  </div>
   <footer id="foot"></footer>
 </div>
 <div class="toast" id="toast"></div>
@@ -188,8 +244,10 @@ const typing = () => { const a = document.activeElement; return a && /INPUT|TEXT
 function put(id, html) {
   const el = $(id); if (!el) return; if (el._h === html) return; if (typing() && el.contains(document.activeElement)) return;
   const keep = {}; el.querySelectorAll('textarea[id],input[id]').forEach(f => { if (f.dataset.dirty) keep[f.id] = f.value; });
+  const open = [...el.querySelectorAll('details[data-k]')].filter(d => d.open).map(d => d.dataset.k);  // keep folds open
   el._h = html; el.innerHTML = html;
   Object.entries(keep).forEach(([k, v]) => { const f = $(k); if (f) { f.value = v; f.dataset.dirty = '1'; } });
+  open.forEach(k => { const d = el.querySelector(`details[data-k="${k}"]`); if (d) d.open = true; });
 }
 document.addEventListener('input', e => { if (e.target && e.target.id) e.target.dataset.dirty = '1'; });
 const clean = id => { const f = $(id); if (f) delete f.dataset.dirty; };
@@ -308,6 +366,18 @@ function renderHero() {
   if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) chips.push(`<span class="chip warn">${pit > tgt ? 'Running hot' : 'Running cold'}</span>`);
   put('chips', chips.join(''));
   put('gstatus', esc(val(E('Program status', ['sensor'])) || ''));
+  // Coming up: the food on the grill, soonest finish first.
+  const on = PROBES.map(p => ({ p, s: probeState(p) })).filter(x => x.s.t != null)
+    .sort((a, b) => (a.s.rem ?? 1e9) - (b.s.rem ?? 1e9)).slice(0, 4);
+  put('heronext', on.length ? on.map(({ p, s }) => {
+    const prot = s.profile && !/^(Auto|unknown)$/i.test(s.profile.state) ? s.profile.state : p.label;
+    const when = s.isPulled ? (s.restReady != null ? (s.restReady <= 0 ? 'slice now' : 'rest ' + minsTxt(s.restReady)) : 'resting')
+      : s.rem != null ? '~' + atTxt(s.rem) : (s.phase || '');
+    return `<div class="it"><i style="background:${p.color}"></i><b>${esc(prot)}</b><span class="t">${esc(when)}</span>
+      <span class="s">${esc(p.label)} · ${fmt(s.t)}${esc(TU())}${s.tgt != null ? ' → ' + fmt(s.tgt) + esc(TU()) : ''}${s.stall ? ' · in the stall' : ''}${s.rem != null && isExp(s.info) ? ' · experimental' : ''}</span></div>`;
+  }).join('') : '<span class="muted small">No food on the grill yet.</span>');
+  const n = on.length, first = on.find(x => x.s.rem != null);
+  put('foodsub', n ? `${n} on the grill${first ? ' · first done ~' + esc(atTxt(first.s.rem)) : ''}` : 'plug in a probe or pick a source in Setup');
 }
 
 function renderKpis() {
@@ -316,6 +386,8 @@ function renderKpis() {
   const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
   add('Pit', fmt(pit), TU(), tgt != null ? 'target ' + fmt(tgt) + esc(TU()) : 'no target');
   PROBES.filter(p => p.key === 'food1' || probeState(p).t != null).slice(0, 3).forEach(p => { const s = probeState(p); add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) + (isExp(s.info) ? ' · experimental' : '') : esc(s.phase || '')); });
+  const lvl = num(E('Charcoal level', ['sensor'])), hrs = num(E('Charcoal hours left', ['sensor']));
+  if (lvl != null) add('Charcoal', fmt(lvl), '%', hrs != null ? '~' + fmt(hrs, 1) + ' h left' : 'level');
   const el = num(E('Cook elapsed', ['sensor']));
   add('Cook time', el != null ? minsTxt(el) : '--', '', val(E('Cook active', ['binary_sensor'])) === 'on' ? 'in progress' : 'idle');
   const all = H().all(), w = all['weather.forecast_home'] ? 'weather.forecast_home' : Object.keys(all).find(id => id.startsWith('weather.'));
@@ -358,9 +430,24 @@ function controlRow() {
   if (!conn || via === 'none') { txt = 'Not connected to the grill: read-only'; cls = 'warn'; }
   else if (via === 'wifi') txt = 'Controlling the grill over Wi-Fi';
   else if (ble) txt = 'Controlling the grill over Bluetooth';
-  else { txt = 'Bluetooth link is read-only: turn on control below'; cls = 'warn'; }
-  return `<div class="row"><span>Control</span><span class="r"><span class="chip ${cls}">${esc(txt)}</span>${via === 'bluetooth' && ble ? ' ' + EXP('Setting targets over Bluetooth is new on the 980: check the grill follows the first change.') : ''}</span></div>` +
-    (bleE ? `<div class="row"><span>Control over Bluetooth</span><button class="tg ${ble ? 'on' : ''}" onclick="act.toggle('${esc(bleE)}')" aria-label="Control over Bluetooth"></button></div>` : '');
+  else { txt = 'Bluetooth link is read-only: turn on control in Setup'; cls = 'warn'; }
+  return `<div class="row"><span>Control</span><span class="r"><span class="chip ${cls}">${esc(txt)}</span>${via === 'bluetooth' && ble ? ' ' + EXP('Setting targets over Bluetooth is new on the 980: check the grill follows the first change.') : ''}</span></div>`;
+}
+
+// Setup → Connection: how the controller reaches the grill, and the switches that change it.
+function renderControl() {
+  const conn = val(E('Grill connected', ['binary_sensor'])) === 'on', via = val(E('Grill link', ['sensor'])) || 'none';
+  const bleE = E('Control over Bluetooth (experimental)', ['switch']), ble = val(bleE) === 'on';
+  const bridge = E('Bridge enabled', ['switch']), wifi = val(E('Grill Wi-Fi', ['sensor'])), ip = val(E('Grill IP address', ['text']));
+  const tog = (e, on, label, note) => e ? `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span>
+    <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(e)}')" aria-label="${esc(label.replace(/<[^>]+>/g, ''))}"></button></div>` : '';
+  put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? (via === 'wifi' ? 'Wi-Fi' : 'Bluetooth') : 'not connected'}</span></h3>
+    ${controlRow()}
+    ${tog(bleE, ble, 'Control over Bluetooth ' + EXP('Not yet confirmed on the 980: check the grill follows your first change.'), 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
+    ${tog(bridge, val(bridge) === 'on', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}
+    <div class="row"><span>Grill's Wi-Fi</span><span class="r" style="white-space:normal">${esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')}</span></div>
+    <div class="row"><span>Grill IP address</span><span class="r">${esc(ip && ip !== 'unknown' ? ip : 'automatic')}</span></div>
+    <p class="muted small" style="margin:8px 0 0">Wi-Fi is optional: readings and control work over Bluetooth.</p>`);
 }
 
 function renderProgram() {
@@ -422,8 +509,9 @@ function renderProbes() {
     const profOpts = s.profile ? (s.profile.attributes.options || []) : [];
     const wrapped = val(s.wrapE) === 'on';
     const phaseChip = s.stall ? '<span class="chip warn">Stall</span>' : s.phase ? `<span class="chip ${/Done/.test(s.phase) ? 'ok' : ''}">${esc(s.phase)}</span>` : '';
+    const prot = s.profile && !/^(Auto|unknown)$/i.test(s.profile.state) ? s.profile.state : '';
     cards.push(`<section class="tc probe"><span class="edge" style="background:${p.color}"></span>
-      <h3>${esc(p.label)} ${phaseChip}${s.source ? ` <span class="muted small">· ${esc(s.source)}</span>` : ''}</h3>
+      <h3><span>${esc(p.label)}${prot ? ` <small>· ${esc(prot)}</small>` : ''}</span> ${phaseChip}</h3>
       <div class="ptemp">${fmt(s.t)}<small>${esc(TU())}${s.tgt != null ? ' / ' + fmt(s.tgt) + esc(TU()) : ''}</small></div>
       ${s.warn ? '<div class="err">Probe jumped towards pit temperature – is it still in the meat?</div>' : ''}
       <div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
@@ -431,20 +519,23 @@ function renderProbes() {
         ${s.rem != null && isExp(s.info) ? EXP('Finish times firm up after a few similar cooks. ' + (s.info || '')) : ''}</div>
       ${rangeBar(s, i === 0 ? aiLeft : null)}
       ${s.stall && s.stallRem != null ? `<div class="row"><span>Stall left</span><span class="r">~${minsTxt(s.stallRem)}</span></div>` : ''}
-      <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(s.rateU || TU() + '/h') : '--'}</span></div>
-      <div class="row"><span>Whole cook</span><span class="r">${s.total != null ? minsTxt(s.total) : '--'}</span></div>
-      <div class="row"><span>Target</span><span class="step"><button class="btn" onclick="act.target('${p.key}',-1)">−</button>
-        <button class="btn" onclick="act.target('${p.key}',1)">+</button></span></div>
-      <div class="row"><span>Protein</span><select onchange="act.profile('${p.key}',this.value)">${profOpts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
-      <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${esc(s.weightU || (isF() ? 'lb' : 'kg'))}</span></div>
-      <div class="row"><span>Wrapped</span><button class="tg ${wrapped ? 'on' : ''}" onclick="act.wrap('${p.key}')" aria-label="wrapped"></button></div>
+      <div class="row"><span>Target</span><span class="step"><button class="btn" onclick="act.target('${p.key}',-1)" aria-label="Lower ${esc(p.label)} target">−</button>
+        <span class="r">${s.tgt != null ? fmt(s.tgt) + esc(TU()) : '--'}</span>
+        <button class="btn" onclick="act.target('${p.key}',1)" aria-label="Raise ${esc(p.label)} target">+</button></span></div>
       ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span>${pullExp(s.info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}</span></div>` : ''}
       ${s.pulledE ? `<div class="row"><span>Off the grill, resting</span><button class="tg ${s.isPulled ? 'on' : ''}" onclick="act.pulled('${p.key}')" aria-label="pulled"></button></div>` : ''}
       ${s.isPulled ? `<div class="row"><span>Ready to slice</span><span class="r">${s.restReady != null ? (s.restReady <= 0 ? 'now' : 'in ' + minsTxt(s.restReady) + ' (' + atTxt(s.restReady) + ')') : 'measuring…'}</span></div>` : ''}
-      ${s.info ? `<div class="small muted" style="margin-top:6px">${esc(s.info)}</div>` : ''}
+      <details class="more" data-k="more-${p.key}"><summary>Cook details${s.source ? ' · ' + esc(s.source) : ''}</summary>
+        <div class="row"><span>Protein</span><select onchange="act.profile('${p.key}',this.value)">${profOpts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
+        <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${esc(s.weightU || (isF() ? 'lb' : 'kg'))}</span></div>
+        <div class="row"><span>Wrapped</span><button class="tg ${wrapped ? 'on' : ''}" onclick="act.wrap('${p.key}')" aria-label="wrapped"></button></div>
+        <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(s.rateU || TU() + '/h') : '--'}</span></div>
+        <div class="row"><span>Whole cook</span><span class="r">${s.total != null ? minsTxt(s.total) : '--'}</span></div>
+        ${s.info ? `<div class="small muted" style="margin-top:6px">${esc(s.info)}</div>` : ''}
+      </details>
     </section>`);
   });
-  put('probes', cards.join('') || '<div class="empty">No food probes connected.</div>');
+  put('probes', cards.join('') || '<div class="empty">No food probes reading. Plug one in, or pick a thermometer for a slot under Setup.</div>');
   renderSources();
 }
 
@@ -629,11 +720,9 @@ function renderLearn() {
 function renderDiag() {
   const rows = [['Grill link', E('Grill link', ['sensor'])], ['Raw status frame', E('Raw status frame', ['sensor'])],
     ['Wi-Fi signal', E('Wi-Fi signal', ['sensor'])], ['Firmware', E('Firmware version', ['sensor'])], ['Uptime', E('Uptime', ['sensor'])],
-    ['Grill IP address', E('Grill IP address', ['text'])]];
+    ['H5198 signal', E('H5198 signal', ['sensor'])]];
   const fw = E('Firmware', ['update']);
-  const bridge = E('Bridge enabled', ['switch']);
   put('diag', rows.filter(r => r[1]).map(([l, e]) => `<div class="row"><span>${esc(l)}</span><span class="r">${esc(val(e) || '--')} ${esc(unitOf(e))}</span></div>`).join('') +
-    (bridge ? `<div class="row"><span>Bridge enabled (off lets the Char-Griller app connect)</span><button class="tg ${val(bridge) === 'on' ? 'on' : ''}" onclick="act.toggle('${esc(bridge)}')"></button></div>` : '') +
     (fw && S(fw) ? `<div class="row"><span>Firmware update</span><span class="r">${S(fw).state === 'on' ? 'available: ' + esc(S(fw).attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : ''));
   put('foot', 'Smoker controller · ' + esc(val(E('Firmware version', ['sensor'])) || ''));
 }
@@ -682,10 +771,32 @@ function renderRange() {
 // ---------------------------------------------------------------- loop
 function render() {
   renderHero(); renderKpis(); renderRecs(); renderPit(); renderFuel();
-  loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderPlan(); renderLearn(); renderDiag(); renderRange();
+  loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }
 window.addEventListener('resize', () => drawChart());
+
+// Section bar (#secbar): sticks to the top, marks the section in view, scrolls to a section on click and keeps the
+// marked link visible when the bar scrolls sideways (phones). As on the Energy and EV9 pages.
+(function () {
+  const bar = $('secbar'); if (!bar) return;
+  const links = [...bar.querySelectorAll('a')], secs = links.map(a => $(a.getAttribute('href').slice(1)));
+  let cur = -1;
+  function mark() {
+    const y = bar.offsetHeight + 40; let k = 0;
+    secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top <= y) k = i; });
+    if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) k = secs.length - 1;
+    if (k === cur) return; cur = k;
+    links.forEach((a, i) => { if (i === k) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
+    const a = links[k]; if (bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
+  }
+  links.forEach((a, i) => a.addEventListener('click', e => {
+    e.preventDefault(); const el = secs[i];
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - bar.offsetHeight - 10, behavior: 'smooth' });
+  }));
+  let raf = 0; addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
+  mark();
+})();
 live(render, 20000);
 </script>
 </body>

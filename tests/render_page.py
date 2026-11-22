@@ -189,6 +189,9 @@ def main():
                     "journal": fr.inner_text("#journal"),
                     "sources": fr.inner_html("#sources"),
                     "pitcard": fr.inner_text("#pitcard"),
+                    "controlcard": fr.inner_text("#controlcard"),
+                    "heronext": fr.inner_text("#heronext"),
+                    "secbar": fr.eval_on_selector_all("#secbar a", "as => as.map(a => a.textContent)"),
                 }
                 if errors:
                     failures.append(f"{scheme}/{name}: JS errors {errors}")
@@ -212,8 +215,28 @@ def main():
                     failures.append(f"{scheme}/{name}: experimental chips per card {exp}")
                 if "Experimental" not in checks["fuel"] or "Experimental" not in checks["recs"]:
                     failures.append(f"{scheme}/{name}: experimental label missing: fuel {checks['fuel'][:200]!r} recs {checks['recs'][:120]!r}")
-                if "Controlling the grill over Wi-Fi" not in checks["pitcard"] or "Control over Bluetooth" not in checks["pitcard"]:
+                if "Controlling the grill over Wi-Fi" not in checks["pitcard"]:
                     failures.append(f"{scheme}/{name}: control row: {checks['pitcard'][:200]!r}")
+                if "Control over Bluetooth" not in checks["controlcard"] or "Bridge enabled" not in checks["controlcard"]:
+                    failures.append(f"{scheme}/{name}: connection card: {checks['controlcard'][:200]!r}")
+                if checks["secbar"] != ["Now", "Food", "Pit & program", "Charcoal", "Chart", "Plan", "Journal", "Setup"]:
+                    failures.append(f"{scheme}/{name}: section bar {checks['secbar']}")
+                if "Pork shoulder" not in checks["heronext"] or "Poultry" not in checks["heronext"]:
+                    failures.append(f"{scheme}/{name}: coming up: {checks['heronext'][:160]!r}")
+                # A food card's folded details stay open across a live redraw.
+                opened = fr.evaluate("""async () => {
+                    const d = document.querySelector('#probes details[data-k="more-food1"]'); if (!d) return 'missing';
+                    if (d.open) return 'open by default'; d.open = true;
+                    const st = window.parent.__smHass.states; const k = 'sensor.smoker_food_1_temperature';
+                    st[k] = Object.assign({}, st[k], {state: String(parseFloat(st[k].state) + 1)});
+                    window.parent.__smHass = Object.assign({}, window.parent.__smHass, {states: Object.assign({}, st)});
+                    window.__smOnHass();
+                    await new Promise(r => setTimeout(r, 600));
+                    const d2 = document.querySelector('#probes details[data-k="more-food1"]');
+                    return d2 && d2.open ? 'kept' : 'closed';
+                }""")
+                if opened != "kept":
+                    failures.append(f"{scheme}/{name}: food card fold after redraw: {opened}")
                 src = checks["sources"]
                 if (src.count("<select") != 4 or 'value="sensor.example_probe" selected' not in src or "H5198 probe 4" not in src
                         or "Porch temperature" not in src or "example_probe_alarm" in src):
