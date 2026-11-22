@@ -444,6 +444,10 @@ def main():
                 cc = fr.inner_text("#controlcard")
                 if "Bluetooth signal" not in cc or "-67 dBm · good" not in cc or "-44 dBm · strong" not in cc:
                     failures.append(f"{scheme}/{name}: signal rows: {cc[:300]!r}")
+                # What's cooking: separate camera and library buttons (only the camera one opens the camera).
+                sc = fr.evaluate("""() => [...document.querySelectorAll('#scancard input[type=file]')].map(i => [i.hasAttribute('capture'), i.multiple, i.closest('label') && i.closest('label').innerText.trim()])""")
+                if sorted(sc) != sorted([[True, False, "Take a photo"], [False, True, "Choose photos"]]):
+                    failures.append(f"{scheme}/{name}: scan inputs: {sc!r}")
                 dg = fr.inner_text("#diag")
                 if "controller 0.2.20" not in dg or "Controller Wi-Fi" not in dg or "not the grill" not in dg:
                     failures.append(f"{scheme}/{name}: diagnostics: {dg[:200]!r}")
