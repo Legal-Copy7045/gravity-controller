@@ -66,11 +66,20 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     hass.services.async_register("ai_task", "generate_data", fake_generate, supports_response=SupportsResponse.ONLY)
     import aiohttp
 
-    form = aiohttp.FormData()
-    form.add_field("photo", b"\xff\xd8\xff fake jpeg", filename="a.jpg", content_type="image/jpeg")
-    form.add_field("photo", b"\x89PNG fake", filename="b.png", content_type="image/png")
-    r = await client.post("/api/smoker/identify", data=form)
+    def photos():
+        form = aiohttp.FormData()
+        form.add_field("photo", b"\xff\xd8\xff fake jpeg", filename="a.jpg", content_type="image/jpeg")
+        form.add_field("photo", b"\x89PNG fake", filename="b.png", content_type="image/png")
+        return form
+
+    # No AI task that can read photos (and no default set): a plain reason, not HA's "no preferred entity".
+    r = await client.post("/api/smoker/identify", data=photos())
+    assert r.status == 400 and "no AI in Home Assistant that can read photos" in (await r.json())["message"]
+    hass.states.async_set("ai_task.text_only", "unknown", {"supported_features": 1})
+    hass.states.async_set("ai_task.vision", "unknown", {"supported_features": 3})
+    r = await client.post("/api/smoker/identify", data=photos())
     assert r.status == 200, await r.text()
+    assert seen["entity_id"] == "ai_task.vision"  # picked one that can read photos
     body = await r.json()
     assert [i["name"] for i in body["items"]] == ["Pork butt", "Chicken thighs"]
     assert len(seen["attachments"]) == 2

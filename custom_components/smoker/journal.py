@@ -218,9 +218,49 @@ class Journal:
                                                 blocking=True, context=context)
 
     # ---- photos + AI ----
+    async def pick_ai_entity(self, requested: str | None) -> str:
+        """Which AI task reads the photos: the one asked for, the package's choice, HA's default, else any that can.
+
+        Without an entity_id, ai_task.generate_data needs a default AI task set in Settings > AI, which many installs
+        don't have ("No entity_id provided and no preferred entity set").
+        """
+        def can_read_photos(eid: str | None) -> bool:
+            st = self.hass.states.get(eid) if eid else None
+            return st is not None and bool(int(st.attributes.get("supported_features") or 0) & 2)  # SUPPORT_ATTACHMENTS
+
+        if requested:
+            return requested
+        from .package_install import _previous_choices
+
+        def first_line() -> str:
+            try:
+                with open(self.hass.config.path("packages", "smoker.yaml"), encoding="utf-8") as f:
+                    return f.readline()
+            except OSError:
+                return ""
+
+        # The AI task the Smoker package was installed with.
+        chosen = _previous_choices(await self.hass.async_add_executor_job(first_line)).get("ai_task")
+        if can_read_photos(chosen):
+            return chosen
+        try:  # Home Assistant's own default (Settings > AI)
+            from homeassistant.components.ai_task import DATA_PREFERENCES
+
+            pref = getattr(self.hass.data.get(DATA_PREFERENCES), "gen_data_entity_id", None)
+            if can_read_photos(pref):
+                return pref
+        except ImportError:
+            pass
+        able = sorted(s.entity_id for s in self.hass.states.async_all("ai_task") if can_read_photos(s.entity_id))
+        if able:
+            return able[0]
+        raise ValueError("there's no AI in Home Assistant that can read photos. Add one (e.g. Google Generative AI "
+                         "under Settings > Devices & services) and try again")
+
     async def identify(self, images: list[tuple[str, bytes]], ai_entity: str | None) -> list[dict]:
         if not images:
             raise ValueError("no photos")
+        entity = await self.pick_ai_entity(ai_entity)  # before saving anything: say early if there's no AI
         media_dirs = self.hass.config.media_dirs or {}
         media_key = "local" if "local" in media_dirs else next(iter(media_dirs), None)
         if media_key is None:
@@ -258,8 +298,7 @@ class Journal:
             "instructions": IDENTIFY_INSTRUCTIONS.format(profiles=", ".join(PROFILES)),
             "attachments": attachments,
         }
-        if ai_entity:
-            data["entity_id"] = ai_entity
+        data["entity_id"] = entity
         resp = await self.hass.services.async_call("ai_task", "generate_data", data, blocking=True, return_response=True)
         text = (resp or {}).get("data") if isinstance(resp, dict) else None
         items = parse_items(text if isinstance(text, str) else json.dumps(text))

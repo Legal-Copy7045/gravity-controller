@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.22] - 2026-11-22
+
+- Fix: *What's cooking → Read the labels* failed with "No entity_id provided and no preferred entity set" when Home
+  Assistant has no default AI task (Settings → AI). It now picks the AI itself: the one the Smoker package was installed
+  with, else Home Assistant's default, else any AI task that can read photos, and says plainly if there's none.
+- Error messages wrap instead of running off the screen, sit above the phone's home bar, and stay 10 s (tap to close).
+
 ## [0.2.21] - 2026-11-22
 
 - **Signal strength to the grill.** New *Grill Bluetooth signal* (the controller's link to the grill, read every 30 s;

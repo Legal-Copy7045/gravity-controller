@@ -199,8 +199,9 @@ details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque","Instrum
 .pe-load{align-items:center}
 .pe-state{font-size:12.5px;color:var(--muted)}
 @media (max-width:560px){.pe-cond,.pe-sf{padding-left:0}.pe-hint{margin-left:0}}
-.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:16px;font-size:13px;line-height:1.4;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;width:max-content;max-width:min(92vw,560px);text-align:center;white-space:normal;overflow-wrap:anywhere}
 .toast.show{opacity:.95}
+.toast.err{pointer-events:auto;cursor:pointer}
 .empty{color:var(--muted);font-size:13.5px;padding:8px 0}
 footer{color:var(--muted);font-size:12px;text-align:center}
 </style>
@@ -320,8 +321,12 @@ const isF = () => TU().indexOf('F') >= 0;
 const EXP = why => `<span class="chip exp" title="${esc(why)}">Experimental</span>`;
 const isExp = info => /^Experimental/.test(info || '');
 const pullExp = info => /pull-at experimental/.test(info || '');
-function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
-const fail = e => toast('⚠ ' + ((e && e.message) || e));
+// Messages wrap and stay readable; errors stay 10 s (tap to dismiss) so the whole reason can be read.
+function toast(msg, err) {
+  const t = $('toast'); t.textContent = msg; t.classList.toggle('err', !!err); t.classList.add('show'); clearTimeout(t._h);
+  t.onclick = () => t.classList.remove('show'); t._h = setTimeout(() => t.classList.remove('show'), err ? 10000 : 2600);
+}
+const fail = e => toast('⚠ ' + ((e && e.message) || e), true);
 // The AI advisor, cook planning, serve-by time, rest timer and Home Assistant probe picks live in the Smoker *package*
 // (homeassistant/packages/smoker.yaml), which is installed separately from the integration. Without it, say so
 // instead of offering controls that have nothing to act on.
