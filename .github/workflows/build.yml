@@ -1,0 +1,173 @@
+name: Build, test & release
+
+# Every push builds the firmware and runs every test. Pushes to the default
+# branch also publish the web installer + OTA manifest to GitHub Pages and,
+# when VERSION has no release yet, create release v<VERSION> (tag included)
+# with the firmware and the dashboard integration attached.
+# (Adapted from the Magic-bHAnds project's workflow.)
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Actions are pinned to commit SHAs (the comment gives the tag).
+concurrency:
+  group: build-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+env:
+  ESPHOME_VERSION: "2026.11.0"
+  IS_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' }}
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check versions match
+        run: python3 .github/scripts/check_versions.py
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Core library tests (protocol, predictor, history, programs)
+        run: make -C tests
+
+  firmware:
+    needs: versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Cache ESPHome toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/esphome
+          key: esphome-${{ env.ESPHOME_VERSION }}-${{ runner.os }}
+      - name: Install ESPHome
+        run: pip install "esphome==${ESPHOME_VERSION}" aioesphomeapi
+      - name: Compile ESP32-S3 firmware
+        working-directory: firmware
+        run: esphome compile gravity980-bridge.yaml
+      - name: Compile native test build
+        working-directory: tests
+        run: esphome compile host-bridge.yaml
+      - name: End-to-end test against the simulated grill
+        run: python3 tests/e2e.py
+      - name: Assemble site
+        run: python3 .github/scripts/make_site.py _site firmware/.esphome/build/gravity980/build firmware/core.yaml
+      - name: Attest the published firmware
+        if: env.IS_DEFAULT == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: _site/**/*.bin
+      - name: Upload Pages artifact
+        if: env.IS_DEFAULT == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+      - name: Upload firmware
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware
+          path: _site/firmware/*.bin
+
+  home-assistant:
+    needs: versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install Home Assistant and Playwright
+        run: |
+          pip install homeassistant playwright
+          python -m playwright install --with-deps chromium
+      - name: Check the HA package and integration load
+        run: python3 tests/ha_check.py
+      - name: Dashboard render test
+        run: python3 tests/render_page.py _screens
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dashboard-screenshots
+          path: _screens/*.png
+
+  deploy:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    needs: [firmware, unit-tests, home-assistant]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  release:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    needs: [firmware, unit-tests, home-assistant]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: firmware
+          path: firmware-bin
+      - name: Create the release for VERSION if it doesn't exist
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          TAG="v$V"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; bump VERSION to release again."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 .github/scripts/check_versions.py "$TAG"
+          python3 .github/scripts/release_notes.py "$TAG" > notes.md
+          (cd custom_components && zip -qr "../smoker-integration-$V.zip" smoker)
+          (cd homeassistant/packages && zip -qr "../../smoker-ha-package-$V.zip" smoker.yaml)
+          for f in firmware-bin/*.bin; do cp "$f" "./$(basename "${f%.bin}")-$V.bin"; done
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Smoker bridge $V" \
+            --notes-file notes.md "smoker-integration-$V.zip" "smoker-ha-package-$V.zip" ./*-$V.bin
+          echo "created=true" >> "$GITHUB_OUTPUT"
+      - name: Attest build provenance
+        if: steps.rel.outputs.created == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            smoker-integration-*.zip
+            *.bin

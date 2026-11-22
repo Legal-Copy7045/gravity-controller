@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smoker Bridge Installer</title>
+  <meta name="description" content="Install the Gravity 980 smoker bridge firmware on an ESP32-S3 from your browser.">
+  <!-- ESP Web Tools, served from this site: make_site.py downloads the pinned
+       release from npm and checks it against a fixed hash before publishing. -->
+  <script type="module" src="esp-web-tools/install-button.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <style>
+    :root{--ground:#f2f4f6;--surface:#ffffff;--sunk:#e9edf1;--ink:#0f1b27;--ink-2:#44556a;--muted:#5b6b7c;--line:#dbe2e9;--warn:#a86400;--page:#c2410c;--on-page:#fff;--page-soft:color-mix(in srgb,var(--page) 11%,var(--surface))}
+    @media (prefers-color-scheme:dark){:root{--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#8494a4;--line:#233040;--warn:#e0a24a;--page:#fb8a3c;--on-page:#0c1218}}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.55 "Instrument Sans",system-ui,sans-serif;padding:18px clamp(16px,3vw,40px) 56px}
+    main{max-width:880px;margin:0 auto;display:grid;gap:22px}
+    .hero{background:linear-gradient(160deg,var(--page-soft),var(--surface) 70%);border:1px solid var(--line);border-radius:14px;padding:22px clamp(16px,3vw,32px)}
+    .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+    h1{font:750 clamp(32px,5vw,50px)/1.02 "Bricolage Grotesque",sans-serif;margin:6px 0 8px;letter-spacing:-.015em}
+    h2{font:700 20px "Bricolage Grotesque",sans-serif;margin:0 0 8px}
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 20px}
+    .ver{font:500 13px "JetBrains Mono",monospace;color:var(--muted)}
+    ol,ul{padding-left:1.2rem;margin:6px 0 0;display:grid;gap:6px}
+    code{background:var(--sunk);padding:1px 6px;border-radius:5px;font:500 .88em "JetBrains Mono",monospace}
+    a{color:var(--page)}
+    .warn{display:block;background:color-mix(in srgb,var(--warn) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));border-radius:10px;padding:10px 14px;margin-top:10px}
+    esp-web-install-button:not(:defined) [slot="unsupported"],esp-web-install-button:not(:defined) [slot="not-allowed"]{display:none}
+    esp-web-install-button button{background:var(--page);color:var(--on-page);border:0;border-radius:10px;padding:11px 20px;font:600 15px "Instrument Sans",sans-serif;cursor:pointer}
+    .muted{color:var(--muted);font-size:13.5px}
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div class="eyebrow">Smoker · installer</div>
+    <h1>Gravity 980 Smoker Bridge</h1>
+    <p class="ver">Version {{VERSION}} · ESP32-S3 (16 MB flash, 8 MB PSRAM) · Home Assistant</p>
+    <p style="margin:8px 0 0">Connects to the Char-Griller Gravity 980's stock controller over Wi-Fi or Bluetooth and adds
+      learning cook-time predictions, stall detection, cook programs, alerts and a Bluetooth proxy for wireless thermometers.</p>
+  </header>
+
+  <section class="card">
+    <h2>Install</h2>
+    <esp-web-install-button manifest="firmware/manifest.json">
+      <button slot="activate">Install the smoker bridge</button>
+      <span slot="unsupported" class="warn">Your browser can't flash boards. Open this page in Chrome or Edge on a computer.</span>
+      <span slot="not-allowed" class="warn">This page must be opened over HTTPS.</span>
+    </esp-web-install-button>
+    <ul style="margin-top:12px">
+      <li>Plug the ESP32-S3 into this computer with a USB-C <em>data</em> cable (use the port labelled <code>UART</code> / <code>COM</code> if there are two).</li>
+      <li><strong>IPEX-antenna boards:</strong> click the antenna on before powering the board.</li>
+      <li>After flashing, enter your Wi-Fi details when asked (or join the <code>Smoker setup</code> hotspot later).</li>
+    </ul>
+    <p class="muted">Board not detected? Hold <code>BOOT</code>, tap <code>RST</code>, release <code>BOOT</code>, then try again.</p>
+  </section>
+
+  <section class="card">
+    <h2>Then, in Home Assistant</h2>
+    <ol>
+      <li><strong>Add the device:</strong> a <em>Discovered</em> notification appears for “Smoker”. Click <strong>Add</strong>.</li>
+      <li>On the device page, set <strong>Grill IP address</strong> to your grill's address (give it a DHCP reservation). Bluetooth works without it.</li>
+      <li>Leave <em>Allow the device to perform Home Assistant actions</em> <strong>off</strong>: notifications and cook summaries reach Home Assistant as events, which don't need it.</li>
+      <li>Add <code>homeassistant/packages/smoker.yaml</code> and the <strong>Smoker</strong> dashboard integration (HACS custom repository) — see the <a href="https://github.com/Legal-Copy7045/gravity-controller/blob/HEAD/docs/install.md">install guide</a>.</li>
+    </ol>
+  </section>
+
+  <p class="muted">Firmware updates appear in Home Assistant as an update on the device. <a href="https://github.com/Legal-Copy7045/gravity-controller/releases">Release notes</a> ·
+    <a href="https://github.com/Legal-Copy7045/gravity-controller">Source and docs</a>. Unofficial hobby project, not affiliated with Char-Griller.</p>
+</main>
+</body>
+</html>

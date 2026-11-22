@@ -4,6 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
+  project_version: "0.1.0"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C (HA converts for display anyway)
@@ -24,7 +25,7 @@ esphome:
   min_version: 2025.11.0
   project:
     name: legal-copy7045.gravity980-bridge
-    version: dev
+    version: ${project_version}
 
 esp32:
   variant: esp32s3
@@ -267,6 +268,17 @@ switch:
   - platform: gravity980
     bridge_enabled:
       name: Bridge enabled
+  # Log every raw TCP/BLE byte from the grill (for protocol investigation; logs at DEBUG level).
+  - platform: template
+    name: Log raw grill data
+    icon: mdi:text-search
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - lambda: id(grill).set_log_raw(true);
+    on_turn_off:
+      - lambda: id(grill).set_log_raw(false);
 
 # ----------------------------------------------------------------- cook assistant
 

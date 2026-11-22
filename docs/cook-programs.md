@@ -1,0 +1,37 @@
+# Cook programs
+
+A program is a list of steps separated by `;` or new lines. Each step has actions, then optionally `until` and one
+or more conditions joined by `or`. The program runs **on the controller**, so it keeps going if Wi-Fi or Home
+Assistant drop (conditions on Govee probes pause while their data is unavailable).
+
+```
+name: Pork butt
+pit 250 until food1 >= 165 for 30m
+pit 275 until food1 >= 203
+hold 160 notify "Pork is done - rest it"
+```
+
+| Actions | |
+|---|---|
+| `pit N` | set the pit target |
+| `hold N` | set the pit target and stay (final step) |
+| `notify "text"` | send a notification when the step starts |
+| `shutdown` | end the program |
+
+| Conditions | |
+|---|---|
+| `food1 >= N [for 30m]` | probe at or above N (held for a time). Also `<=`. Probes: `pit`, `food1`, `food2`, `govee1`…`govee4` |
+| `food1 done` | the probe reached its own target |
+| `after 2h` / `after 90m` | time spent in this step |
+| `at 17:30` | clock time |
+| `stall_start food1`, `stall_end food1` | the stall detector's events |
+
+Temperatures use the device unit (°F by default); add `F` or `C` to be explicit (`74C`). A step with no `until`
+(and not `hold`) completes immediately, so `notify "Spritz now"` can sit between steps.
+
+**Manual changes:** if the pit target is changed outside the program (dashboard, phone, grill panel), the program
+**pauses**; resume it to go back to the program's target. After a controller restart, a running program is restored
+**paused** at the same step, and you get a notification.
+
+**Presets** (in `firmware/core.yaml`): Pork shoulder (Texas crutch), Brisket, Ribs, Chicken (hot & fast), Hold warm.
+Pick one with **Program preset**, or type your own in **Program**, or ask the AI (`script.smoker_plan_cook`).

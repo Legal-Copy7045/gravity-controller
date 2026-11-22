@@ -1,6 +1,6 @@
 # Gravity 980 replacement controller: design plan
 
-Status: **draft, before hardware measurements.** Items marked ⚠ depend on the measurements in
+Status: **phase 2 plan** (phase 1, the bridge to the stock controller, is built: see the README). Draft, before hardware measurements. Items marked ⚠ depend on the measurements in
 [§9](#9-measurement-session-grill-out).
 
 ## 1. Goals
@@ -49,7 +49,7 @@ HA's dashboard does that job better.
 
 ## 3. Hardware overview
 
-Part-level shortlist with alternatives and prices: [hardware/BOM.md](../hardware/BOM.md).
+Part-level shortlist with alternatives and prices: [hardware/BOM.md](../hardware/BOM.md); what to buy and what you already have: [hardware/shopping-list.md](../hardware/shopping-list.md).
 
 | Block | Part (proposed) | Notes |
 |---|---|---|
@@ -207,7 +207,10 @@ Bring a multimeter, a phone camera, and an IR thermometer if you have one.
 | 4 | Perfboard or PCB, weatherproof enclosure with panel connectors, optional OLED/encoder | Mounted in place of the stock controller |
 
 ## 11. Decisions so far
-- **Board:** Lonely Binary ESP32-S3 N16R8 (PCB antenna; GPIO 35–37 reserved for the PSRAM).
+- **Board:** Lonely Binary ESP32-S3 N16R8 (GPIO 35–37 reserved for the PSRAM).
+- **Phase 1 first:** a bridge to the stock controller (Wi-Fi + Bluetooth) carries all the software features — prediction, programs, alerts, dashboard — and collects real cook data before the hardware is replaced. The cook assistant reads ordinary sensors, so it moves to the replacement controller unchanged.
+- **Bluetooth proxy** on the controller, for the Govee H5198 and other thermometers at the grill.
+- **Alarm and status light:** reuse the MAX98357A + speaker and a WS2812B ring from the Magic-bHAnds parts.
 - **Remote access:** Nabu Casa → the Companion app works away from home with no extra setup.
 - **ntfy:** yes, as a direct ESP→phone path for critical alarms.
 - **Local UI:** a "current temp" display is enough; a knob or buttons are a nice-to-have.
