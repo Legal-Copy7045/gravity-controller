@@ -82,6 +82,8 @@ const isExp = s => /^Experimental/.test(s || '');
 const pullExp = s => /pull-at experimental/.test(s || '');
 const opts = (e, cur) => ((e && e.option) || []).map(o => `<option${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
 const sel = (dom, name, attrs = '') => { const e = E(dom, name); return e ? `<select data-c="select" data-n="${esc(name)}" aria-label="${esc(name)}"${attrs}>${opts(e, str(e))}${str(e) && !(e.option || []).includes(str(e)) ? `<option selected>${esc(str(e))}</option>` : ''}</select>` : ''; };
+// The Bluetooth control switch was "(experimental)" before 0.2.9: accept either name.
+const BLE = () => E('switch', 'Control over Bluetooth') ? 'Control over Bluetooth' : 'Control over Bluetooth (experimental)';
 const tog = (name, label, note) => { const e = E('switch', name); return e ? `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span><button class="tg${on(e) ? ' on' : ''}" data-a="toggle" data-n="${esc(name)}" role="switch" aria-checked="${on(e)}" aria-label="${esc(name)}"></button></div>` : ''; };
 const row = (l, r) => `<div class="row"><span>${l}</span><span class="r">${r}</span></div>`;
 
@@ -119,7 +121,16 @@ const ACT = {
     clearTimeout(armed[n]); delete armed[n];
     post('button', n, 'press').then(ok => ok && toast(n)); render();
   },
-  load() { const t = $('progtext').value.trim(); if (!t) return toast('Write a program first'); post('text', 'Program', 'set', { value: t }).then(ok => { if (ok) { delete $('progtext').dataset.dirty; toast('Program sent'); } }); },
+  wifipick(el) { const f = $('wifissid'); if (f) { f.value = el.dataset.v; f.dataset.dirty = '1'; } },
+  async wifijoin() {
+    const ssid = ($('wifissid') || {}).value || '', pass = ($('wifipass') || {}).value || '';
+    if (!ssid.trim()) return toast('Pick or type the network name');
+    if (!(await post('text', 'Grill Wi-Fi: network name', 'set', { value: ssid.trim() }))) return;
+    if (!(await post('text', 'Grill Wi-Fi: password', 'set', { value: pass }))) return;
+    await post('button', 'Grill Wi-Fi: set up', 'press');
+    ['wifissid', 'wifipass'].forEach(k => { const f = $(k); if (f) { delete f.dataset.dirty; if (k === 'wifipass') f.value = ''; } });
+    toast('Sent to the grill: watch "Grill\'s Wi-Fi"');
+  },
   ip() { const v = $('ipin').value.trim(); post('text', 'Grill IP address', 'set', { value: v }).then(ok => { if (ok) { delete $('ipin').dataset.dirty; toast(v ? 'Grill address set' : 'Finding the grill automatically'); } }); },
 };
 function wire() {
@@ -132,6 +143,7 @@ function wire() {
   doc.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b && !b.disabled && ACT[b.dataset.a]) ACT[b.dataset.a](b); });
   doc.addEventListener('change', e => {
     const t = e.target, n = t.dataset && t.dataset.n; if (!n) return;
+    if (n === 'Program preset') { progEd.state.touched = false; progEd.state.sent = null; }  // the editor follows the preset
     if (t.dataset.c === 'select') post('select', n, 'set', { option: t.value }).then(ok => ok && toast(n + ': ' + t.value));
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
@@ -160,11 +172,11 @@ function put(id, html) {
 
 function link() {
   const conn = on(E('binary_sensor', 'Grill connected')), via = T('Grill link');
-  const bleE = E('switch', 'Control over Bluetooth (experimental)'), ble = on(bleE), br = E('switch', 'Bridge enabled');
+  const bleE = E('switch', BLE()), ble = on(bleE), br = E('switch', 'Bridge enabled');
   if (br && !on(br)) return { cls: 'warn', txt: 'Read-only', why: 'The bridge is turned off (Setup), so the Char-Griller app can use the grill.' };
   if (!conn) return { cls: 'warn', txt: 'Read-only', why: 'Not connected to the grill.' };
   if (via === 'wifi') return { cls: 'ok', txt: 'Controlling over Wi-Fi' };
-  if (via === 'bluetooth') return ble || !bleE ? { cls: 'ok', txt: 'Controlling over Bluetooth', exp: true }
+  if (via === 'bluetooth') return ble || !bleE ? { cls: 'ok', txt: 'Controlling over Bluetooth' }
     : { cls: 'warn', txt: 'Read-only', why: 'Connected over Bluetooth with control turned off: turn on "Control over Bluetooth" in Setup.' };
   return { cls: 'ok', txt: 'Connected to the grill' };
 }
@@ -353,28 +365,381 @@ function renderFuel() {
     <p class="note">Log charcoal (lit, checked, topped up) from Home Assistant: the fuel log is an action this page can't call.</p>`);
 }
 
+// ==== BEGIN cook program editor (shared block) ====
+// The same block is in custom_components/smoker/frontend/page.html (Home Assistant panel) and
+// firmware/device-ui/ui.js (the controller's own page): keep the two copies identical (tests/render_page.py checks).
+// PG.parse/format follow components/cook_assistant/program.cpp; PG.editor draws the step editor into a container.
+const PG = (() => {
+  const UNITS = Object.assign(Object.create(null), { f: 'F', c: 'C', m: 'm', min: 'm', mins: 'm', minutes: 'm', h: 'h', hr: 'h', hrs: 'h', hour: 'h', hours: 'h' });
+  const isD = c => c >= '0' && c <= '9', isA = c => /^[A-Za-z]$/.test(c || ''), isW = c => /^[A-Za-z0-9_]$/.test(c || '');
+  const TEMP = { gte: 1, lte: 1, pit: 1 }, PROBE = { gte: 1, lte: 1, done: 1, stall_start: 1, stall_end: 1 }, HELD = { gte: 1, lte: 1, pit: 1, done: 1 };
+  const U = m => ({ u: m });  // valid for the controller, but not something the step editor can show
+  function tokenize(s) {
+    const out = []; let i = 0;
+    while (i < s.length) {
+      const c = s[i];
+      if (/\s/.test(c) || c === ',') { i++; continue; }
+      if (c === '"' || c === "'") { const j = s.indexOf(c, i + 1); if (j < 0) throw 'unterminated quote'; out.push({ k: 'S', t: s.slice(i + 1, j) }); i = j + 1; continue; }
+      if (c === '>' || c === '<' || c === '=') { let op = c; if (s[i + 1] === '=') { op += '='; i++; } i++; out.push({ k: 'O', t: op === '>' ? '>=' : op === '<' ? '<=' : op }); continue; }
+      if (isD(c) || c === '.') {
+        let j = i; while (j < s.length && (isD(s[j]) || s[j] === '.' || s[j] === ':')) j++;
+        const t = { k: 'N', t: s.slice(i, j), n: 0, u: '' };
+        if (t.t.includes(':')) { const m = /^(\d+):(\d+)/.exec(t.t); if (!m || +m[1] > 23 || +m[2] > 59) throw "bad time '" + t.t + "'"; t.n = +m[1] * 60 + +m[2]; t.u = 't'; }
+        else { t.n = parseFloat(t.t); if (!Number.isFinite(t.n)) throw "bad number '" + t.t + "'"; }
+        let k = j; while (s[k] === ' ') k++;  // a unit after one space ("250 F", "2 h") or a degree sign
+        let e = k; if (s[e] === '°') e++;
+        let w = e; while (w < s.length && isA(s[w])) w++;
+        if (k > j && (UNITS[s.slice(e, w).toLowerCase()] || e > k)) j = e;
+        if (s[j] === '°') j++;
+        if (isA(s[j])) { let k2 = j; while (isA(s[k2])) k2++; const u = s.slice(j, k2).toLowerCase(); if (!UNITS[u]) throw "unknown unit '" + u + "'"; t.u = UNITS[u]; j = k2; }
+        out.push(t); i = j; continue;
+      }
+      if (isA(c) || c === '_') { let j = i; while (isW(s[j])) j++; out.push({ k: 'W', t: s.slice(i, j).toLowerCase() }); i = j; continue; }
+      throw "unexpected '" + c + "'";
+    }
+    out.push({ k: 'E', t: '' });
+    return out;
+  }
+  const food = t => { const m = t.k === 'W' && /^food([1-6])$/.exec(t.t); return m ? +m[1] : null; };
+  const hhmm = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  const dur = t => t.k === 'N' && !/[FCt]/.test(t.u || '_') ? (t.u === 'h' ? t.n * 60 : t.n) : null;
+  // A temperature in the device unit (an explicit F/C suffix is converted).
+  function temp(t, f) {
+    if (t.k !== 'N' || !(t.u === '' || t.u === 'F' || t.u === 'C')) return null;
+    if (!t.u || (t.u === 'F') === f) return t.n;
+    return Math.round(f ? t.n * 9 / 5 + 32 : (t.n - 32) * 5 / 9);
+  }
+  function step(text, f) {
+    const t = tokenize(text); let i = 0, pit = null, hold = false, shut = false, note = '', any = false;
+    while (t[i].k === 'W' && t[i].t !== 'until') {
+      const w = t[i].t;
+      if (w === 'pit' || w === 'hold' || w === 'set') {
+        i++; if (t[i].k === 'W' && t[i].t === 'to') i++;
+        const v = temp(t[i], f); if (v == null) throw "expected a temperature after '" + (w === 'hold' ? 'hold' : 'pit') + "'";
+        pit = v; hold = hold || w === 'hold'; i++;
+      } else if (w === 'notify' || w === 'alert') {
+        i++; if (t[i].k !== 'S') throw 'notify needs a quoted message';
+        note = t[i].t; i++;
+      } else if (w === 'shutdown' || w === 'stop' || w === 'off') { shut = true; i++; } else if (w === 'then') { i++; continue; } else throw "unknown action '" + w + "'";
+      any = true;
+    }
+    if (!any) throw 'step has no action (pit / hold / notify / shutdown)';
+    if (note.includes('"')) throw U('a notification with double quotes');
+    if (shut && pit != null) throw U('a pit temperature and shutdown in one step');
+    const st = { kind: shut ? 'shutdown' : hold ? 'hold' : pit != null ? 'pit' : 'notify', temp: pit == null ? '' : String(pit), notify: note, until: [] };
+    if (t[i].k === 'E') return st;
+    if (!(t[i].k === 'W' && t[i].t === 'until')) throw "expected 'until'";
+    if (st.kind === 'hold' || st.kind === 'shutdown') throw U("'until' on a " + (hold ? 'hold' : 'shutdown') + ' step');
+    i++;
+    for (;;) {
+      if (t[i].k !== 'W') throw "expected a condition after 'until'/'or'";
+      const w = t[i].t, c = { type: '', probe: 1, value: '', unit: 'm', held: '' };
+      if (w === 'after') {
+        i++; const d = dur(t[i]); if (d == null) throw "after needs a duration, e.g. 'after 2h'";
+        c.type = 'after'; c.unit = d >= 60 && d % 60 === 0 ? 'h' : 'm'; c.value = String(c.unit === 'h' ? d / 60 : d); i++;
+      } else if (w === 'at') {
+        i++; if (t[i].k !== 'N' || t[i].u !== 't') throw "at needs a time, e.g. 'at 17:30'";
+        c.type = 'at'; c.value = hhmm(t[i].n); i++;
+      } else if (w === 'stall_start' || w === 'stall_end') {
+        i++; const p = food(t[i]);
+        if (p == null) { if (t[i].k === 'W' && t[i].t === 'pit') throw U('a pit stall'); throw w + ' needs a probe name'; }
+        c.type = w; c.probe = p; i++;
+      } else {
+        const p = w === 'pit' ? 0 : food(t[i]); if (p == null) throw "unknown probe '" + w + "'";
+        i++;
+        if (t[i].k === 'W' && t[i].t === 'done') { if (!p) throw U("'pit done'"); c.type = 'done'; c.probe = p; i++; }
+        else if (t[i].k === 'W' && t[i].t === 'stall') {
+          i++; c.type = 'stall_start';
+          if (t[i].k === 'W' && /^(ends|end|over)$/.test(t[i].t)) { c.type = 'stall_end'; i++; } else if (t[i].k === 'W' && /^(starts|start)$/.test(t[i].t)) i++;
+          if (!p) throw U('a pit stall'); c.probe = p;
+        } else if (t[i].k === 'O' && (t[i].t === '>=' || t[i].t === '<=')) {
+          const ge = t[i].t === '>='; i++;
+          const v = temp(t[i], f); if (v == null) throw "expected a temperature after '>='";
+          i++;
+          if (!p) { if (!ge) throw U("'pit <='"); c.type = 'pit'; } else { c.type = ge ? 'gte' : 'lte'; c.probe = p; }
+          c.value = String(v);
+        } else throw "expected >=, <=, 'done' or 'stall' after '" + w + "'";
+      }
+      if (t[i].k === 'W' && t[i].t === 'for') {
+        i++; const d = dur(t[i]); if (d == null) throw "for needs a duration, e.g. 'for 30m'";
+        if (!HELD[c.type]) throw U("'for' on this condition");
+        c.held = String(d); i++;
+      }
+      st.until.push(c);
+      if (t[i].k === 'W' && t[i].t === 'or') { i++; continue; }
+      break;
+    }
+    if (t[i].k !== 'E') throw "unexpected '" + t[i].t + "' at end of step";
+    return st;
+  }
+  // Text -> {prog} | {error} (the controller would refuse it too) | {unsupported} (fine, but not for the step editor).
+  function parse(text, f) {
+    const parts = []; let cur = '', q = '';
+    for (const ch of String(text || '')) {
+      if (q) { cur += ch; if (ch === q) q = ''; continue; }
+      if (ch === '"' || ch === "'") { q = ch; cur += ch; continue; }
+      if (ch === ';' || ch === '\n' || ch === '\r') { parts.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    parts.push(cur);
+    const prog = { name: '', steps: [] }; let n = 0;
+    for (const part of parts) {
+      let s = part.replace(/^[ \t]+/, ''); if (!s) continue;
+      if (s.slice(0, 5).toLowerCase() === 'name:') { prog.name = s.slice(5).trim(); continue; }
+      const m = /^\d+[:.)]/.exec(s); if (m) s = s.slice(m[0].length);
+      n++;
+      try { prog.steps.push(step(s, f)); } catch (e) { return e && e.u ? { unsupported: 'step ' + n + ': ' + e.u } : { error: 'step ' + n + ': ' + e }; }
+    }
+    return prog.steps.length ? { prog } : { error: 'program has no steps' };
+  }
+  const numTxt = v => { const n = parseFloat(v); return Number.isFinite(n) ? String(n) : '?'; };
+  const durTxt = m => !Number.isFinite(m) ? '?' : m >= 60 && m % 60 === 0 ? m / 60 + 'h' : m + 'm';
+  function cond(c) {
+    const P = 'food' + c.probe;
+    const s = c.type === 'gte' ? P + ' >= ' + numTxt(c.value) : c.type === 'lte' ? P + ' <= ' + numTxt(c.value) : c.type === 'pit' ? 'pit >= ' + numTxt(c.value)
+      : c.type === 'done' ? P + ' done' : c.type === 'after' ? 'after ' + durTxt(parseFloat(c.value) * (c.unit === 'h' ? 60 : 1))
+        : c.type === 'at' ? 'at ' + (c.value || '?') : c.type + ' ' + P;
+    const h = parseFloat(c.held);
+    return s + (HELD[c.type] && h > 0 ? ' for ' + durTxt(h) : '');
+  }
+  // Steps -> text, in the presets' style ("name: X; pit 250 until food1 >= 165 for 30m; hold 200 notify \"Done\"").
+  function format(p, sep) {
+    const out = []; if ((p.name || '').trim()) out.push('name: ' + p.name.trim());
+    p.steps.forEach(s => {
+      const a = [];
+      if (s.kind === 'pit' || s.kind === 'hold') a.push(s.kind + ' ' + numTxt(s.temp));
+      if ((s.notify || '').trim()) a.push('notify "' + s.notify.trim() + '"');
+      if (s.kind === 'shutdown') a.push('shutdown');
+      if (s.kind === 'pit' || s.kind === 'notify') s.until.forEach((c, k) => a.push((k ? 'or ' : 'until ') + cond(c)));
+      out.push(a.join(' '));
+    });
+    return out.join(sep || '; ');
+  }
+  const range = f => f ? [200, 700] : [93, 371];  // the stock controller's pit range
+  // Problems the editor can see before sending (the controller still checks, and its error is shown after loading).
+  function check(p, f) {
+    const E = [], [lo, hi] = range(f), u = f ? '°F' : '°C';
+    if (/[;"'\n\r]/.test(p.name || '')) E.push("The name can't contain ; or quotes");
+    if (!p.steps.length) E.push('Add a step');
+    p.steps.forEach((s, i) => {
+      const add = m => E.push('Step ' + (i + 1) + ': ' + m), last = i === p.steps.length - 1;
+      if (s.kind === 'pit' || s.kind === 'hold') {
+        const v = parseFloat(s.temp);
+        if (!Number.isFinite(v)) add('set the pit temperature'); else if (v < lo || v > hi) add('the pit range is ' + lo + '–' + hi + u);
+      }
+      if (s.kind === 'hold' && !last) add('"Hold at" must be the last step (the program stays there)');
+      if (s.kind === 'shutdown' && !last) add('"Shut down" ends the program: the steps after it never run');
+      if (s.kind === 'notify' && !(s.notify || '').trim()) add('write the notification');
+      if ((s.notify || '').includes('"')) add("the notification can't contain double quotes");
+      if (s.kind === 'pit' || s.kind === 'notify') s.until.forEach(c => {
+        const v = parseFloat(c.value);
+        if (TEMP[c.type] && !Number.isFinite(v)) add('a condition needs a temperature');
+        if (c.type === 'after' && !(v > 0)) add('a condition needs a time in the step');
+        if (c.type === 'at' && !/^\d{1,2}:\d{2}$/.test(c.value || '')) add('a condition needs a clock time');
+        if (HELD[c.type] && c.held !== '' && !(parseFloat(c.held) >= 0)) add('"held for" needs minutes');
+      });
+    });
+    return E;
+  }
+
+  // ---- the step editor. env: el() container, isF(), unit(), labels() [6 probe names], text() the controller's
+  // program text (null = unknown), max() text limit (0 = none), load(text) -> Promise (false = failed), toast(msg).
+  const KINDS = [['pit', 'Set pit to'], ['hold', 'Hold at'], ['notify', 'Notify only'], ['shutdown', 'Shut down']];
+  const CONDS = [['gte', 'Food probe reaches'], ['lte', 'Food probe drops to'], ['pit', 'Pit reaches'], ['done', 'Probe done'],
+    ['after', 'Time in step'], ['at', 'Clock time'], ['stall_start', 'Stall starts'], ['stall_end', 'Stall ends']];
+  const h = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const opt = (list, cur) => list.map(([v, l]) => `<option value="${h(v)}"${String(v) === String(cur) ? ' selected' : ''}>${h(l)}</option>`).join('');
+  function editor(env) {
+    const S = { prog: { name: '', steps: [] }, mode: 'steps', raw: '', note: '', src: null, touched: false, sent: null, userText: false };
+    const text = () => S.mode === 'text' ? S.raw : format(S.prog);
+    const same = (srv, t) => srv.trim() === t.trim() || (srv.length >= 250 && srv.endsWith('...') && t.trim().startsWith(srv.slice(0, -3).trim()));
+    function adopt(t) {
+      S.note = ''; S.raw = t;
+      if (!t.trim()) { S.prog = { name: '', steps: [] }; S.mode = S.userText ? 'text' : 'steps'; return; }
+      if (t.length >= 250 && t.endsWith('...')) { S.mode = 'text'; S.note = 'The controller shows only the start of programs longer than 255 characters.'; return; }
+      const r = parse(t, env.isF());
+      if (r.prog) { S.prog = r.prog; S.mode = S.userText ? 'text' : 'steps'; return; }
+      S.mode = 'text'; S.note = "The step editor can't show this program (" + (r.unsupported || r.error) + '), so it is shown as text.';
+    }
+    // Follow the controller's program (a preset picked, a load from elsewhere) unless there are edits not loaded yet.
+    function sync() {
+      const srv = env.text(); if (srv == null) return;
+      if (S.sent != null && same(srv, S.sent)) { S.touched = false; S.sent = null; S.src = srv; return; }
+      if (S.touched || srv === S.src) return;
+      S.src = srv; adopt(srv);
+    }
+    function stepHTML(s, i, n, f, u, labels) {
+      const id = 'pe-s' + i, N = 'Step ' + (i + 1), [lo, hi] = range(f);
+      const conds = s.kind === 'pit' || s.kind === 'notify';
+      const tempIn = (key, val, label, extra) => `<span class="pe-unit"><input id="${id}-${key}" type="number" inputmode="decimal" data-pe="${key}" data-i="${i}" value="${h(val)}" aria-label="${h(label)}"${extra || ''}><span>${h(u)}</span></span>`;
+      const cs = conds ? s.until.map((c, k) => {
+        const cid = id + '-c' + k, CN = N + ', condition ' + (k + 1), at = ` data-i="${i}" data-k="${k}"`;
+        let v = '';
+        if (TEMP[c.type]) v = `<span class="pe-unit"><input id="${cid}-v" type="number" inputmode="decimal" data-pe="cval"${at} value="${h(c.value)}" aria-label="${h(CN + ' temperature')}"><span>${h(u)}</span></span>`;
+        else if (c.type === 'after') v = `<span class="pe-unit"><input id="${cid}-v" type="number" inputmode="decimal" min="0" data-pe="cval"${at} value="${h(c.value)}" aria-label="${h(CN + ' time in step')}">
+          <select id="${cid}-u" data-pe="cunit"${at} aria-label="${h(CN + ' unit')}">${opt([['h', 'hours'], ['m', 'min']], c.unit)}</select></span>`;
+        else if (c.type === 'at') v = `<input id="${cid}-v" type="time" data-pe="cval"${at} value="${h(c.value)}" aria-label="${h(CN + ' clock time')}">`;
+        return `<div class="pe-cond"><span class="pe-or">${k ? 'or' : 'until'}</span>
+          <select id="${cid}-type" data-pe="ctype"${at} aria-label="${h(CN)}">${opt(CONDS, c.type)}</select>
+          ${PROBE[c.type] ? `<select id="${cid}-p" data-pe="cprobe"${at} aria-label="${h(CN + ' probe')}">${opt(labels.map((l, j) => [j + 1, l]), c.probe)}</select>` : ''}${v}
+          ${HELD[c.type] ? `<label class="pe-held">held for <input id="${cid}-held" type="number" inputmode="numeric" min="0" data-pe="cheld"${at} value="${h(c.held)}" placeholder="0"> min</label>` : ''}
+          <button type="button" class="btn pe-x" data-pe-act="del-cond"${at} aria-label="${h('Remove ' + CN.toLowerCase())}">×</button></div>`;
+      }).join('') : '';
+      const hint = s.kind === 'hold' ? 'Stays at this temperature until you stop the program.' : s.kind === 'shutdown' ? 'Ends the program.'
+        : !s.until.length ? (i === n - 1 ? 'No condition: the program ends here and the pit stays at this temperature.' : 'No condition: moves straight on to the next step.') : '';
+      return `<li class="pe-step" role="group" aria-label="${N}">
+        <div class="pe-sh"><span class="pe-n" aria-hidden="true">${i + 1}</span>
+          <select id="${id}-kind" data-pe="kind" data-i="${i}" aria-label="${N} action">${opt(KINDS, s.kind)}</select>
+          ${s.kind === 'pit' || s.kind === 'hold' ? tempIn('temp', s.temp, N + ' pit temperature', ` min="${lo}" max="${hi}" step="${f ? 5 : 1}"`) : ''}
+</div>
+        ${cs}
+        <div class="pe-sf">${conds ? `<button type="button" class="btn pe-add" id="${id}-addc" data-pe-act="add-cond" data-i="${i}">${s.until.length ? '+ or…' : '+ until…'}</button>` : ''}
+          <span class="pe-tools"><button type="button" class="btn pe-x" id="${id}-up" data-pe-act="up" data-i="${i}" aria-label="Move ${N.toLowerCase()} up"${i ? '' : ' disabled'}>↑</button><button type="button" class="btn pe-x" id="${id}-dn" data-pe-act="down" data-i="${i}" aria-label="Move ${N.toLowerCase()} down"${i < n - 1 ? '' : ' disabled'}>↓</button><button type="button" class="btn pe-x" data-pe-act="del-step" data-i="${i}" aria-label="Remove ${N.toLowerCase()}">×</button></span></div>
+        ${hint ? `<p class="pe-hint">${h(hint)}</p>` : ''}
+        <input id="${id}-note" class="pe-note" type="text" data-pe="notify" data-i="${i}" value="${h(s.notify)}" maxlength="120" placeholder="${s.kind === 'notify' ? 'Notification text' : 'Notify when this step starts (optional)'}" aria-label="${N} notification"></li>`;
+    }
+    function mainHTML() {
+      if (S.mode === 'text') {
+        return `${S.note ? `<p class="pe-msg">${h(S.note)}</p>` : ''}
+          <textarea id="progtext" data-pe="raw" spellcheck="false" aria-label="Program text" placeholder='name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Done"'>${h(S.raw)}</textarea>
+          <div class="btns"><button type="button" class="btn" id="pe-tosteps" data-pe-act="to-steps">Edit as steps</button></div>`;
+      }
+      const f = env.isF(), u = env.unit(), labels = env.labels(), P = S.prog.steps;
+      return `<div class="pe-name"><label for="pe-name">Name</label><input id="pe-name" type="text" data-pe="name" value="${h(S.prog.name)}" maxlength="40" placeholder="e.g. Pork butt" autocomplete="off"></div>
+        ${P.length ? `<ol class="pe-steps">${P.map((s, i) => stepHTML(s, i, P.length, f, u, labels)).join('')}</ol>` : '<p class="pe-hint">No steps yet.</p>'}
+        <div class="btns"><button type="button" class="btn" id="pe-addstep" data-pe-act="add-step">+ Add step</button><button type="button" class="btn" id="pe-totext" data-pe-act="to-text">Edit as text</button></div>`;
+    }
+    function footHTML() {
+      const t = text(), max = env.max(), errs = S.mode === 'steps' ? check(S.prog, env.isF()) : [], long = max && t.length > max;
+      const ok = t.trim() && !errs.length && !long;
+      return `${S.mode === 'steps' && S.prog.steps.length ? `<details class="more pe-prev" data-k="pe-prev"><summary>Program text · ${t.length}${max ? '/' + max : ''} characters</summary><pre class="pe-pre">${h(t)}</pre></details>` : ''}
+        ${long ? `<p class="err">Too long for the controller's program field (${t.length}/${max} characters): load long programs from Home Assistant.</p>` : ''}
+        ${errs.length ? `<ul class="err pe-errs" role="alert">${errs.map(e => `<li>${h(e)}</li>`).join('')}</ul>` : ''}
+        <div class="btns pe-load"><button type="button" class="btn${S.touched && ok ? ' pri' : ''}" id="pe-load" data-pe-act="load"${ok ? '' : ' disabled'}>Load program</button>
+          <span class="pe-state">${S.sent != null ? 'Sent to the controller' : S.touched ? 'Edited: load it, then Start' : 'This is the controller\'s program'}</span></div>`;
+    }
+    function bind(el) {
+      el._pe = 1;
+      el.addEventListener('click', e => { const b = e.target.closest('[data-pe-act]'); if (b && el.contains(b) && !b.disabled) act(b.dataset.peAct, +b.dataset.i, +b.dataset.k); });
+      el.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.pe && t.tagName !== 'SELECT') { set(t); soft(); } });
+      el.addEventListener('focusout', () => setTimeout(() => draw(false), 0));  // what was held back while a field had focus
+      el.addEventListener('change', e => {
+        const t = e.target; if (!t.dataset || !t.dataset.pe) return;
+        set(t);
+        if (t.tagName === 'SELECT') return draw(true, t.id);
+        if (t.dataset.pe === 'temp') {  // keep the pit inside the controller's range
+          const s = S.prog.steps[+t.dataset.i], v = parseFloat(t.value), [lo, hi] = range(env.isF());
+          if (s && Number.isFinite(v) && (v < lo || v > hi)) { s.temp = t.value = String(Math.min(hi, Math.max(lo, v))); env.toast('The pit range is ' + lo + '–' + hi + env.unit()); }
+        }
+        soft();
+      });
+    }
+    function set(t) {
+      const k = t.dataset.pe, s = S.prog.steps[+t.dataset.i], c = s && s.until[+t.dataset.k], v = t.value;
+      S.touched = true; S.sent = null;
+      if (k === 'raw') S.raw = v; else if (k === 'name') S.prog.name = v;
+      else if (s && k === 'kind') s.kind = v; else if (s && k === 'temp') s.temp = v; else if (s && k === 'notify') s.notify = v;
+      else if (c && k === 'ctype') { const cat = x => TEMP[x] ? 'temp' : x; if (cat(c.type) !== cat(v)) c.value = ''; if (v === 'after' && c.type !== 'after') c.unit = 'h'; c.type = v; }
+      else if (c && k === 'cprobe') c.probe = +v; else if (c && k === 'cval') c.value = v; else if (c && k === 'cunit') c.unit = v; else if (c && k === 'cheld') c.held = v;
+    }
+    function act(a, i, k) {
+      const P = S.prog.steps;
+      if (a === 'load') return load();
+      if (a === 'to-text') { S.raw = format(S.prog); S.mode = 'text'; S.userText = true; S.note = ''; return draw(true, 'progtext'); }
+      if (a === 'to-steps') {
+        const r = S.raw.trim() ? parse(S.raw, env.isF()) : { prog: { name: '', steps: [] } };
+        if (!r.prog) { S.note = "The step editor can't show this (" + (r.unsupported || r.error) + '): keep editing it as text.'; return draw(true, 'pe-tosteps'); }
+        S.prog = r.prog; S.mode = 'steps'; S.userText = false; S.note = ''; return draw(true, 'pe-totext');
+      }
+      S.touched = true; S.sent = null;
+      if (a === 'add-step') {
+        const lastPit = [...P].reverse().find(s => s.kind === 'pit' && s.temp !== '');
+        const at = P.length && /hold|shutdown/.test(P[P.length - 1].kind) ? P.length - 1 : P.length;
+        P.splice(at, 0, { kind: 'pit', temp: lastPit ? lastPit.temp : env.isF() ? '225' : '107', notify: '', until: [{ type: 'gte', probe: 1, value: '', unit: 'h', held: '' }] });
+        return draw(true, 'pe-s' + at + '-temp');
+      }
+      if (a === 'del-step') { P.splice(i, 1); return draw(true, 'pe-addstep'); }
+      if (a === 'up' && i > 0) { [P[i - 1], P[i]] = [P[i], P[i - 1]]; return draw(true, 'pe-s' + (i - 1) + (i - 1 ? '-up' : '-dn')); }
+      if (a === 'down' && i < P.length - 1) { [P[i + 1], P[i]] = [P[i], P[i + 1]]; return draw(true, 'pe-s' + (i + 1) + (i + 1 < P.length - 1 ? '-dn' : '-up')); }
+      if (a === 'add-cond' && P[i]) { const prev = P[i].until[P[i].until.length - 1]; P[i].until.push({ type: 'gte', probe: prev ? prev.probe : 1, value: '', unit: 'h', held: '' }); return draw(true, 'pe-s' + i + '-c' + (P[i].until.length - 1) + '-type'); }
+      if (a === 'del-cond' && P[i]) { P[i].until.splice(k, 1); return draw(true, 'pe-s' + i + '-addc'); }
+      draw(true);
+    }
+    function load() {
+      const t = text().trim(), max = env.max();
+      if (!t) return env.toast('Add a step first');
+      if (S.mode === 'steps' && check(S.prog, env.isF()).length) return env.toast('Fix the program first');
+      if (max && t.length > max) return env.toast('Too long for the controller: load it from Home Assistant');
+      S.sent = t; S.touched = true;
+      return Promise.resolve(env.load(t)).then(ok => { if (ok === false) S.sent = null; else env.toast('Program sent: press Start when you\'re ready'); draw(true); });
+    }
+    const keepOpen = (el, fn) => { const o = [...el.querySelectorAll('details[data-k]')].filter(d => d.open).map(d => d.dataset.k); fn(); o.forEach(k => { const d = el.querySelector(`details[data-k="${k}"]`); if (d) d.open = true; }); };
+    function soft() { const el = env.el(), ft = el && el.querySelector('.pe-foot'); if (ft) keepOpen(ft, () => { ft.innerHTML = footHTML(); }); }
+    // Redraw when something changed, never under someone typing; `force` (after a button or menu) keeps focus on `focusId`.
+    function draw(force, focusId) {
+      const el = env.el(); if (!el) return;
+      if (!el._pe) bind(el);
+      const html = `<div class="pe-main">${mainHTML()}</div><div class="pe-foot">${footHTML()}</div>`;
+      const a = document.activeElement;
+      if (!force && (el._h === html || (a && el.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)))) return;
+      keepOpen(el, () => { el._h = html; el.innerHTML = html; });
+      const f = focusId && document.getElementById(focusId);
+      if (f && !f.disabled) f.focus({ preventScroll: true });
+    }
+    return { render() { sync(); draw(false); }, text, state: S, load };
+  }
+  return { parse, format, check, editor, range };
+})();
+// ==== END cook program editor (shared block) ====
+
+// Cook program card: status and preset (redrawn live), the step editor (shared block above: its own redraws, so
+// edits survive live updates) and the run buttons. Programs load through the "Program" text (255 characters at most).
+const progEd = PG.editor({
+  el: () => $('progedit'), isF, unit: TU, toast,
+  labels: () => [1, 2, 3, 4, 5, 6].map(i => { const pr = str(E('select', 'Food ' + i + ' protein')); return 'Food ' + i + (pr && !/^Auto/i.test(pr) ? ' · ' + pr : ''); }),
+  text: () => { const e = E('text', 'Program'); return e ? str(e) : null; },
+  max: () => { const e = E('text', 'Program'); return (e && parseInt(e.max_length, 10)) || 255; },
+  load: t => post('text', 'Program', 'set', { value: t }),
+});
 function renderProg() {
   const st = T('Program state') || 'Idle', status = T('Program status'), err = T('Program error'), txt = E('text', 'Program');
   const run = st === 'Running', paused = st === 'Paused', known = !!E('text_sensor', 'Program state');
-  const pt = $('progtext');
-  if (pt && pt.dataset.dirty && txt && pt.value.trim() === str(txt).trim()) delete pt.dataset.dirty;  // the device took it
   const b = (name, label, ok, pri, confirm) => E('button', name) ? `<button class="btn${armed[name] ? ' arm' : pri ? ' pri' : ''}" data-a="press" data-n="${esc(name)}"${confirm ? ' data-confirm="1"' : ''}${known && !ok ? ' disabled' : ''}>${armed[name] ? 'Tap again to ' + label.toLowerCase() : label}</button>` : '';
-  put('prog', `<h3><span>Cook program</span><span class="chip ${run ? 'hot' : paused ? 'warn' : ''}">${esc(st)}</span></h3>
-    ${status ? `<p style="margin:0 0 6px">${esc(status)}</p>` : ''}${err ? `<p class="err">${esc(err)}</p>` : ''}
+  if (!$('progedit')) $('prog').innerHTML = '<h3 id="proghead"></h3><div id="progstat"></div><div id="progedit" class="pe"></div><div id="progbtns"></div>';
+  put('proghead', `<span>Cook program</span><span class="chip ${run ? 'hot' : paused ? 'warn' : ''}">${esc(st)}</span>`);
+  put('progstat', `${status ? `<p style="margin:0 0 6px">${esc(status)}</p>` : ''}${err ? `<p class="err" role="alert">The controller says: ${esc(err)}</p>` : ''}
     ${E('select', 'Program preset') ? `<div class="row"><span>Preset</span>${sel('select', 'Program preset')}</div>` : ''}
-    ${txt ? `<textarea id="progtext" maxlength="${esc(txt.max_length || 255)}" aria-label="Program" spellcheck="false">${esc(str(txt))}</textarea>
-      <div class="btns" style="margin-top:6px"><button class="btn" data-a="load">Load program</button></div>` : ''}
-    <div class="btns">${b('Start program', 'Start', !run && !paused, true)}${b('Pause program', 'Pause', run)}${b('Resume program', 'Resume', paused, true)}${b('Skip program step', 'Skip step', run || paused, false, true)}${b('Stop program', 'Stop', run || paused, false, true)}</div>`);
+    ${txt ? '' : '<p class="note">This controller has no "Program" text to load programs into: load them from Home Assistant.</p>'}`);
+  if (txt) progEd.render(); else if ($('progedit').innerHTML) { $('progedit').innerHTML = ''; $('progedit')._h = ''; }
+  put('progbtns', `<div class="btns">${b('Start program', 'Start', !run && !paused, !progEd.state.touched)}${b('Pause program', 'Pause', run)}${b('Resume program', 'Resume', paused, true)}${b('Skip program step', 'Skip step', run || paused, false, true)}${b('Stop program', 'Stop', run || paused, false, true)}</div>`);
+}
+
+// Grill Wi-Fi setup over Bluetooth (the controller sends what the Char-Griller app would). The password is typed
+// here, on the controller's own page: it goes to the controller only (never to Home Assistant) and isn't kept.
+function wifiSetup() {
+  if (!E('button', 'Grill Wi-Fi: set up')) return '';
+  const nets = T('Grill Wi-Fi networks'), ss = E('text', 'Grill Wi-Fi: network name');
+  const list = nets && !/^(Scanning|No networks)/.test(nets) ? nets.split(', ').filter(n => n && n !== '…') : [];
+  return `<details class="more" data-k="wifi"><summary>Set up the grill's Wi-Fi</summary>
+    <p class="note" style="margin-top:4px">Over Bluetooth, like the Char-Griller app (close the app first). 2.4 GHz networks only.</p>
+    <div class="btns"><button class="btn" data-a="press" data-n="Grill Wi-Fi: join saved network">Join saved network</button>
+      <button class="btn" data-a="press" data-n="Grill Wi-Fi: scan">Scan</button></div>
+    ${nets ? `<div class="row"><span>Networks</span><span class="r" style="white-space:normal">${list.length ? list.map(n => `<button class="btn" data-a="wifipick" data-v="${esc(n)}">${esc(n)}</button>`).join(' ') : esc(nets)}</span></div>` : ''}
+    <div class="row"><span>Network</span><span class="entry"><input id="wifissid" type="text" autocomplete="off" maxlength="32" value="${esc(str(ss))}" placeholder="name" aria-label="Wi-Fi network name"></span></div>
+    <div class="row"><span>Password</span><span class="entry"><input id="wifipass" type="password" autocomplete="new-password" maxlength="63" aria-label="Wi-Fi password">
+      <button class="btn pri" data-a="wifijoin">Set up</button></span></div>
+    <p class="note">The password goes to the controller and on to the grill; it isn't stored.</p></details>`;
 }
 
 function renderSetup(u) {
   const wifi = T('Grill Wi-Fi'), ip = E('text', 'Grill IP address');
   put('conn', `<h3><span>Grill link</span><span class="chip ${on(E('binary_sensor', 'Grill connected')) ? 'ok' : 'bad'}">${on(E('binary_sensor', 'Grill connected')) ? esc({ wifi: 'Wi-Fi', bluetooth: 'Bluetooth' }[T('Grill link')] || 'connected') : 'not connected'}</span></h3>
-    ${tog('Control over Bluetooth (experimental)', 'Control over Bluetooth ' + EXP('Not yet confirmed on the 980: check the grill follows your first change.'), 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
+    ${tog(BLE(), 'Control over Bluetooth', 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
     ${tog('Bridge enabled', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}
     ${tog('Alerts enabled', 'Alerts')}
     ${ip ? `<div class="row"><span>Grill IP address</span><span class="entry"><input id="ipin" type="text" inputmode="decimal" autocomplete="off" value="${esc(str(ip))}" placeholder="automatic" style="width:140px" aria-label="Grill IP address"><button class="btn" data-a="ip">Save</button></span></div>` : ''}
-    ${E('text_sensor', 'Grill Wi-Fi') ? row('Grill\'s Wi-Fi', esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')) : ''}`);
+    ${E('text_sensor', 'Grill Wi-Fi') ? row('Grill\'s Wi-Fi', esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')) : ''}
+    ${wifiSetup()}`);
   const h5 = E('binary_sensor', 'H5198 connected'), rssi = S('H5198 signal');
   let rows = '';
   for (let i = 1; i <= 6; i++) {

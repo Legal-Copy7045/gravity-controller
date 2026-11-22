@@ -31,6 +31,7 @@ PROGRAM = os.path.join(HERE, ".esphome/build/smoker-host-test/.pioenvs/smoker-ho
 HTTP = 18080
 BASE = f"http://127.0.0.1:{HTTP}"
 failures = []
+EDITOR_SHOTS = os.environ.get("EDITOR_SHOTS")  # where the editor screenshot goes (default: the screenshot dir)
 PAGE = None  # while a page is open, waits pump Playwright (its routes serve the page's requests)
 
 
@@ -126,6 +127,10 @@ def run_page(browser, width, height, shots):
     offline(ctx)
     global PAGE
     pg = PAGE = ctx.new_page()
+    # The page's state, for the program editor check (the host build has no "Program" text: see program_editor()).
+    src = open(os.path.join(ROOT, "firmware/device-ui/ui.js"), encoding="utf-8").read()
+    pg.route(BASE + "/0.js", lambda r: r.fulfill(status=200, content_type="text/javascript",
+                                                  body=src + "\nwindow.__gxTest = { ents, render, progEd };\n"))
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and not (m.location or {}).get("url", "").startswith(
@@ -184,6 +189,7 @@ def run_page(browser, width, height, shots):
         check(True, "photo cleared: the drawing is back")
     except Exception:
         check(False, "drawing didn't come back after clearing the photo")
+    program_editor(pg, width, shots)
     over = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     check(over <= 0, f"no horizontal overflow at {width}px ({over}px)")
     check(not errors, f"no console errors at {width}px {errors[:3]}")
@@ -195,6 +201,88 @@ def run_page(browser, width, height, shots):
         pg.screenshot(path=os.path.join(shots, f"device-{width}-dark.png"), full_page=True)
     ctx.close()
     PAGE = None
+
+
+LOAD_PROGRAM = """
+import asyncio, sys
+from aioesphomeapi import APIClient
+async def main():
+    c = APIClient("127.0.0.1", 6053, None)
+    await c.connect(login=True)
+    _, services = await c.list_entities_services()
+    await c.execute_service({s.name: s for s in services}["load_program"], {"program": sys.argv[1]})
+    await asyncio.sleep(0.5)
+    await c.disconnect()
+asyncio.run(main())
+"""
+
+
+def program_editor(pg, width, shots):
+    """Build a 2-step program in the step editor, load it, and the controller takes it.
+
+    core.yaml loads programs through its "Program" text (POST /text/Program/set). The host build
+    (tests/host-bridge.yaml) has no such text, so the page gets a stand-in entity, the request is caught here and
+    the text goes to the device's load_program action; the device's own Program status/error are then checked.
+    """
+    real = True
+    try:
+        get("/text/Program")
+    except Exception:
+        real = False
+    sent = []
+    if not real:
+        pg.evaluate("""() => { __gxTest.ents['text/Program'] = { domain: 'text', name: 'Program', value: '', state: '', max_length: 255 };
+            __gxTest.render(); }""")
+
+        def catch(r):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(r.request.url).query)
+            sent.append(q.get("value", [""])[0])
+            r.fulfill(status=200, body="")
+        pg.route(BASE + "/text/Program/set*", catch)
+    pg.wait_for_selector("#progedit #pe-addstep", timeout=10000)
+    while pg.locator("#progedit .pe-step").count():  # start from an empty program
+        pg.locator("#progedit [data-pe-act=del-step]").first.click()
+    pg.fill("#pe-name", "Web cook")
+    pg.click("#pe-addstep")
+    pg.fill("#pe-s0-temp", "260")
+    pg.fill("#pe-s0-c0-v", "110")
+    pg.click("#pe-addstep")
+    pg.select_option("#pe-s1-kind", "hold")
+    pg.fill("#pe-s1-temp", "200")
+    pg.fill("#pe-s1-note", "Done - rest it")
+    pg.evaluate("document.activeElement.blur()")
+    want = 'name: Web cook; pit 260 until food1 >= 110; hold 200 notify "Done - rest it"'
+    got = pg.evaluate("__gxTest.progEd.text()")
+    check(got == want, f"step editor builds the program ({got!r})")
+    check(pg.locator("#progedit .pe-errs").count() == 0 and not pg.is_disabled("#pe-load"), "the program is valid and can be loaded")
+    if shots and width < 600:
+        pg.evaluate("document.querySelector('#progedit details.pe-prev').open = true")
+        os.makedirs(EDITOR_SHOTS or shots, exist_ok=True)
+        pg.evaluate("document.getElementById('secbar').style.position = 'static'")  # the sticky bar would cover the card
+        pg.locator("#prog").screenshot(path=os.path.join(EDITOR_SHOTS or shots, "device-editor-phone-light.png"))
+        pg.evaluate("document.getElementById('secbar').style.position = ''")
+    pg.click("#pe-load")
+    if real:
+        ok = wait(lambda: get("/text/Program")["value"] == want, 10, "the Program text")
+        check(ok, "Load set the Program text on the device")
+    else:
+        wait(lambda: sent, 5, "the Program text request")
+        check(sent == [want], f"Load sends the program as the Program text ({sent})")
+        if sent:
+            subprocess.run([os.environ.get("ESPHOME_PYTHON", sys.executable), "-c", LOAD_PROGRAM, sent[0]], timeout=30, check=False)
+            pg.evaluate("t => { const e = __gxTest.ents['text/Program']; e.value = e.state = t; __gxTest.render(); }", sent[0])
+    status = lambda: get("/text_sensor/Program status").get("value") or ""
+    err = lambda: get("/text_sensor/Program error").get("value")
+    ok = wait(lambda: "Ready: Web cook (2 steps)" in status() and not err(), 10, "the device's program status")
+    check(ok, f"the device took the program (status {status()!r}, error {err()!r})")
+    ok = wait(lambda: "Ready: Web cook (2 steps)" in pg.inner_text("#progstat"), 10, "the page's program status")
+    check(ok, f"the page shows the device's program status ({pg.inner_text('#progstat')[:80]!r})")
+    check("controller's program" in pg.inner_text("#progedit .pe-load"), "the editor shows it as the controller's program")
+    # The controller's own error is shown (a program it refuses).
+    if not real:
+        subprocess.run([os.environ.get("ESPHOME_PYTHON", sys.executable), "-c", LOAD_PROGRAM, "pit 250 until food9 >= 160"], timeout=30, check=False)
+        ok = wait(lambda: "food9" in pg.inner_text("#progstat"), 10, "the device's program error on the page")
+        check(ok, "the device's Program error shows in the program card")
 
 
 def classic(browser):

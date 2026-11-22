@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.9] - 2026-11-22
+
+- **Cook program step editor** on the dashboard and the controller's own page: each stage is "Set pit to N° until …"
+  (probe reaches / drops to, pit reaches, probe done, time in step, clock time, stall start/end; "held for" minutes;
+  several conditions = "or"), with a notification per stage; add, remove and reorder stages; presets load into it;
+  the program text is still there ("Edit as text").
+- **Set up the grill's Wi-Fi over Bluetooth** (what the Char-Griller app does): *Join saved network* (the app sends
+  this on every connect; the controller didn't), *Scan*, and a new network and password from the controller's own
+  page. The password goes to the controller only (never to Home Assistant) and isn't stored.
+- **Control over Bluetooth** is confirmed working on a Gravity 980: no longer marked experimental (the switch is now
+  named "Control over Bluetooth"; the old "(experimental)" entity can be deleted in Home Assistant).
+
 ## [0.2.8] - 2026-11-22
 
 - The controller's own page shows **your grill photo** too: new *Grill photo URL* setting, filled in automatically by

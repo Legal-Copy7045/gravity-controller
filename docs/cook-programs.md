@@ -36,5 +36,16 @@ program keeps retrying every minute and tells you if the grill still hasn't take
 **pauses**; resume it to go back to the program's target. After a controller restart, a running program is restored
 **paused** at the same step, and you get a notification.
 
+**Step editor:** the Cook program card on the Home Assistant panel and on the controller's own page shows the program
+as steps: an action (*Set pit to*, *Hold at*, *Notify only*, *Shut down*), the conditions that end the step (*until* …
+*or* …: a food probe reaches or drops to a temperature, optionally held for some minutes; the pit reaches a
+temperature; a probe is done; time in the step; a clock time; a stall starts or ends) and an optional notification.
+Steps can be added, removed and moved; *Program text* shows what will be sent, and **Load program**, then **Start**,
+runs it. The editor checks the obvious things first (a missing temperature, a pit outside 200–700 °F / 93–371 °C, a
+*Hold at* that isn't last); the controller's own error still shows after loading. *Edit as text* switches to the text
+(and back); a program the editor can't show as steps (e.g. `pit <= N`, `until` on a hold) opens as text, unchanged.
+The controller's page loads programs through its **Program** text, so they must fit in 255 characters there; load
+longer ones from Home Assistant.
+
 **Presets** (in `firmware/core.yaml`): Pork shoulder (Texas crutch), Brisket, Ribs, Chicken (hot & fast), Hold warm.
 Pick one with **Program preset**, or type your own in **Program**, or ask the AI (`script.smoker_plan_cook`).

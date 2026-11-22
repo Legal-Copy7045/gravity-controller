@@ -88,11 +88,14 @@ STATES = dict([
        "Smoker Charcoal estimate basis"),
     st("switch.smoker_control_over_bluetooth_experimental", "on", "Smoker Control over Bluetooth (experimental)"),
     st("button.smoker_restart", "unknown", "Smoker Restart"),
+    st("button.smoker_grill_wi_fi_scan", "unknown", "Smoker Grill Wi-Fi: scan"),
+    st("button.smoker_grill_wi_fi_join_saved_network", "unknown", "Smoker Grill Wi-Fi: join saved network"),
+    st("sensor.smoker_grill_wi_fi_networks", "Grill-Network, Neighbour", "Smoker Grill Wi-Fi networks"),
     st("sensor.smoker_program_state", "Running", "Smoker Program state"),
     st("sensor.smoker_program_status", "Step 1/3, pit 250°F, until food1 158/165°F (held 0/30 min)", "Smoker Program status"),
     st("sensor.smoker_program_error", "", "Smoker Program error"),
-    st("text.smoker_program", "name: Pork shoulder; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160",
-       "Smoker Program"),
+    st("text.smoker_program", "name: Pork shoulder; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200",
+       "Smoker Program"),  # FIXTURE_PROGRAM
     st("select.smoker_program_preset", "Pork shoulder (Texas crutch)", "Smoker Program preset",
        options=["Pork shoulder (Texas crutch)", "Brisket", "Ribs", "Custom"]),
     st("sensor.smoker_cooks_learned", 3, "Smoker Cooks learned"),
@@ -156,6 +159,183 @@ document.getElementById('f').srcdoc = %PAGE%;
 </script></body></html>"""
 
 
+FIXTURE_PROGRAM = STATES["text.smoker_program"]["state"]
+EDITOR_SHOTS = os.environ.get("EDITOR_SHOTS")  # optional: where to save the editor's phone screenshot
+
+
+def presets():
+    """The program presets from firmware/core.yaml (cook_assistant: presets:)."""
+    import re
+    src = open(os.path.join(ROOT, "firmware/core.yaml"), encoding="utf-8").read()
+    block = src[src.index("  presets:"):src.index("  probes:", src.index("  presets:"))]
+    return [json.loads(m) for m in re.findall(r'program: ("(?:[^"\\]|\\.)*")', block)]
+
+
+def shared_blocks_match():
+    """page.html and the device page's ui.js carry the same cook program editor block."""
+    b, e = "// ==== BEGIN cook program editor (shared block) ====", "// ==== END cook program editor (shared block) ===="
+    out = []
+    for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
+        s = open(os.path.join(ROOT, f), encoding="utf-8").read()
+        out.append(s[s.index(b):s.index(e)] if b in s and e in s else None)
+    return out[0] is not None and out[0] == out[1]
+
+
+def set_program(pg, fr, text, error=""):
+    """The controller's Program text (and error) change, as after a preset or a load."""
+    pg.evaluate("""([t, e]) => { const st = window.__smHass.states;
+        st['text.smoker_program'] = Object.assign({}, st['text.smoker_program'], {state: t});
+        st['sensor.smoker_program_error'] = Object.assign({}, st['sensor.smoker_program_error'], {state: e});
+        window.__smHass = Object.assign({}, window.__smHass, {states: Object.assign({}, st)});
+        document.getElementById('f').contentWindow.__smOnHass(); }""", [text, error])
+    time.sleep(0.4)
+
+
+def editor_text(fr):
+    return fr.evaluate("progEd.text()")
+
+
+def program_editor(pg, fr):
+    """The step editor in the Cook program card."""
+    fails = []
+    fr.evaluate("document.activeElement && document.activeElement.blur()")
+    # The fixture's program as steps.
+    steps = fr.evaluate("""() => [...document.querySelectorAll('#progedit .pe-step')].map(li => ({
+        kind: li.querySelector('[data-pe=kind]').value, temp: (li.querySelector('[data-pe=temp]') || {}).value,
+        conds: [...li.querySelectorAll('.pe-cond')].map(c => [c.querySelector('[data-pe=ctype]').value,
+            (c.querySelector('[data-pe=cprobe]') || {}).value, (c.querySelector('[data-pe=cval]') || {}).value,
+            (c.querySelector('[data-pe=cheld]') || {}).value])}))""")
+    want = [{"kind": "pit", "temp": "250", "conds": [["gte", "1", "165", "30"]]},
+            {"kind": "pit", "temp": "275", "conds": [["gte", "1", "203", ""]]},
+            {"kind": "hold", "temp": "200", "conds": []}]
+    if steps != want:
+        fails.append(f"editor: fixture program as steps {steps}")
+    if fr.input_value("#pe-name") != "Pork shoulder":
+        fails.append("editor: program name not shown")
+    if "°F" not in fr.inner_text("#progedit .pe-step"):
+        fails.append("editor: unit missing")
+    # Presets: text -> steps -> text is stable, through the page (the controller's text changes as after a preset).
+    for t in presets():
+        set_program(pg, fr, t)
+        if editor_text(fr) != t or fr.locator("#progedit .pe-step").count() != t.count(";"):
+            fails.append(f"editor: preset not shown as steps or changed: {t!r} -> {editor_text(fr)!r}")
+        fr.click("#pe-totext")
+        if fr.input_value("#progtext") != t:
+            fails.append(f"editor: Edit as text changed the preset: {fr.input_value('#progtext')!r}")
+        fr.click("#pe-tosteps")
+        if editor_text(fr) != t or fr.locator("#progedit .pe-step").count() != t.count(";"):
+            fails.append(f"editor: back to steps changed the preset: {editor_text(fr)!r}")
+    # Add a step (it goes before the final hold) and fill it in.
+    set_program(pg, fr, FIXTURE_PROGRAM)
+    fr.click("#pe-addstep")
+    if fr.evaluate("document.activeElement.id") != "pe-s2-temp":
+        fails.append(f"editor: new step's temperature not focused ({fr.evaluate('document.activeElement.id')})")
+    fr.fill("#pe-s2-temp", "300")
+    fr.select_option("#pe-s2-c0-type", "after")
+    fr.fill("#pe-s2-c0-v", "2")
+    fr.click("#pe-s2-addc")
+    fr.select_option("#pe-s2-c1-type", "lte")
+    fr.select_option("#pe-s2-c1-p", "3")
+    fr.fill("#pe-s2-c1-v", "140")
+    fr.fill("#pe-s2-note", "Spritz the ribs")
+    fr.fill("#pe-name", "Test cook")
+    fr.evaluate("document.activeElement.blur()")
+    expect = ('name: Test cook; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; '
+              'pit 300 notify "Spritz the ribs" until after 2h or food3 <= 140; hold 200')
+    if editor_text(fr) != expect:
+        fails.append(f"editor: built program {editor_text(fr)!r}")
+    if expect not in fr.evaluate("document.querySelector('#progedit .pe-pre').textContent"):
+        fails.append("editor: preview doesn't show the program")
+    # Move it up and back down.
+    fr.click("#pe-s2-up")
+    if " pit 300 " not in editor_text(fr).split(";")[2]:
+        fails.append(f"editor: move up {editor_text(fr)!r}")
+    fr.click("#pe-s1-dn")
+    if editor_text(fr) != expect:
+        fails.append(f"editor: move down {editor_text(fr)!r}")
+    # A live update doesn't lose the edits.
+    pg.evaluate("""() => { const st = window.__smHass.states; const k = 'sensor.smoker_pit_temperature';
+        st[k] = Object.assign({}, st[k], {state: '253'}); window.__smHass = Object.assign({}, window.__smHass, {states: Object.assign({}, st)});
+        document.getElementById('f').contentWindow.__smOnHass(); }""")
+    time.sleep(0.4)
+    if editor_text(fr) != expect or fr.input_value("#pe-s2-temp") != "300":
+        fails.append("editor: edits lost on a live update")
+    # Load sends exactly that text to the controller's load_program action.
+    n0 = len(pg.evaluate("window.calls"))
+    fr.click("#pe-load")
+    time.sleep(0.3)
+    sent = [c for c in pg.evaluate("window.calls")[n0:] if c[0] == "ws" and c[2].get("service") == "gravity980_load_program"]
+    if not sent or sent[0][2].get("service_data", {}).get("program") != expect or sent[0][2].get("domain") != "esphome":
+        fails.append(f"editor: load_program not called with the program: {pg.evaluate('window.calls')[n0:]}")
+    if "Sent" not in fr.inner_text("#progedit .pe-load"):
+        fails.append("editor: no 'sent' state after Load")
+    # The controller takes it: the editor follows it; the controller's own error is shown.
+    set_program(pg, fr, expect, "step 3: unknown probe 'food3'")
+    if "unknown probe 'food3'" not in fr.inner_text("#progstat"):
+        fails.append("editor: the controller's Program error isn't shown")
+    if "controller's program" not in fr.inner_text("#progedit .pe-load"):
+        fails.append(f"editor: not marked as the controller's program after it took it: {fr.inner_text('#progedit .pe-load')!r}")
+    set_program(pg, fr, FIXTURE_PROGRAM)
+    # Invalid input: a missing temperature, a hold that isn't last, a pit out of range.
+    fr.fill("#pe-s1-temp", "")
+    errs = fr.inner_text("#progedit .pe-errs") if fr.locator("#progedit .pe-errs").count() else ""
+    if "Step 2: set the pit temperature" not in errs or not fr.is_disabled("#pe-load"):
+        fails.append(f"editor: missing temperature not flagged: {errs!r}")
+    fr.fill("#pe-s1-temp", "275")
+    fr.select_option("#pe-s0-kind", "hold")
+    errs = fr.inner_text("#progedit .pe-errs") if fr.locator("#progedit .pe-errs").count() else ""
+    if "Step 1: \"Hold at\" must be the last step" not in errs or not fr.is_disabled("#pe-load"):
+        fails.append(f"editor: hold not last not flagged: {errs!r}")
+    fr.select_option("#pe-s0-kind", "pit")
+    fr.fill("#pe-s0-temp", "900")
+    fr.press("#pe-s0-temp", "Tab")
+    if fr.input_value("#pe-s0-temp") != "700":
+        fails.append(f"editor: pit not clamped to 700 ({fr.input_value('#pe-s0-temp')})")
+    if fr.locator("#progedit .pe-errs").count():
+        fails.append(f"editor: errors left after fixing: {fr.inner_text('#progedit .pe-errs')!r}")
+    # Text the step editor can't show: text mode with a note, nothing lost.
+    fr.evaluate("progEd.state.touched = false; document.activeElement.blur()")
+    set_program(pg, fr, "pit 250 until pit <= 200")
+    if fr.locator("#progtext").count() != 1 or fr.input_value("#progtext") != "pit 250 until pit <= 200" or "can't show" not in fr.inner_text("#progedit"):
+        fails.append(f"editor: unknown syntax didn't fall back to text: {fr.inner_text('#progedit')[:160]!r}")
+    fr.fill("#progtext", "pit 250 until food1 >= 190")
+    fr.click("#pe-tosteps")
+    if fr.locator("#progedit .pe-step").count() != 1 or editor_text(fr) != "pit 250 until food1 >= 190":
+        fails.append(f"editor: text back to steps: {editor_text(fr)!r}")
+    fr.evaluate("progEd.state.touched = false")
+    return fails
+
+
+def editor_on_phone(pg, fr):
+    """At 390 px: the editor with a few conditions fits the screen."""
+    fails = []
+    fr.click("#pe-addstep")
+    fr.select_option("#pe-s2-c0-type", "after")
+    fr.fill("#pe-s2-c0-v", "90")
+    fr.select_option("#pe-s2-c0-u", "m")
+    fr.click("#pe-s2-addc")
+    fr.select_option("#pe-s2-c1-type", "at")
+    fr.fill("#pe-s2-c1-v", "17:30")
+    fr.click("#pe-s2-addc")
+    fr.select_option("#pe-s2-c2-type", "stall_end")
+    fr.fill("#pe-s2-note", "Wrap it now")
+    fr.evaluate("document.activeElement.blur()")
+    if "until after 90m or at 17:30 or stall_end food1" not in editor_text(fr):
+        fails.append(f"phone editor: {editor_text(fr)!r}")
+    ow = fr.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+    wide = fr.evaluate("""() => [...document.querySelectorAll('#progcard *')].filter(e => e.getBoundingClientRect().right >
+        document.getElementById('progcard').getBoundingClientRect().right + 1).map(e => e.tagName + '#' + e.id).slice(0, 5)""")
+    if ow > 1 or wide:
+        fails.append(f"phone editor: overflow {ow}px {wide}")
+    if EDITOR_SHOTS:
+        os.makedirs(EDITOR_SHOTS, exist_ok=True)
+        fr.evaluate("document.querySelector('#progedit details.pe-prev').open = true")
+        fr.evaluate("document.getElementById('secbar').style.position = 'static'")  # the sticky bar would cover the card
+        fr.locator("#progcard").screenshot(path=os.path.join(EDITOR_SHOTS, "ha-editor-phone-light.png"))
+        fr.evaluate("document.getElementById('secbar').style.position = ''")
+    return fails
+
+
 def main():
     from playwright.sync_api import sync_playwright
 
@@ -165,6 +345,8 @@ def main():
     hp = os.path.join(OUT, "harness.html")
     open(hp, "w").write(harness)
     failures = []
+    if not shared_blocks_match():
+        failures.append("the cook program editor blocks in page.html and ui.js differ")
     with sync_playwright() as p:
         exe = os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1243/chrome-linux64/chrome")
         b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
@@ -277,13 +459,18 @@ def main():
                 if ow > 1:
                     failures.append(f"{scheme}/{name}: horizontal overflow {ow}px")
                 pg.screenshot(path=os.path.join(OUT, f"smoker-{name}-{scheme}.png"), full_page=True)
+                if scheme == "light" and name == "phone":
+                    failures += editor_on_phone(pg, fr)
                 if scheme == "light" and name == "desktop":
                     fr.click("#pitcard .step .btn:last-child")
                     time.sleep(0.3)
                     calls = pg.evaluate("window.calls")
                     if not any(c[0] == "number" and c[1] == "set_value" and c[2]["value"] == 255 for c in calls):
                         failures.append(f"pit + did not call number.set_value 255: {calls}")
-                    # Typed text survives a live re-render of its section.
+                    failures += program_editor(pg, fr)
+                    # Typed text survives a live re-render of its section ("Edit as text").
+                    set_program(pg, fr, FIXTURE_PROGRAM)
+                    fr.click("#pe-totext")
                     fr.fill("#progtext", "pit 300 until food1 >= 190")
                     fr.evaluate("document.activeElement.blur()")  # keyboard dismissed
                     pg.evaluate("""() => { const st = window.__smHass.states;
@@ -295,10 +482,18 @@ def main():
                         failures.append("program card did not re-render on state change")
                     if fr.input_value("#progtext") != "pit 300 until food1 >= 190":
                         failures.append("typed program text was lost on re-render")
+                    # Grill Wi-Fi setup (Setup → Connection): join saved network / scan press the controller's buttons.
+                    fr.evaluate("document.querySelector('#controlcard details[data-k=wifi]').open = true")
+                    if "Grill-Network" not in fr.inner_text("#controlcard"):
+                        failures.append("grill wi-fi: networks the grill sees not shown")
+                    fr.click("#controlcard details[data-k=wifi] button:has-text('Join saved network')"); time.sleep(0.3)
+                    if not any(c[0] == "button" and c[2].get("entity_id") == "button.smoker_grill_wi_fi_join_saved_network"
+                               for c in pg.evaluate("window.calls")):
+                        failures.append("grill wi-fi: join saved network not pressed")
                     # Restart needs a second tap.
                     btn = "#diag button"
                     fr.click(btn); time.sleep(0.2)
-                    if any(c[0] == "button" for c in pg.evaluate("window.calls")):
+                    if any(c[0] == "button" and c[2].get("entity_id") == "button.smoker_restart" for c in pg.evaluate("window.calls")):
                         failures.append("restart pressed on the first tap")
                     if "Tap again" not in fr.inner_text("#diag"):
                         failures.append("restart did not ask for a second tap")

@@ -77,13 +77,14 @@ the grill's 200–700 °F range), and each write is checked against what the gri
 
 The controller can do what the Char-Griller app does over Bluetooth, so you don't need the app (turn its Bluetooth
 off, or close it: the grill takes one Bluetooth connection, and the controller holds it). With the grill connected
-over Bluetooth, on the controller's device page (Configuration):
+over Bluetooth, on the controller's device page (Configuration) or the dashboard's Setup → Connection:
 
 - **Grill Wi-Fi: join saved network** — asks the grill to join the network it already knows. Try this first: the
   Char-Griller app sends this every time it connects, and the grill may not join on its own.
 - **Grill Wi-Fi: scan** — the grill lists the networks it can see in **Grill Wi-Fi networks** (2.4 GHz only).
-- **Grill Wi-Fi: network name** and **password**, then **Grill Wi-Fi: set up** — sends them to the grill and asks it
-  to join. The password isn't saved by the controller (it's cleared as soon as it's sent).
+- **A new network:** on the controller's own page (`http://gravity980.local` → Setup → *Set up the grill's Wi-Fi*),
+  pick the network from the scan or type its name, enter the password and press **Set up**. The password goes to the
+  controller only (never to Home Assistant, which would record it) and is cleared as soon as it's sent to the grill.
 
 **Grill Wi-Fi** then shows the result ("On &lt;network&gt;, IP …"), and the controller switches to Wi-Fi by itself
 (with *Grill IP address* empty it uses the address the grill reports). Bluetooth stays as the fallback.

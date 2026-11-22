@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.8"
+  project_version: "0.2.9"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -139,6 +139,7 @@ web_server:
   port: 80
   version: 3
   ota: false   # no firmware upload from the device web page on the LAN
+  include_internal: true   # the Wi-Fi password field is internal (kept out of Home Assistant) but set from this page
   # The smoker's own page (firmware/device-ui), stored gzipped in flash and served as /0.js and /0.css, so
   # http://gravity980.local works with no internet. An empty js_url drops ESPHome's hosted stock page;
   # http://gravity980.local/?classic still loads it (from oi.esphome.io, so that view needs internet).
@@ -203,6 +204,7 @@ text:
     name: "Grill Wi-Fi: password"
     icon: mdi:form-textbox-password
     entity_category: config
+    internal: true        # never sent to Home Assistant (it would be recorded): set it on the controller's own page
     mode: password
     max_length: 63
     optimistic: true
