@@ -68,6 +68,13 @@ input[type=number]{width:84px}
 details.fold{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
 details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque"}
 .err{color:var(--bad);font-size:12.5px;margin-top:6px}
+.recs{display:grid;gap:0}
+.rec{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:10px 0;border-top:1px solid var(--line);align-items:baseline}
+.rec:first-child{border-top:0}
+.rec .w{font:600 12px "JetBrains Mono",monospace;color:var(--page);white-space:nowrap;min-width:86px}
+.rec .t{font-weight:700}
+.rec .d{grid-column:2;color:var(--ink-2);font-size:14px}
+@media (max-width:560px){.rec{grid-template-columns:1fr}.rec .d{grid-column:1}}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
 .toast.show{opacity:.95}
 .empty{color:var(--muted);font-size:13.5px;padding:8px 0}
@@ -91,6 +98,8 @@ footer{color:var(--muted);font-size:12px;text-align:center}
   </header>
 
   <div class="kpis" id="kpis"></div>
+
+  <section class="live" id="recs"></section>
 
   <h2 class="sec">Pit &amp; program</h2>
   <div class="grid">
@@ -234,6 +243,20 @@ function renderKpis() {
   const wx = w ? S(w) : null;
   if (wx) add('Outside', fmt(wx.attributes.temperature), wx.attributes.temperature_unit || '', `${esc(wx.state)} · ${fmt(wx.attributes.humidity)}% · wind ${fmt(wx.attributes.wind_speed)}`);
   put('kpis', k.join(''));
+}
+
+function renderRecs() {
+  const e = byName('Smoker recommendations', ['sensor']), st = S(e);
+  const a = (st && st.attributes) || {}, items = Array.isArray(a.items) ? a.items : [];
+  const mode = a.mode === 'live' ? 'During the cook' : 'Plan for the next cook';
+  const when = st && st.state && st.state !== 'unknown' ? ago(st.state) : null;
+  const body = items.length
+    ? '<div class="recs">' + items.map(i => `<div class="rec"><span class="w">${esc(i.when || '')}</span><span class="t">${esc(i.title || '')}</span>
+        <span class="d">${esc(i.detail || '')}</span></div>`).join('') + '</div>'
+    : '<div class="empty">No recommendations yet. Set the protein, weight and serve-by time (or start a cook) and ask the AI.</div>';
+  put('recs', `<div class="live-head"><h2 class="lh">Recommendations · ${esc(mode)}</h2>
+      <span class="small muted">${when ? 'AI · ' + esc(when) + ' · ' : ''}<button class="btn" onclick="act.advise()">Ask the AI</button></span></div>
+    ${a.summary ? `<p style="margin:0">${esc(a.summary)}</p>` : ''}${body}`);
 }
 
 function renderPit() {
@@ -401,7 +424,7 @@ function renderRange() {
 
 // ---------------------------------------------------------------- loop
 function render() {
-  renderHero(); renderKpis(); renderPit(); renderProgram(); renderAI(); renderProbes(); renderPlan(); renderLearn(); renderDiag(); renderRange();
+  renderHero(); renderKpis(); renderRecs(); renderPit(); renderProgram(); renderAI(); renderProbes(); renderPlan(); renderLearn(); renderDiag(); renderRange();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }
 window.addEventListener('resize', () => drawChart());

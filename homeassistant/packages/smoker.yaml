@@ -65,6 +65,33 @@ timer:
 # ------------------------------------------------------------------- derived sensors
 
 template:
+  # Latest context the controller sent (esphome.smoker_context): live state and cook history as JSON, for the AI.
+  - triggers:
+      - trigger: event
+        event_type: esphome.smoker_context
+    sensor:
+      - name: Smoker AI context
+        unique_id: smoker_ai_context
+        icon: mdi:code-json
+        state: "{{ now().isoformat() }}"
+        device_class: timestamp
+        attributes:
+          state_json: "{{ trigger.event.data.state }}"
+          history_json: "{{ trigger.event.data.history }}"
+  # The AI's recommendations for the dashboard (kept across restarts).
+  - triggers:
+      - trigger: event
+        event_type: smoker_ai_recommendations
+    sensor:
+      - name: Smoker recommendations
+        unique_id: smoker_ai_recommendations
+        icon: mdi:chef-hat
+        device_class: timestamp
+        state: "{{ now().isoformat() }}"
+        attributes:
+          mode: "{{ trigger.event.data.mode }}"
+          summary: "{{ trigger.event.data.summary }}"
+          items: "{{ trigger.event.data['items'] }}"
   - sensor:
       - name: Smoker food 1 finish
         unique_id: smoker_food1_finish
@@ -195,56 +222,96 @@ script:
                 - action: SMOKER_START_PROGRAM
                   title: Start program
 
+  # AI advisor: a second-opinion ETA, a one-line summary, a tip, and the Recommendations list on the dashboard.
+  # Before a cook it writes a prep + lighting plan; during a cook, what to do next.
   smoker_ai_advise:
     alias: Smoker AI advisor run
     mode: single
+    max_exceeded: silent
     sequence:
+      # The controller answers with an esphome.smoker_context event, captured by sensor.smoker_ai_context below.
       - action: esphome.gravity980_request_context
-      - wait_for_trigger:
-          - trigger: event
-            event_type: esphome.smoker_context
-        timeout: "00:00:20"
-        continue_on_timeout: false
+        continue_on_error: true
+      - delay: 3
+      - action: weather.get_forecasts
+        continue_on_error: true
+        target: {entity_id: weather.forecast_home}
+        data: {type: hourly}
+        response_variable: fc
       - variables:
-          ctx: "{{ wait.trigger.event.data }}"
+          cooking: "{{ is_state('binary_sensor.smoker_cook_active', 'on') }}"
+          ctx_state: "{{ state_attr('sensor.smoker_ai_context', 'state_json') or '{}' }}"
+          ctx_history: "{{ state_attr('sensor.smoker_ai_context', 'history_json') or '[]' }}"
+          forecast: >
+            {% set f = (fc or {}).get('weather.forecast_home', {}).get('forecast', []) %}
+            {% for h in f[:16] %}{{ as_timestamp(h.datetime) | timestamp_custom('%H:%M') }} {{ h.temperature }}°F
+            {{ h.condition }} wind {{ h.wind_speed }} rain {{ h.precipitation_probability | default(0) }}%; {% endfor %}
       - action: ai_task.generate_data
         response_variable: advice
         data:
           task_name: Smoker advisor
           entity_id: ai_task.google_ai_task
           instructions: |
-            You are a pitmaster advising on a live cook on a Char-Griller Gravity 980 charcoal smoker.
-            The controller's physics model gives its own estimate (minutes_remaining, with an early/late range).
-            Give an independent second opinion using the live state, the history of similar past cooks
-            (total_h, stall_h by protein/weight/pit), and the weather. Be concrete and brief.
-            Live state (JSON): {{ ctx.state }}
-            Past cooks (JSON): {{ ctx.history }}
-            Weather: {{ state_attr('weather.forecast_home', 'temperature') }}°F, humidity {{ state_attr('weather.forecast_home', 'humidity') }}%,
-            wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph, condition {{ states('weather.forecast_home') }}.
-            Serve-by target: {{ states('input_datetime.smoker_serve_time') }}. Now: {{ now().strftime('%H:%M') }}.
+            You are an experienced pitmaster coaching someone cooking on a Char-Griller Gravity 980 gravity-fed charcoal
+            smoker (16 lb hopper, fan-controlled, holds 200-700°F). {{ 'A cook is in progress.' if cooking else 'No cook is running yet: plan the next one.' }}
+            The smoker controller's own physics model (fitted to this cook and to similar past cooks) gives
+            minutes_remaining with an early/late range for each probe; give an independent second opinion.
+            Live state (JSON): {{ ctx_state }}
+            Past cooks on this grill (JSON): {{ ctx_history }}
+            Weather now: {{ state_attr('weather.forecast_home', 'temperature') }}°F, humidity {{ state_attr('weather.forecast_home', 'humidity') }}%,
+            wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph, {{ states('weather.forecast_home') }}.
+            Hourly forecast: {{ forecast }}
+            Serve-by time: {{ states('input_datetime.smoker_serve_time') }}. Now: {{ now().strftime('%a %H:%M') }}.
+            Planned rest: {{ states('input_number.smoker_rest_minutes') }} min.
+            Recommendations: 3 to 6 concrete, ordered instructions for what to do next, each on its own line as
+            "WHEN | TITLE | DETAIL" (WHEN like "now", "18:30", "at 165°F", "when it stalls"). Before a cook: prep
+            (trim, rub, bring-to-temperature), when to light the grill to make the serve time, fuel (fill the hopper; how
+            much charcoal for the expected time and weather), water pan, probe placement, the cook plan and what to
+            expect (stall, wrap point). During a cook: what to do next and when. Mention weather effects (cold, wind,
+            rain) when they matter. No generic food-safety boilerplate.
           structure:
             eta_minutes:
-              description: Your estimate of minutes until the main food probe reaches its target (0 if unknown)
+              description: Minutes until the main food probe reaches its target (0 if no cook or unknown)
               required: true
               selector: {number: {min: 0, max: 3000}}
             summary:
-              description: One sentence on how the cook is going (max 200 characters)
+              description: One sentence on how the cook is going, or the plan if none is running (max 200 characters)
               required: true
               selector: {text: {}}
             suggestion:
-              description: One actionable suggestion, or empty if none is needed (max 200 characters)
+              description: The single most important action right now, or empty if none is needed (max 200 characters)
               required: false
               selector: {text: {}}
-      - action: input_number.set_value
-        target: {entity_id: input_number.smoker_ai_eta_minutes}
-        data: {value: "{{ advice.data.eta_minutes | int(0) }}"}
+            recommendations:
+              description: 3-6 lines, each "WHEN | TITLE | DETAIL"
+              required: true
+              selector: {text: {multiline: true}}
+      - variables:
+          items: >
+            {% set out = namespace(l=[]) %}
+            {% for line in (advice.data.recommendations | default('')).split('\n') if '|' in line %}
+              {% set p = line.split('|') %}
+              {% set out.l = out.l + [{'when': p[0] | trim, 'title': (p[1] | default('')) | trim,
+                                       'detail': (p[2:] | join('|')) | trim}] %}
+            {% endfor %}
+            {{ out.l[:8] }}
+      - event: smoker_ai_recommendations
+        event_data:
+          mode: "{{ 'live' if cooking else 'plan' }}"
+          summary: "{{ advice.data.summary }}"
+          items: "{{ items }}"
+      - if: "{{ (advice.data.eta_minutes | int(0)) > 0 }}"
+        then:
+          - action: input_number.set_value
+            target: {entity_id: input_number.smoker_ai_eta_minutes}
+            data: {value: "{{ advice.data.eta_minutes | int(0) }}"}
       - action: input_text.set_value
         target: {entity_id: input_text.smoker_ai_summary}
         data: {value: "{{ advice.data.summary[:250] }}"}
       - if:
           - condition: template
             value_template: >
-              {{ (advice.data.suggestion | default('')) | length > 0 and
+              {{ cooking and (advice.data.suggestion | default('')) | length > 0 and
                  advice.data.suggestion[:250] != states('input_text.smoker_ai_suggestion') }}
         then:
           - action: input_text.set_value
@@ -351,9 +418,27 @@ automation:
       - condition: state
         entity_id: input_boolean.smoker_ai_advisor
         state: "on"
-      - condition: template
-        value_template: "{{ is_number(states('sensor.smoker_food_1_temperature')) }}"
     actions:
+      - action: script.smoker_ai_advise
+
+  - id: smoker_ai_plan_refresh
+    alias: Smoker - refresh the AI plan when the cook plan changes
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_datetime.smoker_serve_time
+          - select.smoker_food_1_protein
+          - number.smoker_food_1_weight
+          - text.smoker_program
+    conditions:
+      - condition: state
+        entity_id: input_boolean.smoker_ai_advisor
+        state: "on"
+      - condition: template
+        value_template: "{{ trigger.to_state.state not in ['unknown', 'unavailable'] }}"
+    actions:
+      - delay: "00:02:00"   # let a burst of edits settle
       - action: script.smoker_ai_advise
 
   - id: smoker_cook_complete_summary

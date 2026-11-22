@@ -93,6 +93,11 @@ STATES = dict([
     st("sensor.smoker_firmware_version", "0.1.0", "Smoker Firmware version"),
     st("switch.smoker_bridge_enabled", "on", "Smoker Bridge enabled"),
     st("update.smoker_firmware", "off", "Smoker Firmware", latest_version="0.1.0"),
+    st("sensor.smoker_recommendations", "2026-11-22T09:40:00+00:00", "Smoker recommendations", mode="live",
+       summary="Stall at 158°F after 6 h; on track for about 11:40 if you wrap now.",
+       items=[{"when": "now", "title": "Wrap in butcher paper", "detail": "Bark is set; wrapping cuts the stall by ~1 h."},
+              {"when": "at 195°F", "title": "Start probing for tenderness", "detail": "Probe should slide in like butter."},
+              {"when": "18:00", "title": "Top up the hopper", "detail": "Wind picks up after 5 pm; expect higher fuel use."}]),
     st("weather.forecast_example", "partlycloudy", "Example", temperature=44, humidity=74, wind_speed=6, temperature_unit="°F"),
 ])
 
@@ -145,6 +150,7 @@ def main():
                     "probes": fr.inner_text("#probes"),
                     "program": fr.inner_text("#progcard"),
                     "chart": fr.inner_html("#chart")[:40],
+                    "recs": fr.inner_text("#recs"),
                 }
                 if errors:
                     failures.append(f"{scheme}/{name}: JS errors {errors}")
@@ -154,6 +160,8 @@ def main():
                     failures.append(f"{scheme}/{name}: probe cards missing")
                 if "Food 2" in checks["probes"]:
                     failures.append(f"{scheme}/{name}: unplugged Food 2 should be hidden")
+                if "Wrap in butcher paper" not in checks["recs"]:
+                    failures.append(f"{scheme}/{name}: recommendations missing")
                 if "<svg" not in checks["chart"]:
                     failures.append(f"{scheme}/{name}: chart not drawn")
                 # horizontal overflow on phones
