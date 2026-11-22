@@ -572,7 +572,8 @@ void Gravity980Component::supervise_(uint32_t now) {
       this->recover_boots_ = 0;
       this->recover_pref_.save(&this->recover_boots_);
     }
-    this->set_link_status_(this->active_ == Transport::TCP ? "Connected over Wi-Fi" : "Connected over Bluetooth");
+    this->set_link_status_(this->tcp_up_ && this->ble_up_ ? "Connected over Wi-Fi and Bluetooth (reading Wi-Fi)"
+                           : this->active_ == Transport::TCP ? "Connected over Wi-Fi" : "Connected over Bluetooth");
     return;
   }
   if (this->down_since_ == 0)
@@ -682,12 +683,25 @@ void Gravity980Component::supervise_(uint32_t now) {
 void Gravity980Component::update_active_() {
   const uint32_t now = millis();
   Transport t = Transport::NONE;
+  const bool tcp_up = this->tcp_state_ == TcpState::CONNECTED && this->tcp_got_frame_ &&
+                      int32_t(now - this->tcp_last_frame_) < int32_t(this->stale_timeout_);
+  const bool ble_up = this->ble_connected_ && this->ble_got_frame_ &&
+                      int32_t(now - this->ble_last_frame_) < int32_t(this->stale_timeout_);
+  if (!this->links_known_ || tcp_up != this->tcp_up_ || ble_up != this->ble_up_) {
+    this->links_known_ = true;
+    this->tcp_up_ = tcp_up;
+    this->ble_up_ = ble_up;
+#ifdef USE_BINARY_SENSOR
+    if (this->wifi_link_bs_ != nullptr)
+      this->wifi_link_bs_->publish_state(tcp_up);
+    if (this->ble_link_bs_ != nullptr)
+      this->ble_link_bs_->publish_state(ble_up);
+#endif
+  }
   // Prefer TCP when it is delivering data; fall back to BLE.
-  if (this->tcp_state_ == TcpState::CONNECTED && this->tcp_got_frame_ &&
-      int32_t(now - this->tcp_last_frame_) < int32_t(this->stale_timeout_))
+  if (tcp_up)
     t = Transport::TCP;
-  else if (this->ble_connected_ && this->ble_got_frame_ &&
-           int32_t(now - this->ble_last_frame_) < int32_t(this->stale_timeout_))
+  else if (ble_up)
     t = Transport::BLE;
   if (t == this->active_)
     return;

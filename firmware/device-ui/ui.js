@@ -14,6 +14,8 @@ const FAVICON = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000
 const MARK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" class="mark" aria-hidden="true"><defs><linearGradient id="mk-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f97316"/><stop offset="1" stop-color="#b4330a"/></linearGradient><linearGradient id="mk-flame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#fff7ed"/></linearGradient></defs><rect width="256" height="256" rx="58" fill="url(#mk-tile)"/><g fill="#1c1917"><rect x="167" y="54" width="40" height="138" rx="7"/><rect x="161" y="44" width="52" height="16" rx="6"/><rect x="43" y="100" width="134" height="66" rx="33"/><rect x="66" y="160" width="11" height="52" rx="4"/><rect x="143" y="160" width="11" height="52" rx="4"/><rect x="56" y="190" width="108" height="9" rx="4.5"/></g><path transform="translate(110 133) scale(.74) translate(-108.5 -126.5)" fill="url(#mk-flame)" d="M106 158c-15 0-24-10-24-22 0-11 8-17 12-27 1 7 5 11 9 13 0-11 7-21 15-27-2 10 3 17 9 24 5 6 8 11 8 17 0 13-11 22-29 22z"/></svg>';
 const ICONS = `<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-now" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></symbol><symbol id="i-flame" viewBox="0 0 24 24"><g transform="translate(-0.5 -0.2)"><path d="M12 21c-3.9 0-6.5-2.6-6.5-6 0-3.3 2.4-4.8 3.6-7.6.4 2.1 1.3 3.1 2.4 3.6.1-3.2 1.7-5.8 4-7.6-.5 2.8.8 4.7 2.3 6.6 1.2 1.6 1.7 3 1.7 4.6C19.5 18.6 16.4 21 12 21z"/></g></symbol><symbol id="i-food" viewBox="0 0 24 24"><g transform="translate(0 -0.5)"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></g></symbol><symbol id="i-grill" viewBox="0 0 24 24"><g transform="translate(-0.5 0)"><path d="M3 12a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5H3z"/><path d="M3 12h16M6 12v8M16 12v8M5 17h12"/><path d="M19 4h3v16h-3z"/></g></symbol><symbol id="i-hopper" viewBox="0 0 24 24"><g transform="translate(0 -0.5)"><path d="M7 4h10v17H7zM6 4h12M10 8h4M10 12h4M10 16h4"/></g></symbol><symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16"/><path d="M7 15l4-5 3 3 5-6"/></symbol><symbol id="i-plan" viewBox="0 0 24 24"><g transform="translate(0 0.5)"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></g></symbol><symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M5 18a2 2 0 0 1 2-2h12M9 8h6"/></symbol><symbol id="i-setup" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol><symbol id="i-steps" viewBox="0 0 24 24"><g transform="translate(0.35 0)"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></g></symbol><symbol id="i-wifi" viewBox="0 0 24 24"><g transform="translate(0 -1.25)"><path d="M4 9.5a12 12 0 0 1 16 0M7 13a7.5 7.5 0 0 1 10 0M10 16.4a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".6"/></g></symbol><symbol id="i-bt" viewBox="0 0 24 24"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></symbol><symbol id="i-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9 5.5A12 12 0 0 1 20 9.5M4 9.5a12 12 0 0 1 2.3-1.7M7 13a7.5 7.5 0 0 1 3-1.6"/><circle cx="12" cy="19.5" r=".6"/></symbol><symbol id="i-fan" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C11 7 12 4 15 4c2 0 2.5 3-3 6.4zM13.6 12c3.4-1 6.4 0 6.4 3 0 2-3 2.5-6.4-3zM12 13.6c1 3.4 0 6.4-3 6.4-2 0-2.5-3 3-6.4zM10.4 12C7 13 4 12 4 9c0-2 3-2.5 6.4 3z"/></symbol><symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.5v.1"/></symbol></svg>`;
 const ic = n => `<svg class="ic"><use href="#i-${n}"/></svg>`;
+// Both links can be up (Wi-Fi read, Bluetooth standing by); older firmware reports only the one in use.
+const bothLinks = () => on(E('binary_sensor', 'Grill on Wi-Fi')) && on(E('binary_sensor', 'Grill on Bluetooth'));
 
 function start() {
   doc.documentElement.classList.add('gx');
@@ -213,12 +215,12 @@ function render() {
   if (pst === 'Paused') add('warn', 'Program paused');
   if (!live) add('warn', 'Page reconnecting to the controller');
   const ok = conn && via !== 'none';
-  const how = via === 'wifi' ? ' · Wi-Fi' : via === 'bluetooth' ? ' · Bluetooth' : '';
+  const how = bothLinks() ? ' · Wi-Fi + Bluetooth' : via === 'wifi' ? ' · Wi-Fi' : via === 'bluetooth' ? ' · Bluetooth' : '';
   const head = ok ? `<span class="t">Grill connected${how}<small>${L.cls === 'ok' ? 'this page controls it' : esc(L.why || 'read-only')}</small></span>`
     : `<span class="t">Grill not connected<small>${esc(T('Grill link status') || (L.why && /bridge/i.test(L.why) ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?'))}</small></span>`;
   const tb = $('topbar');
   if (tb) tb.className = 'topbar' + (!ok || al.some(x => /chip bad/.test(x)) ? ' bad' : L.cls !== 'ok' || al.length ? ' warn' : '');
-  put('topbar', `<span class="conn"><i class="dot ${!ok ? 'off' : L.cls === 'ok' ? 'on' : 'stale'}"></i>${ic(!ok ? 'off' : via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill')}${head}</span>
+  put('topbar', `<span class="conn"><i class="dot ${!ok ? 'off' : L.cls === 'ok' ? 'on' : 'stale'}"></i>${!ok ? ic('off') : bothLinks() ? ic('wifi') + ic('bt') : ic(via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill')}${head}</span>
     <span class="alerts">${al.join('') || (ok ? '<span class="chip ok">All good</span>' : '')}</span>`);
   renderGrill(u, pit, tgt); renderPit(u, pit, tgt); renderFood(u); renderFuel(); renderProg(); renderSetup(u);
 }
@@ -244,7 +246,7 @@ function renderGrill(u0, pit, tgt) {
       <text x="${x + tw / 2}" y="275" text-anchor="middle" font-size="${fs}" font-weight="700" fill="var(--ink)">F${i} ${fmt(t)}${deg}</text></g>`;
   }).join('');
   const fill = lvl == null ? 0 : Math.max(0, Math.min(1, lvl / 100)), fh = 330 * fill;
-  const lk = !conn ? ['not connected', 'var(--bad)'] : via === 'wifi' ? ['via Wi-Fi', 'var(--ok)'] : via === 'bluetooth' ? ['via Bluetooth', 'var(--ok)'] : ['connected', 'var(--ok)'];
+  const lk = !conn ? ['not connected', 'var(--bad)'] : bothLinks() ? ['via Wi-Fi + Bluetooth', 'var(--ok)'] : via === 'wifi' ? ['via Wi-Fi', 'var(--ok)'] : via === 'bluetooth' ? ['via Bluetooth', 'var(--ok)'] : ['connected', 'var(--ok)'];
   const ly = lvl == null ? 230 : Math.min(372, Math.max(118, 400 - fh / 2 + 10));
   // Your grill photo (text "Grill photo URL", filled in by the Smoker dashboard) with the readings pinned on it.
   const photo = str(E('text', 'Grill photo URL'));
@@ -740,7 +742,7 @@ function wifiSetup() {
 
 function renderSetup(u) {
   const wifi = T('Grill Wi-Fi'), ip = E('text', 'Grill IP address');
-  put('conn', `<h3><span>Grill link</span><span class="chip ${on(E('binary_sensor', 'Grill connected')) ? 'ok' : 'bad'}">${on(E('binary_sensor', 'Grill connected')) ? esc({ wifi: 'Wi-Fi', bluetooth: 'Bluetooth' }[T('Grill link')] || 'connected') : 'not connected'}</span></h3>
+  put('conn', `<h3><span>Grill link</span><span class="chip ${on(E('binary_sensor', 'Grill connected')) ? 'ok' : 'bad'}">${on(E('binary_sensor', 'Grill connected')) ? (bothLinks() ? 'Wi-Fi + Bluetooth' : esc({ wifi: 'Wi-Fi', bluetooth: 'Bluetooth' }[T('Grill link')] || 'connected')) : 'not connected'}</span></h3>
     ${T('Grill link status') ? row('Status', esc(T('Grill link status'))) : ''}
     ${(() => { const w = d => d >= -60 ? 'strong' : d >= -72 ? 'good' : d >= -82 ? 'weak' : 'very weak';
       const b = S('Grill Bluetooth signal'), g = S('Grill Wi-Fi signal');

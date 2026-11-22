@@ -45,6 +45,8 @@ STATES = dict([
     st("sensor.smoker_grill_link", "wifi", "Smoker Grill link"),
     st("sensor.smoker_grill_link_status", "Connected over Wi-Fi", "Smoker Grill link status"),
     st("sensor.smoker_release", "0.2.20", "Smoker Release"),
+    st("binary_sensor.smoker_grill_on_wi_fi", "on", "Smoker Grill on Wi-Fi"),
+    st("binary_sensor.smoker_grill_on_bluetooth", "on", "Smoker Grill on Bluetooth"),
     st("sensor.smoker_grill_bluetooth_signal", "-67", "Smoker Grill Bluetooth signal", unit_of_measurement="dBm"),
     st("sensor.smoker_grill_wi_fi_signal", "-44", "Smoker Grill Wi-Fi signal", unit_of_measurement="dBm"),
     st("binary_sensor.smoker_lid", "off", "Smoker Lid"),
@@ -448,6 +450,9 @@ def main():
                 sc = fr.evaluate("""() => [...document.querySelectorAll('#scancard input[type=file]')].map(i => [i.hasAttribute('capture'), i.multiple, i.closest('label') && i.closest('label').innerText.trim()])""")
                 if sorted(sc) != sorted([[True, False, "Take a photo"], [False, True, "Choose photos"]]):
                     failures.append(f"{scheme}/{name}: scan inputs: {sc!r}")
+                tb = fr.evaluate("async () => { window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return document.getElementById('topbar').innerText; }")
+                if "Wi-Fi + Bluetooth" not in tb or fr.evaluate("document.querySelectorAll('#topbar .ic.via').length") != 2:
+                    failures.append(f"{scheme}/{name}: both links at the top: {tb!r}")
                 dg = fr.inner_text("#diag")
                 if "controller 0.2.20" not in dg or "Controller Wi-Fi" not in dg or "not the grill" not in dg:
                     failures.append(f"{scheme}/{name}: diagnostics: {dg[:200]!r}")

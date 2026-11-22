@@ -141,6 +141,8 @@ class Gravity980Component : public Component {
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { this->connected_bs_ = s; }
+  void set_wifi_link_binary_sensor(binary_sensor::BinarySensor *s) { this->wifi_link_bs_ = s; }
+  void set_bluetooth_link_binary_sensor(binary_sensor::BinarySensor *s) { this->ble_link_bs_ = s; }
   void set_door_binary_sensor(binary_sensor::BinarySensor *s) { this->door_bs_ = s; }
   void set_fan_binary_sensor(binary_sensor::BinarySensor *s) { this->fan_bs_ = s; }
   void set_fan_turbo_binary_sensor(binary_sensor::BinarySensor *s) { this->fan_turbo_bs_ = s; }
@@ -245,6 +247,8 @@ class Gravity980Component : public Component {
   std::string last_drop_;         // why the last link ended, for the status text
   std::string link_status_;
   bool tcp_got_frame_{false};
+  bool tcp_up_{false}, ble_up_{false};  // each link delivering status right now (published once known)
+  bool links_known_{false};
   std::string resolved_host_;
   uint32_t resolved_addr_{0};
   uint32_t resolved_at_{0};
@@ -268,6 +272,8 @@ class Gravity980Component : public Component {
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *connected_bs_{nullptr};
+  binary_sensor::BinarySensor *wifi_link_bs_{nullptr};
+  binary_sensor::BinarySensor *ble_link_bs_{nullptr};
   binary_sensor::BinarySensor *door_bs_{nullptr};
   binary_sensor::BinarySensor *fan_bs_{nullptr};
   binary_sensor::BinarySensor *fan_turbo_bs_{nullptr};

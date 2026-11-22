@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.23] - 2026-11-22
+
+- When the grill is on Wi-Fi **and** Bluetooth, both pages say so at the top ("Grill connected · Wi-Fi + Bluetooth",
+  both icons; Bluetooth stands by if Wi-Fi drops), and in the Connection card and on the grill picture. New sensors
+  *Grill on Wi-Fi* and *Grill on Bluetooth* report each link on its own; Grill link status says "Connected over Wi-Fi
+  and Bluetooth".
+
 ## [0.2.22] - 2026-11-22
 
 - Fix: *What's cooking → Read the labels* failed with "No entity_id provided and no preferred entity set" when Home

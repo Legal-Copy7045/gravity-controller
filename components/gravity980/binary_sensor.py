@@ -9,6 +9,9 @@ DEPENDENCIES = ["gravity980"]
 
 KEYS = {
     "connected": ("set_connected_binary_sensor", dict(device_class=DEVICE_CLASS_CONNECTIVITY, entity_category=ENTITY_CATEGORY_DIAGNOSTIC)),
+    # Each link on its own (both can be up; "connected" is either). On = status frames arriving over it.
+    "wifi_link": ("set_wifi_link_binary_sensor", dict(device_class=DEVICE_CLASS_CONNECTIVITY, entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:wifi")),
+    "bluetooth_link": ("set_bluetooth_link_binary_sensor", dict(device_class=DEVICE_CLASS_CONNECTIVITY, entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:bluetooth")),
     "door": ("set_door_binary_sensor", dict(device_class=DEVICE_CLASS_DOOR)),
     "fan": ("set_fan_binary_sensor", dict(device_class=DEVICE_CLASS_RUNNING, icon="mdi:fan")),
     "fan_turbo": ("set_fan_turbo_binary_sensor", dict(icon="mdi:fan-plus")),

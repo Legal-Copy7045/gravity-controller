@@ -868,7 +868,7 @@ function renderGrill() {
   }).join('');
   // hopper fill (inside the tower door area: y 70..400)
   const fill = lvl == null ? 0 : Math.max(0, Math.min(1, lvl / 100)), fh = 330 * fill;
-  const link = !conn ? ['not connected', 'var(--bad)'] : via === 'wifi' ? ['via Wi-Fi', 'var(--ok)'] : ['via Bluetooth', 'var(--ok)'];
+  const link = !conn ? ['not connected', 'var(--bad)'] : ['via ' + linkWords(via).txt, 'var(--ok)'];
   const svg = `<svg viewBox="0 0 1000 640" role="img" aria-label="Grill: pit ${fmt(pit)} degrees, target ${fmt(tgt)}, charcoal ${lvl == null ? 'unknown' : fmt(lvl) + ' percent'}">
   <defs>
     <pattern id="perf" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="3.2" fill="rgba(0,0,0,.45)"/></pattern>
@@ -1019,11 +1019,11 @@ function renderTop() {
   if (!conn || via === 'none') { head = '<span class="t">Grill not connected'; cls = 'bad';
     const ls = val(E('Grill link status', ['sensor'])), lsOk = ls && !/^(unknown|unavailable)$/.test(ls);
     head += `<small>${esc(val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : lsOk ? ls : 'is the grill on and in range?')}</small></span>`; }
-  else { const how = via === 'wifi' ? 'Wi-Fi' : 'Bluetooth', ctl = via === 'wifi' || ble;
-    head = `<span class="t">Grill connected · ${how}<small>${ctl ? 'the app controls it' : 'read-only: turn on Bluetooth control in Setup'}</small></span>`; cls = ctl ? '' : 'warn'; }
+  else { const lw = linkWords(via), ctl = via === 'wifi' || ble;
+    head = `<span class="t">Grill connected · ${lw.txt}<small>${!ctl ? 'read-only: turn on Bluetooth control in Setup' : lw.both ? 'the app controls it · Bluetooth stands by if Wi-Fi drops' : 'the app controls it'}</small></span>`; cls = ctl ? '' : 'warn'; }
   const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
-  const vic = !conn || via === 'none' ? 'off' : via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill';
-  put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span><svg class="ic via"><use href="#i-${vic}"/></svg>${head}</span>
+  const vics = !conn || via === 'none' ? ['off'] : linkWords(via).icons;
+  put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span>${vics.map(v => `<svg class="ic via"><use href="#i-${v}"/></svg>`).join('')}${head}</span>
     <span class="alerts">${a.join('') || (!conn || via === 'none' ? '' : '<span class="chip ok">All good</span>')}</span>`);
 }
 
@@ -1089,7 +1089,7 @@ function renderControl() {
   const bridge = E('Bridge enabled', ['switch']), wifi = val(E('Grill Wi-Fi', ['sensor'])), ip = val(E('Grill IP address', ['text']));
   const tog = (e, on, label, note) => e ? `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span>
     <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(e)}')" aria-label="${esc(label.replace(/<[^>]+>/g, ''))}"></button></div>` : '';
-  put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? (via === 'wifi' ? 'Wi-Fi' : 'Bluetooth') : 'not connected'}</span></h3>
+  put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? linkWords(via).txt : 'not connected'}</span></h3>
     ${(st => st && !/^(unknown|unavailable)$/.test(st) ? `<div class="row"><span>Status</span><span class="r" style="white-space:normal">${esc(st)}</span></div>` : '')(val(E('Grill link status', ['sensor'])))}
     ${controlRow()}
     ${signalRows()}
@@ -1393,6 +1393,13 @@ function renderLearn() {
 }
 
 // "3 d 4 h", "2 h 05 min", "15 min" from seconds.
+// Which links carry the grill right now: both can (Wi-Fi is read, Bluetooth stands by). Older firmware only reports
+// the link in use, so fall back to that.
+function linkWords(via) {
+  const w = val(E('Grill on Wi-Fi', ['binary_sensor'])) === 'on', b = val(E('Grill on Bluetooth', ['binary_sensor'])) === 'on';
+  if (w && b) return { both: true, txt: 'Wi-Fi + Bluetooth', icons: ['wifi', 'bt'] };
+  return { both: false, txt: via === 'wifi' ? 'Wi-Fi' : 'Bluetooth', icons: [via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill'] };
+}
 // Signal strength in words (dBm): what a person needs to know about it.
 const sigWord = d => d == null ? '' : d >= -60 ? 'strong' : d >= -72 ? 'good' : d >= -82 ? 'weak' : 'very weak';
 // Signal rows for the Connection card: Bluetooth to the grill, and the grill's own Wi-Fi (as it last reported it).
