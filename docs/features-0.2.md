@@ -70,8 +70,8 @@ any Assist device or the Companion app.
 
 Six food slots, **Food 1-6**. Each reads one thermometer, picked with **Food N probe** (dashboard: *Probe sources*):
 the grill's own probes (*Grill probe 1/2*, targets kept in step with the grill), a **Govee H5198** read directly over
-Bluetooth by the controller (*H5198 probe 1-4*), or any temperature entity in Home Assistant (*Home Assistant*, the
-entity named in helper *Smoker external probe N entity*). Every slot gets predictions, stall detection, the rest
+Bluetooth by the controller (*H5198 probe 1-4*), or any temperature sensor in Home Assistant (*Home Assistant*:
+pick it from the list on the dashboard; slots 3-6 default to the Govee H5198's probes through Home Assistant). Every slot gets predictions, stall detection, the rest
 coach and voice, and works in cook programs (`food4 >= 165`). Changing a slot's source mid-cook restarts that slot's
 estimate (the learned history is kept). Setup: [install.md §5](install.md).
 
@@ -88,7 +88,7 @@ The label goes away on its own once there's enough history:
 | Charcoal level, hours left, empty time, low-fuel alerts | about 3 kg of charcoal burned in stretches you logged (start/level and finish) — roughly one cook | *Charcoal estimate basis*, the charcoal card, the alerts |
 | Forecast adjustment | always, for now (the cold-weather effect is a fixed guess, not learned) | "weather-adjusted (experimental)" |
 | AI estimate, AI recommendations, AI review | always (a language model's opinion, not measurements) | the AI card and recommendations |
-| H5198 readings | until the H5198's data format is confirmed on a real unit | *Probe sources* |
+| H5198 direct readings | until they've been compared with the thermometer's display on a real cook (the format matches Home Assistant's decoder and a real unit's broadcasts) | *Probe sources* |
 
 Not experimental: temperatures, targets, pit control, cook programs, done/almost-done/stall/probe/lid/connection
 alerts, and the cook journal.

@@ -731,30 +731,40 @@ static void test_forecast_and_rest() {
 
 static void test_sources_and_upgrade() {
   std::printf("h5198 / fuel idle gap / record layout\n");
-  // H5198: probes 1&2 packet, probe 2 unplugged; probes 3&4 packet.
-  uint8_t a[16] = {0};
-  a[6] = 0xC1;
-  a[8] = 0x1F;  // 0x1F40 = 8000 -> 80.00 C
-  a[9] = 0x40;
-  a[14] = 0xFF;
-  a[15] = 0xFF;
-  auto ra = h5198::decode(a, sizeof(a));
-  CHECK(ra.first_probe == 0);
-  NEAR(ra.temp_c[0], 80.0f, 0.001f);
-  CHECK(std::isnan(ra.temp_c[1]));
-  uint8_t b[16] = {0};
-  b[6] = 0xC2;
-  b[8] = 0x09;  // 0x09C4 = 2500 -> 25.00 C
-  b[9] = 0xC4;
-  b[14] = 0x00;
-  b[15] = 0x64;  // 1.00 C
-  auto rb = h5198::decode(b, sizeof(b));
-  CHECK(rb.first_probe == 2);
-  NEAR(rb.temp_c[0], 25.0f, 0.001f);
-  NEAR(rb.temp_c[1], 1.0f, 0.001f);
-  b[6] = 0x01;
-  CHECK(h5198::decode(b, sizeof(b)).first_probe == -1);  // not a probe packet
-  CHECK(h5198::decode(b, 10).first_probe == -1);          // too short
+  // H5198 (layout per govee-ble; synthetic packets shaped like a real unit's 20-byte manufacturer data).
+  {
+    // Probes 1 & 2 (type 0x41): probe 1 at 80.00 C, high alarm 93.00 C, no low alarm; probe 2 unplugged.
+    uint8_t a[20] = {0x10, 0x20, 0x00, 0x02, 0x01, 0xAA, 0x41, 0x80,
+                     0x1F, 0x40, 0x24, 0x54, 0xFF, 0xFF,   // probe A: temp, high, low
+                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};  // probe B: unplugged
+    auto ra = h5198::decode(a, sizeof(a));
+    CHECK(ra.first_probe == 0);
+    NEAR(ra.temp_c[0], 80.0f, 0.001f);
+    NEAR(ra.alarm_high_c[0], 93.0f, 0.001f);
+    CHECK(std::isnan(ra.alarm_low_c[0]));
+    CHECK(std::isnan(ra.temp_c[1]) && std::isnan(ra.alarm_high_c[1]));
+    // Every type byte variant for probes 1&2 and 3&4.
+    for (uint8_t t : {1, 65, 129, 193}) {
+      a[6] = t;
+      CHECK(h5198::decode(a, sizeof(a)).first_probe == 0);
+    }
+    for (uint8_t t : {2, 66, 130, 194}) {
+      a[6] = t;
+      CHECK(h5198::decode(a, sizeof(a)).first_probe == 2);
+    }
+    // Probe 4 (second of 3&4) at 25.00 C; 0.00 C is a real reading, not "unplugged".
+    uint8_t b[20] = {0};
+    b[6] = 0xC2;
+    b[14] = 0x09;
+    b[15] = 0xC4;
+    auto rb = h5198::decode(b, sizeof(b));
+    CHECK(rb.first_probe == 2);
+    NEAR(rb.temp_c[0], 0.0f, 0.001f);
+    NEAR(rb.temp_c[1], 25.0f, 0.001f);
+    b[6] = 0x03;
+    CHECK(h5198::decode(b, sizeof(b)).first_probe == -1);  // not a probe packet
+    CHECK(h5198::decode(b, 16).first_probe == -1);         // wrong length
+  }
 
   // Fuel: a check after the grill sat cold for hours (top-ups between cooks) must not teach the burn rate.
   cook::FuelGauge g;

@@ -17,6 +17,7 @@ class GoveeH5198 : public ble_device_base::ESPBTDeviceListener, public Component
   void set_fahrenheit(bool f) { this->fahrenheit_ = f; }
   void set_log_raw(bool l) { this->log_raw_ = l; }
   void set_probe_sensor(int i, sensor::Sensor *s) { this->probes_[i] = s; }
+  void set_alarm_sensor(int i, sensor::Sensor *s) { this->alarms_[i] = s; }
   void set_rssi_sensor(sensor::Sensor *s) { this->rssi_ = s; }
   void set_connected_binary_sensor(binary_sensor::BinarySensor *b) { this->connected_ = b; }
 
@@ -30,6 +31,7 @@ class GoveeH5198 : public ble_device_base::ESPBTDeviceListener, public Component
   bool fahrenheit_{true};
   bool log_raw_{false};
   sensor::Sensor *probes_[4]{nullptr, nullptr, nullptr, nullptr};
+  sensor::Sensor *alarms_[4]{nullptr, nullptr, nullptr, nullptr};
   sensor::Sensor *rssi_{nullptr};
   binary_sensor::BinarySensor *connected_{nullptr};
   uint32_t last_seen_[4]{0, 0, 0, 0};

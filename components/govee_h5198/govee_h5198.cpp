@@ -16,9 +16,17 @@ static const uint32_t STALE_MS = 60000;  // a probe not heard for a minute reads
 bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
   if (this->address_ != 0 && device.address_uint64() != this->address_)
     return false;
+  // An H5198 advertises service 0x9851 (company id varies by unit; 0x3022 on some), or "H5198" in its name.
+  bool is_h5198 = device.get_name().find("H5198") != std::string::npos;
+  for (const auto &u : device.get_service_uuids())
+    if (u == ble_device_base::ESPBTUUID::from_uint16(h5198::SERVICE_UUID))
+      is_h5198 = true;
+  for (const auto &md : device.get_manufacturer_datas())
+    if (md.uuid == ble_device_base::ESPBTUUID::from_uint16(h5198::COMPANY_ID_ALT))
+      is_h5198 = true;
+  if (!is_h5198)
+    return false;
   for (const auto &md : device.get_manufacturer_datas()) {
-    if (!(md.uuid == ble_device_base::ESPBTUUID::from_uint16(h5198::COMPANY_ID)))
-      continue;
     const auto &d = md.data;
     if (this->log_raw_) {
       char hex[3 * 32 + 1] = {0};
@@ -49,6 +57,14 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
       v = std::isnan(v) ? NAN : std::round(v * 10.0f) / 10.0f;
       if (!s->has_state() || (std::isnan(v) != std::isnan(s->state)) || (!std::isnan(v) && v != s->state))
         s->publish_state(v);
+      // The probe's alarm on the thermometer (its own target), when set.
+      auto *a = this->alarms_[i];
+      if (a != nullptr) {
+        float ac = r.alarm_high_c[k];
+        float av = std::isnan(ac) ? NAN : std::round((this->fahrenheit_ ? ac * 1.8f + 32.0f : ac) * 10.0f) / 10.0f;
+        if (!a->has_state() || (std::isnan(av) != std::isnan(a->state)) || (!std::isnan(av) && av != a->state))
+          a->publish_state(av);
+      }
     }
     // Signal strength: on a real change or every 30 s (the thermometer advertises several times a second).
     int rssi = device.get_rssi();

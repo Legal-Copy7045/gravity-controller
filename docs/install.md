@@ -83,26 +83,26 @@ The controller has six food slots, **Food 1** to **Food 6**. Each slot reads one
 | Source | What it is | Defaults |
 |---|---|---|
 | Grill probe 1 / 2 | The Gravity 980's own food probes (through the bridge). The slot's target is kept in step with the grill's, both ways. | Food 1, Food 2 |
-| H5198 probe 1–4 | A **Govee H5198** read directly over Bluetooth by the controller (no Govee app, no cloud, no Home Assistant needed). | Food 3–6 |
-| Home Assistant | Any temperature entity in Home Assistant (another thermometer, a Wi-Fi probe, …). | |
+| Home Assistant | Any temperature sensor in Home Assistant, e.g. a Govee H5198 through Home Assistant's **Govee Bluetooth** integration. If the thermometer has its own alarm (Govee: `…_temperature_alarm_probe_N`), that becomes the slot's target when you change it there. | Food 3–6 (the H5198's probes 1–4) |
+| H5198 probe 1–4 | A **Govee H5198** read directly over Bluetooth by the controller (no Home Assistant needed; finer, 0.01 °C readings). | |
 
 Every slot gets the same predictions, stall detection, pull-at and rest coaching, and can be used in cook programs
 (`food3 >= 165`).
 
-**H5198.** Nothing to set up: the controller listens for the first H5198 it hears and uses it (the *H5198 connected*
-and *H5198 signal* entities show it). To pin a specific thermometer when there are several nearby, add its Bluetooth
-address in your device YAML:
+**Choosing Home Assistant thermometers.** On the dashboard, open *Probe sources*, set a slot to *Home Assistant* and
+pick the sensor from the list (temperature sensors, probe-like ones first). Use as many slots as you have probes.
+Left on the default, slots 3–6 read `sensor.meat_thermometer_temperature_probe_1` … `_4`: if your thermometer's
+entities are named differently, pick them in the list, or change the defaults in the package's *Smoker external
+probe N* template sensors. Behind the scenes slot N follows the helper *Smoker external probe N entity*. A Govee probe
+that's unplugged reports exactly 0 °C (32 °F); that's treated as no reading.
+
+**H5198 direct.** Nothing to set up: the controller uses the first H5198 that sends probe readings (*H5198
+connected* / *H5198 signal* show it). To pin a specific unit, add its Bluetooth address in your device YAML:
 
 ```yaml
 govee_h5198:
   mac_address: "AA:BB:CC:DD:EE:FF"
 ```
 
-The H5198's advertisement format comes from one community decoder and hasn't been checked on many units. If the
-probes stay empty while the thermometer shows temperatures, add `log_raw: true` under `govee_h5198:`, reflash, and
-send the logged packets (they contain no personal data).
-
-**Home Assistant entities.** Set the slot's source to *Home Assistant*, then type the entity (e.g.
-`sensor.kitchen_probe_temperature`) into the box that appears, or set the helper **Smoker external probe N entity**
-in Settings → Devices & services → Helpers. Slot N reads helper N. Home Assistant passes it on in °F; change
-`weather_temperature_unit` if your Home Assistant uses °C.
+The format follows Home Assistant's own Govee decoder (govee-ble) and was checked against a real H5198's
+broadcasts. If readings stay empty, add `log_raw: true` under `govee_h5198:`, reflash, and send the logged packets.

@@ -1266,7 +1266,7 @@ bool CookAssistant::sync_owner_(const FoodProbe *p, const ProbeSource &src) cons
   for (auto *q : this->probes_) {
     if (q == p)
       return true;
-    if (q->active < q->sources.size() && q->sources[q->active].sync == src.sync)
+    if (q->active < q->sources.size() && q->sources[q->active].target == src.target)
       return false;  // an earlier slot reads the same source
   }
   return true;
@@ -1290,7 +1290,9 @@ void CookAssistant::push_target_(FoodProbe *p, const ProbeSource &src, float v) 
 }
 
 void CookAssistant::sync_tick_(FoodProbe *p, const ProbeSource &src) {
-  if (src.target == nullptr || src.sync == nullptr || !this->sync_owner_(p, src))
+  // (A source with a target but nothing to write it to, e.g. a thermometer's own alarm, is read-only: changes made
+  // on it are adopted, nothing is ever sent back.)
+  if (src.target == nullptr || !this->sync_owner_(p, src))
     return;
   float st = src.target->has_state() ? src.target->state : NAN;
   if (std::isnan(st)) {
@@ -1327,7 +1329,7 @@ void CookAssistant::sync_tick_(FoodProbe *p, const ProbeSource &src) {
       return;
     }
   }
-  if (!std::isnan(want) && want != st && now - p->push_ms >= SYNC_RETRY_MS)
+  if (src.sync != nullptr && !std::isnan(want) && want != st && now - p->push_ms >= SYNC_RETRY_MS)
     this->push_target_(p, src, want);
 }
 

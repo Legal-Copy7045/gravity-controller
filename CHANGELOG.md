@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.2] - 2026-11-22
+
+### Firmware
+- **Fix:** the H5198 reader used the wrong broadcast format (from a community decoder) and would never have read a
+  real unit. It now follows Home Assistant's own Govee decoder (govee-ble), checked against a real H5198's
+  broadcasts: recognised by its service id, all packet variants, unplugged probes. Each probe's alarm on the
+  thermometer is available too (*H5198 probe N alarm*).
+- Food 3-6 default to the *Home Assistant* source. A thermometer's own alarm (H5198 direct, or the matching Home
+  Assistant alarm entity) becomes the slot's target when it's changed there; nothing is written back to it.
+
+### Home Assistant
+- Pick each slot's Home Assistant thermometer from a list on the dashboard (*Probe sources*). Slots 3-6 default to
+  the Govee H5198's probes 1-4 (`sensor.meat_thermometer_temperature_probe_N`).
+- A Govee probe reporting exactly 0 °C (unplugged) counts as no reading; the probe's alarm becomes the slot target.
+
 ## [0.2.1] - 2026-11-22
 
 Second review round, and **Experimental** labels on estimates that need history

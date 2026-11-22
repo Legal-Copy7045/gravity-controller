@@ -38,6 +38,8 @@ input_number:
 input_text:
   # Any thermometer already in Home Assistant (a Wi-Fi/Bluetooth probe, another grill...): put its temperature
   # entity here, then pick "Home Assistant" as the source on that food slot (select.smoker_food_N_probe).
+  # Left empty, slots 3-6 use the Govee H5198 ("Meat Thermometer") probes 1-4. EDIT the defaults in the
+  # "Smoker external probe N" template sensors below if yours are named differently.
   # The controller reads sensor.smoker_external_probe_N, which follows whatever entity you name (stated in °F;
   # Home Assistant shows and passes it in your unit system, which is `weather_temperature_unit` on the controller).
   smoker_external_probe_1_entity:
@@ -132,60 +134,186 @@ template:
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_external_probe_1_entity') %}
+          {% set h = states('input_text.smoker_external_probe_1_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
           {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
-          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_1_entity') %}
+            {% set e = h if h.startswith('sensor.') else '' %}
+            {{ e }}
+      - name: Smoker external probe 1 target
+        unique_id: smoker_external_probe_1_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_1_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
       - name: Smoker external probe 2
         unique_id: smoker_external_probe_2
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_external_probe_2_entity') %}
+          {% set h = states('input_text.smoker_external_probe_2_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
           {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
-          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_2_entity') %}
+            {% set e = h if h.startswith('sensor.') else '' %}
+            {{ e }}
+      - name: Smoker external probe 2 target
+        unique_id: smoker_external_probe_2_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_2_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
       - name: Smoker external probe 3
         unique_id: smoker_external_probe_3
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_external_probe_3_entity') %}
+          {% set h = states('input_text.smoker_external_probe_3_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_1' %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
           {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
-          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_3_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_1' %}
+            {{ e }}
+      - name: Smoker external probe 3 target
+        unique_id: smoker_external_probe_3_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_3_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_1' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
       - name: Smoker external probe 4
         unique_id: smoker_external_probe_4
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_external_probe_4_entity') %}
+          {% set h = states('input_text.smoker_external_probe_4_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_2' %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
           {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
-          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_4_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_2' %}
+            {{ e }}
+      - name: Smoker external probe 4 target
+        unique_id: smoker_external_probe_4_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_4_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_2' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
       - name: Smoker external probe 5
         unique_id: smoker_external_probe_5
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_external_probe_5_entity') %}
+          {% set h = states('input_text.smoker_external_probe_5_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_3' %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
           {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
-          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_5_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_3' %}
+            {{ e }}
+      - name: Smoker external probe 5 target
+        unique_id: smoker_external_probe_5_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_5_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_3' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
       - name: Smoker external probe 6
         unique_id: smoker_external_probe_6
         device_class: temperature
         unit_of_measurement: "°F"
         state_class: measurement
         state: >
-          {% set e = states('input_text.smoker_external_probe_6_entity') %}
+          {% set h = states('input_text.smoker_external_probe_6_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_4' %}
           {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
           {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
-          {{ ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none }}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_6_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_4' %}
+            {{ e }}
+      - name: Smoker external probe 6 target
+        unique_id: smoker_external_probe_6_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_6_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_4' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
       - name: Smoker food 1 finish
         unique_id: smoker_food1_finish
         device_class: timestamp

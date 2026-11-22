@@ -65,6 +65,19 @@ async def main():
     hass.states.async_set("input_text.smoker_external_probe_3_entity", "")
     check(render(ext3) is None or str(render(ext3)) in ("None", ""), f"no entity -> {render(ext3)!r}")
 
+    # 1c. slots 3-6 default to the Govee H5198's probes 1-4; the probe's own alarm is the slot's target
+    tgt3 = next(x for x in tsens if x.get("unique_id") == "smoker_external_probe_3_target")["state"]
+    hass.states.async_set("input_text.smoker_external_probe_3_entity", "")
+    hass.states.async_set("sensor.meat_thermometer_temperature_probe_1", "151.0", {"unit_of_measurement": "°F"})
+    hass.states.async_set("sensor.meat_thermometer_temperature_alarm_probe_1", "203.0", {"unit_of_measurement": "°F"})
+    check(float(render(ext3)) == 151.0, f"slot 3 default -> {render(ext3)!r}")
+    check(float(render(tgt3)) == 203.0, f"slot 3 target from the probe's alarm -> {render(tgt3)!r}")
+    hass.states.async_set("sensor.meat_thermometer_temperature_alarm_probe_1", "32.0", {"unit_of_measurement": "°F"})
+    check(str(render(tgt3)) in ("None", ""), f"alarm not set (0 C) -> no target: {render(tgt3)!r}")
+    ext1 = next(x for x in tsens if x.get("unique_id") == "smoker_external_probe_1")["state"]
+    hass.states.async_set("input_text.smoker_external_probe_1_entity", "")
+    check(str(render(ext1)) in ("None", ""), f"slot 1 has no default -> {render(ext1)!r}")
+
     # 2. buttons variable renders to a real list
     fwd = autos["smoker_forward_notifications"]["actions"][0]["variables"]
     class Ev:  # minimal trigger.event

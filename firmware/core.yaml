@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.1"
+  project_version: "0.2.2"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -14,7 +14,9 @@ substitutions:
   ntfy_server: https://ntfy.sh
   update_manifest: https://legal-copy7045.github.io/gravity-controller/firmware/manifest.json
   # Each food slot (Food 1-6) can read a grill probe, an H5198 probe (direct Bluetooth), or a Home Assistant
-  # entity: pick it per slot with "Food N probe". The HA package maps entities onto sensor.smoker_external_probe_N.
+  # entity: pick it per slot with "Food N probe". The HA package maps entities onto sensor.smoker_external_probe_N
+  # (and the thermometer's own alarm, when it has one, onto sensor.smoker_external_probe_N_target).
+  # Defaults: Food 1-2 = the grill's probes, Food 3-6 = Home Assistant (helpers 3-6).
 
 esphome:
   name: ${name}
@@ -232,24 +234,48 @@ sensor:
     entity_id: sensor.smoker_external_probe_1
     internal: true
   - platform: homeassistant
+    id: ext_probe1_target
+    entity_id: sensor.smoker_external_probe_1_target
+    internal: true
+  - platform: homeassistant
     id: ext_probe2
     entity_id: sensor.smoker_external_probe_2
+    internal: true
+  - platform: homeassistant
+    id: ext_probe2_target
+    entity_id: sensor.smoker_external_probe_2_target
     internal: true
   - platform: homeassistant
     id: ext_probe3
     entity_id: sensor.smoker_external_probe_3
     internal: true
   - platform: homeassistant
+    id: ext_probe3_target
+    entity_id: sensor.smoker_external_probe_3_target
+    internal: true
+  - platform: homeassistant
     id: ext_probe4
     entity_id: sensor.smoker_external_probe_4
+    internal: true
+  - platform: homeassistant
+    id: ext_probe4_target
+    entity_id: sensor.smoker_external_probe_4_target
     internal: true
   - platform: homeassistant
     id: ext_probe5
     entity_id: sensor.smoker_external_probe_5
     internal: true
   - platform: homeassistant
+    id: ext_probe5_target
+    entity_id: sensor.smoker_external_probe_5_target
+    internal: true
+  - platform: homeassistant
     id: ext_probe6
     entity_id: sensor.smoker_external_probe_6
+    internal: true
+  - platform: homeassistant
+    id: ext_probe6_target
+    entity_id: sensor.smoker_external_probe_6_target
     internal: true
   - platform: wifi_signal
     name: Wi-Fi signal
@@ -323,15 +349,27 @@ govee_h5198:
   probe_1:
     id: h5198_p1
     name: H5198 probe 1
+  probe_1_alarm:
+    id: h5198_a1
+    name: H5198 probe 1 alarm
   probe_2:
     id: h5198_p2
     name: H5198 probe 2
+  probe_2_alarm:
+    id: h5198_a2
+    name: H5198 probe 2 alarm
   probe_3:
     id: h5198_p3
     name: H5198 probe 3
+  probe_3_alarm:
+    id: h5198_a3
+    name: H5198 probe 3 alarm
   probe_4:
     id: h5198_p4
     name: H5198 probe 4
+  probe_4_alarm:
+    id: h5198_a4
+    name: H5198 probe 4 alarm
   rssi:
     name: H5198 signal
   connected:
@@ -422,14 +460,19 @@ cook_assistant:
           sync: grill_probe2_target
         - name: H5198 probe 1
           temperature: h5198_p1
+          target: h5198_a1
         - name: H5198 probe 2
           temperature: h5198_p2
+          target: h5198_a2
         - name: H5198 probe 3
           temperature: h5198_p3
+          target: h5198_a3
         - name: H5198 probe 4
           temperature: h5198_p4
+          target: h5198_a4
         - name: Home Assistant
           temperature: ext_probe1
+          target: ext_probe1_target
           unit: ${weather_temperature_unit}
       source:
         name: Food 1 probe
@@ -485,14 +528,19 @@ cook_assistant:
           sync: grill_probe2_target
         - name: H5198 probe 1
           temperature: h5198_p1
+          target: h5198_a1
         - name: H5198 probe 2
           temperature: h5198_p2
+          target: h5198_a2
         - name: H5198 probe 3
           temperature: h5198_p3
+          target: h5198_a3
         - name: H5198 probe 4
           temperature: h5198_p4
+          target: h5198_a4
         - name: Home Assistant
           temperature: ext_probe2
+          target: ext_probe2_target
           unit: ${weather_temperature_unit}
       source:
         name: Food 2 probe
@@ -548,18 +596,23 @@ cook_assistant:
           sync: grill_probe2_target
         - name: H5198 probe 1
           temperature: h5198_p1
+          target: h5198_a1
         - name: H5198 probe 2
           temperature: h5198_p2
+          target: h5198_a2
         - name: H5198 probe 3
           temperature: h5198_p3
+          target: h5198_a3
         - name: H5198 probe 4
           temperature: h5198_p4
+          target: h5198_a4
         - name: Home Assistant
           temperature: ext_probe3
+          target: ext_probe3_target
           unit: ${weather_temperature_unit}
       source:
         name: Food 3 probe
-      default_source: H5198 probe 1
+      default_source: Home Assistant
       target_number:
         name: Food 3 target
       reading:
@@ -611,18 +664,23 @@ cook_assistant:
           sync: grill_probe2_target
         - name: H5198 probe 1
           temperature: h5198_p1
+          target: h5198_a1
         - name: H5198 probe 2
           temperature: h5198_p2
+          target: h5198_a2
         - name: H5198 probe 3
           temperature: h5198_p3
+          target: h5198_a3
         - name: H5198 probe 4
           temperature: h5198_p4
+          target: h5198_a4
         - name: Home Assistant
           temperature: ext_probe4
+          target: ext_probe4_target
           unit: ${weather_temperature_unit}
       source:
         name: Food 4 probe
-      default_source: H5198 probe 2
+      default_source: Home Assistant
       target_number:
         name: Food 4 target
       reading:
@@ -674,18 +732,23 @@ cook_assistant:
           sync: grill_probe2_target
         - name: H5198 probe 1
           temperature: h5198_p1
+          target: h5198_a1
         - name: H5198 probe 2
           temperature: h5198_p2
+          target: h5198_a2
         - name: H5198 probe 3
           temperature: h5198_p3
+          target: h5198_a3
         - name: H5198 probe 4
           temperature: h5198_p4
+          target: h5198_a4
         - name: Home Assistant
           temperature: ext_probe5
+          target: ext_probe5_target
           unit: ${weather_temperature_unit}
       source:
         name: Food 5 probe
-      default_source: H5198 probe 3
+      default_source: Home Assistant
       target_number:
         name: Food 5 target
       reading:
@@ -737,18 +800,23 @@ cook_assistant:
           sync: grill_probe2_target
         - name: H5198 probe 1
           temperature: h5198_p1
+          target: h5198_a1
         - name: H5198 probe 2
           temperature: h5198_p2
+          target: h5198_a2
         - name: H5198 probe 3
           temperature: h5198_p3
+          target: h5198_a3
         - name: H5198 probe 4
           temperature: h5198_p4
+          target: h5198_a4
         - name: Home Assistant
           temperature: ext_probe6
+          target: ext_probe6_target
           unit: ${weather_temperature_unit}
       source:
         name: Food 6 probe
-      default_source: H5198 probe 4
+      default_source: Home Assistant
       target_number:
         name: Food 6 target
       reading:

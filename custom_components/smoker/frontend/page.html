@@ -215,7 +215,7 @@ window.act = {
   profile(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' protein', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
   weight(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' weight', ['number']), parseFloat(v) || 0); },
   source(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' probe', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast(p.label + ' reads ' + v)).catch(fail); },
-  extEntity(n, v) { const e = byName('Smoker external probe ' + n + ' entity', ['input_text']); e && H().call('input_text', 'set_value', e, { value: v.trim() }).then(() => toast('Saved')).catch(fail); },
+  extEntity(n, v) { const e = byName('Smoker external probe ' + n + ' entity', ['input_text']); e && H().call('input_text', 'set_value', e, { value: (v || '').trim() }).then(() => toast(v ? 'Food ' + n + ' reads ' + v : 'Food ' + n + ': default thermometer')).catch(fail); },
   wrap(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' wrapped', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   preset(v) { clean('progtext'); const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
   // The typed text stays until the controller shows it as its program (a refused program keeps your text).
@@ -434,6 +434,28 @@ function renderProbes() {
   renderSources();
 }
 
+// Temperature sensors in Home Assistant a slot can read (probe-like ones first; not alarms, not the smoker's own).
+function haThermometers() {
+  const all = H().all();
+  return Object.keys(all).filter(id => {
+    if (!id.startsWith('sensor.') || /^sensor\.smoker_/.test(id) || /alarm/.test(id)) return false;
+    const a = all[id].attributes || {};
+    return a.device_class === 'temperature' || /°[CF]/.test(a.unit_of_measurement || '');
+  }).map(id => ({ id, name: (all[id].attributes || {}).friendly_name || id, probe: /probe|meat|food|grill/i.test(id + ' ' + ((all[id].attributes || {}).friendly_name || '')),
+                  v: all[id].state, u: (all[id].attributes || {}).unit_of_measurement || '' }))
+    .sort((a, b) => (b.probe - a.probe) || a.name.localeCompare(b.name));
+}
+function haPicker(n, chosen) {
+  const def = (S(byName('Smoker external probe ' + n, ['sensor'])) || {}).attributes || {};
+  const using = chosen || def.source || '';
+  const list = haThermometers();
+  const opt = t => `<option value="${esc(t.id)}" ${t.id === chosen ? 'selected' : ''}>${esc(t.name)}${isFinite(parseFloat(t.v)) ? ' · ' + fmt(parseFloat(t.v)) + esc(t.u) : ''}</option>`;
+  return `<div class="row"><span class="small muted">Thermometer</span><select style="max-width:62%" onchange="act.extEntity(${n}, this.value)">
+    <option value="" ${chosen ? '' : 'selected'}>${using && !chosen ? 'Default: ' + esc((list.find(t => t.id === using) || { name: using }).name) : 'Choose a sensor…'}</option>
+    ${list.filter(t => t.probe).map(opt).join('')}${list.some(t => !t.probe) ? `<optgroup label="Other temperature sensors">${list.filter(t => !t.probe).map(opt).join('')}</optgroup>` : ''}
+    ${chosen && !list.some(t => t.id === chosen) ? `<option value="${esc(chosen)}" selected>${esc(chosen)}</option>` : ''}</select></div>`;
+}
+
 // Each Food slot reads one thermometer: a grill probe, an H5198 probe (direct Bluetooth) or a Home Assistant entity.
 function renderSources() {
   const rows = PROBES.map((p, i) => {
@@ -444,11 +466,10 @@ function renderSources() {
     const txtE = byName('Smoker external probe ' + (i + 1) + ' entity', ['input_text']);
     return `<div class="row"><span>${esc(p.label)} <span class="muted small">${t != null ? fmt(t) + esc(TU()) : 'no reading'}</span></span>
       <select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>` +
-      (ha && txtE ? `<div class="row"><span class="small muted">Home Assistant entity</span><input id="ext${i + 1}" placeholder="sensor.…" value="${esc(val(txtE) || '')}"
-        onchange="clean('ext${i + 1}'); act.extEntity(${i + 1}, this.value)" style="min-width:220px"></div>` : '');
+      (ha && txtE ? haPicker(i + 1, val(txtE) || '') : '');
   }).join('');
   const conn = val(E('H5198 connected', ['binary_sensor'])), rssi = num(E('H5198 signal', ['sensor']));
-  put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">${EXP('The H5198 format comes from one community decoder and is not yet confirmed on this unit.')} H5198: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
+  put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">${EXP('Direct H5198 readings follow Home Assistant\'s Govee decoder but haven\'t been checked against the display on a real cook yet.')} H5198 direct: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
     Grill probes keep their targets in step with the grill.</div>` : '<div class="empty">This controller has fixed probes.</div>');
 }
 

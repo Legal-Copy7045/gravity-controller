@@ -34,6 +34,14 @@ CONFIG_SCHEMA = cv.Schema(
             )
             for p in PROBES
         },
+        # The high-temperature alarm set on the thermometer for each probe (its own target).
+        **{
+            cv.Optional(f"{p}_alarm"): sensor.sensor_schema(
+                device_class=DEVICE_CLASS_TEMPERATURE, accuracy_decimals=1, icon="mdi:thermometer-alert",
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            )
+            for p in PROBES
+        },
         cv.Optional("rssi"): sensor.sensor_schema(
             unit_of_measurement="dBm", device_class=DEVICE_CLASS_SIGNAL_STRENGTH, accuracy_decimals=0,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -60,6 +68,10 @@ async def to_code(config):
             c["unit_of_measurement"] = "°F" if f else "°C"
             s = await sensor.new_sensor(c)
             cg.add(var.set_probe_sensor(i, s))
+        if f"{p}_alarm" in config:
+            c = dict(config[f"{p}_alarm"])
+            c["unit_of_measurement"] = "°F" if f else "°C"
+            cg.add(var.set_alarm_sensor(i, await sensor.new_sensor(c)))
     if "rssi" in config:
         cg.add(var.set_rssi_sensor(await sensor.new_sensor(config["rssi"])))
     if "connected" in config:

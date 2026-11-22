@@ -77,6 +77,9 @@ STATES = dict([
     st("select.smoker_food_2_probe", "Grill probe 2", "Smoker Food 2 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
     st("select.smoker_food_3_probe", "Home Assistant", "Smoker Food 3 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
     st("input_text.smoker_external_probe_3_entity", "sensor.example_probe", "Smoker external probe 3 entity"),
+    st("sensor.example_probe", 171, "Example Probe", **F),
+    st("sensor.example_probe_alarm", 203, "Example Probe alarm", **F),
+    st("sensor.porch_temperature", 44, "Porch temperature", **F),
     st("binary_sensor.smoker_h5198_connected", "off", "Smoker H5198 connected"),
     st("sensor.smoker_food_3_estimate_basis", "Experimental (learning: 0 of 3 similar cooks). Poultry, 0 similar past cooks, "
        "grill factor 1.00; pull-at experimental (0 of 2 rests measured)", "Smoker Food 3 estimate basis"),
@@ -208,7 +211,8 @@ def main():
                 if "Experimental" not in checks["fuel"] or "Experimental" not in checks["recs"]:
                     failures.append(f"{scheme}/{name}: experimental label missing: fuel {checks['fuel'][:200]!r} recs {checks['recs'][:120]!r}")
                 src = checks["sources"]
-                if src.count("<select") != 3 or "sensor.example_probe" not in src or "H5198 probe 4" not in src:
+                if (src.count("<select") != 4 or 'value="sensor.example_probe" selected' not in src or "H5198 probe 4" not in src
+                        or "Porch temperature" not in src or "example_probe_alarm" in src):
                     failures.append(f"{scheme}/{name}: probe sources: {src[:160]!r}")
                 if "Home Assistant" not in checks["probes"]:
                     failures.append(f"{scheme}/{name}: Food 3's source not shown on its card")
