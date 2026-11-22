@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.15] - 2026-11-22
+
+- **Fix: the bridge now finds a grill that is switched on after it.** A grill that has only just started can accept the
+  Bluetooth connection before it's ready (no services yet, or no status), and the bridge used to sit on that dead link
+  until it was rebooted. Now it drops a link that hasn't delivered status within 20 s (or whose status stops) and
+  connects again, and if the grill comes back on a different Bluetooth address it follows it by name.
+
 ## [0.2.14] - 2026-11-22
 
 - Grill photo uploads are shrunk in the browser first: 960 px across (the page never shows it wider than 640 px), WebP

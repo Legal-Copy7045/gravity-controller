@@ -224,11 +224,25 @@ void Gravity980Component::loop() {
         break;
     }
   }
-  if (this->ble_connected_ && int32_t(now - this->ble_last_frame_) > int32_t(this->stale_timeout_) &&
-      int32_t(now - this->ble_warned_) > 60000) {
-    ESP_LOGW(TAG, "BLE connected but no status notifications");
-    this->ble_warned_ = now;
+#ifdef USE_GRAVITY980_BLE
+  // A grill that is switched on after the bridge accepts a connection before it is ready: no services yet, or no
+  // status notifications. Don't sit on that link (only a reboot used to cure it): drop it and connect again. Wi-Fi setup
+  // traffic counts as activity.
+  if (this->ble_connected_ && this->ble_ != nullptr && this->wifi_scan_at_ == 0 && this->wifi_cred_at_ == 0) {
+    const uint32_t limit = this->ble_got_frame_ ? std::max<uint32_t>(this->stale_timeout_ * 2, 30000) : 20000;
+    if (int32_t(now - this->ble_last_frame_) > int32_t(limit)) {
+      if (int32_t(now - this->ble_warned_) > 60000 || this->ble_retries_ < 3)
+        ESP_LOGW(TAG, "BLE connected but %s for %u s: reconnecting",
+                 this->ble_got_frame_ ? "no status notifications" : "no data yet", unsigned(limit / 1000));
+      this->ble_warned_ = now;
+      if (this->ble_retries_ < 255)
+        this->ble_retries_++;
+      this->ble_->reconnect(this->ble_got_frame_ ? "status notifications stopped" : "no status after connecting");
+      this->ble_connected_ = false;
+      this->ble_got_frame_ = false;
+    }
   }
+#endif
   this->check_pending_();
   this->update_active_();
 }
@@ -386,6 +400,7 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
     if (parse_status(payload, plen, s)) {
       this->ble_connected_ = true;
       this->ble_got_frame_ = true;
+      this->ble_retries_ = 0;
       this->ble_last_frame_ = millis();
       this->handle_status_(s, Transport::BLE);
     }
@@ -679,11 +694,19 @@ static const uint16_t NOTIFY_UUID = 0xBBB1;
 bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
   if (!this->enabled_)
     return false;
-  if (this->fixed_address_ == 0 && this->get_address() == 0) {
+  const uint32_t now = millis();
+  uint64_t a = device.address_uint64();
+  if (a != 0 && a == this->get_address())
+    this->seen_at_ = now;
+  // Found by name (no fixed address): learn the address. A grill that is power-cycled can come back on a different
+  // address, so while idle a name match from a new address takes over once the old one has gone quiet for 10 s.
+  if (this->fixed_address_ == 0 && a != this->get_address() &&
+      (this->get_address() == 0 ||
+       (this->state() == esp32_ble_tracker::ClientState::IDLE && int32_t(now - this->seen_at_) > 10000))) {
     auto name = device.get_name();
     if (name.size() >= this->name_prefix_.size() &&
         strncmp(name.c_str(), this->name_prefix_.c_str(), this->name_prefix_.size()) == 0) {
-      uint64_t a = device.address_uint64();
+      this->seen_at_ = now;
       ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
                unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
                unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
@@ -691,6 +714,15 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     }
   }
   return BLEClientBase::parse_device(device);
+}
+
+void Gravity980BLE::reconnect(const char *why) {
+  auto st = this->state();
+  if (st == esp32_ble_tracker::ClientState::IDLE || st == esp32_ble_tracker::ClientState::INIT ||
+      st == esp32_ble_tracker::ClientState::DISCONNECTING)
+    return;
+  ESP_LOGI(TAG, "BLE: reconnecting to the grill (%s)", why);
+  this->disconnect();
 }
 
 void Gravity980BLE::set_enabled(bool enabled) {
@@ -719,15 +751,18 @@ bool Gravity980BLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
       auto *rx = this->get_characteristic(SVC_UUID, NOTIFY_UUID);
       auto *tx = this->get_characteristic(SVC_UUID, WRITE_UUID);
       if (rx == nullptr) {
-        ESP_LOGW(TAG, "BLE: grill service 0xAAAA/0xBBB1 not found. Dump services with log level VERBOSE.");
+        // Usually a grill that has only just been switched on: its services aren't up yet. Try again.
+        ESP_LOGW(TAG, "BLE: grill service 0xAAAA/0xBBB1 not found (still starting up?); reconnecting");
+        this->disconnect();
         break;
       }
       this->notify_handle_ = rx->handle;
       this->write_handle_ = tx != nullptr ? tx->handle : 0;
       auto err = this->register_for_notify(rx->handle);
-      if (err != ESP_OK)
-        ESP_LOGW(TAG, "BLE register_for_notify failed: %d", err);
-      else
+      if (err != ESP_OK) {
+        ESP_LOGW(TAG, "BLE register_for_notify failed: %d; reconnecting", err);
+        this->disconnect();
+      } else
         ESP_LOGI(TAG, "BLE subscribed to status notifications");
       break;
     }

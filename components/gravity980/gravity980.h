@@ -84,11 +84,15 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   bool ready() const { return this->write_handle_ != 0; }
   bool write(const std::vector<uint8_t> &data);
   void set_enabled(bool enabled);
+  // Drop a link that isn't delivering (the grill was still starting up, or its notifications stopped) so the next
+  // advertisement reconnects from scratch.
+  void reconnect(const char *why);
 
  protected:
   Gravity980Component *parent_{nullptr};
   std::string name_prefix_{"Gravity980"};
   uint64_t fixed_address_{0};
+  uint32_t seen_at_{0};  // last advertisement from the address we connect to
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
   bool enabled_{true};
@@ -202,6 +206,7 @@ class Gravity980Component : public Component {
   bool ble_got_frame_{false};
   uint32_t ble_last_frame_{0};
   uint32_t ble_warned_{0};
+  uint8_t ble_retries_{0};  // reconnects in a row without a status frame
   bool tcp_got_frame_{false};
   std::string resolved_host_;
   uint32_t resolved_addr_{0};
