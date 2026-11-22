@@ -322,6 +322,14 @@ const isExp = info => /^Experimental/.test(info || '');
 const pullExp = info => /pull-at experimental/.test(info || '');
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
 const fail = e => toast('⚠ ' + ((e && e.message) || e));
+// The AI advisor, cook planning, serve-by time, rest timer and Home Assistant probe picks live in the Smoker *package*
+// (homeassistant/packages/smoker.yaml), which is installed separately from the integration. Without it, say so
+// instead of offering controls that have nothing to act on.
+const PKG_URL = 'https://github.com/Legal-Copy7045/gravity-controller/blob/main/docs/install.md#3-home-assistant-package';
+const hasPkg = () => !!(byName('Smoker AI advisor', ['input_boolean']) || S('script.smoker_ai_advise') || byName('Smoker serve by', ['input_datetime']));
+const PKG_MSG = 'Needs the Smoker package for Home Assistant (not installed)';
+const pkgNote = what => `<p class="small muted" style="margin:4px 0">${esc(what)} needs the Smoker package for Home Assistant, which isn't installed yet.
+  <a href="${PKG_URL}" target="_blank" rel="noopener">How to add it</a></p>`;
 const typing = () => { const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName); };
 // Re-render a section only when its HTML changed; never under someone typing; keep text the user has edited
 // (fields marked dirty by the input listener below) until it's sent.
@@ -727,15 +735,16 @@ window.act = {
   load() { return progEd.load(); },
   prog(svc) { esph(svc).then(() => toast(svc.replace('_', ' '))); },
   plan() {
+    if (!hasPkg()) return toast(PKG_MSG);
     const t = $('plantext').value.trim(); if (!t) return toast('Describe the cook first');
     toast('Asking the AI…'); H().service('script', 'smoker_plan_cook', { request: t }).then(() => { clean('plantext'); toast('Plan requested: check notifications'); }).catch(fail);
   },
-  advise() { toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
+  advise() { if (!hasPkg()) return toast(PKG_MSG); toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
   serve(v) {
     const e = E('Smoker serve by', ['input_datetime']) || byName('Smoker serve by', ['input_datetime']);
-    if (!e || !v) return; H().call('input_datetime', 'set_datetime', e, { datetime: v.replace('T', ' ') + ':00' }).then(() => toast('Serve time set')).catch(fail);
+    if (!e) return toast(PKG_MSG); if (!v) return; H().call('input_datetime', 'set_datetime', e, { datetime: v.replace('T', ' ') + ':00' }).then(() => toast('Serve time set')).catch(fail);
   },
-  toggle(eid) { const d = eid.split('.')[0]; H().call(d, 'toggle', eid).catch(fail); },
+  toggle(eid) { if (!eid) return toast(PKG_MSG); const d = eid.split('.')[0]; H().call(d, 'toggle', eid).catch(fail); },
   range(h) { chartHours = h; lastChart = 0; render(); },
   fuelMode(m) { fuelMode = m; renderFuel(); },
   fuel(pct) {
@@ -1015,6 +1024,7 @@ function renderKpis() {
 }
 
 function renderRecs() {
+  if (!hasPkg()) return put('recs', `<div class="live-head"><h2 class="lh">Recommendations</h2></div>${pkgNote('AI recommendations')}`);
   const e = byName('Smoker recommendations', ['sensor']), st = S(e);
   const a = (st && st.attributes) || {}, items = Array.isArray(a.items) ? a.items : [];
   const mode = a.mode === 'live' ? 'During the cook' : 'Plan for the next cook';
@@ -1117,6 +1127,7 @@ function renderAI() {
   const at = sumE && S(sumE) ? Date.parse(S(sumE).last_changed) : null;
   const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
   const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
+  if (!hasPkg()) return put('aicard', `<h3>AI pitmaster</h3>${pkgNote('The AI advisor')}`);
   put('aicard', `<h3>AI pitmaster <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
     <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span>${left != null && left > 0 ? EXP('A language model reading the cook so far; not learned from your grill.') : ''}</div>
     <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
@@ -1204,7 +1215,7 @@ function renderSources() {
     const txtE = byName('Smoker external probe ' + (i + 1) + ' entity', ['input_text']);
     return `<div class="row"><span>${esc(p.label)} <span class="muted small">${t != null ? fmt(t) + esc(TU()) : 'no reading'}</span></span>
       <span>${/^Wired/.test(st.state) ? EXP('Wired probes need the ADS1115 add-on and calibrating against a thermometer you trust.') + ' ' : ''}<select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></span></div>` +
-      (ha && txtE ? haPicker(i + 1, val(txtE) || '') : '');
+      (ha && txtE ? haPicker(i + 1, val(txtE) || '') : ha ? pkgNote('Reading a Home Assistant thermometer') : '');
   }).join('');
   const conn = val(E('H5198 connected', ['binary_sensor'])), rssi = num(E('H5198 signal', ['sensor']));
   put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">${EXP('Direct H5198 readings follow Home Assistant\'s Govee decoder but haven\'t been checked against the display on a real cook yet.')} H5198 direct: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
@@ -1216,6 +1227,8 @@ function renderPlan() {
   const serve = val(serveE), start = val(startE);
   const restE = byName('Smoker rest timer', ['timer']), rest = S(restE);
   const local = serve ? serve.replace(' ', 'T').slice(0, 16) : '';
+  if (!hasPkg()) return put('plancard', `<h3>Plan a cook</h3>${pkgNote('Planning with AI, the serve-by time and the rest timer')}
+    <div class="row"><span>Slice when it's down to</span><span><input type="number" id="sliceat" value="${num(E('Slice at', ['number'])) ?? ''}" onchange="act.slice(this.value)"> ${esc(TU())}</span></div>`);
   put('plancard', `<h3>Plan a cook</h3>
     <textarea id="plantext" placeholder="e.g. 8 lb pork butt, ready by 6pm, I'll wrap at the stall" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:14px"></textarea>
     <div class="btns"><button class="btn pri" onclick="act.plan()">Plan with AI</button></div>

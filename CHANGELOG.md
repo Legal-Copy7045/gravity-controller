@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.17] - 2026-11-22
+
+- Fix: without the Smoker package for Home Assistant installed, the AI pitmaster switch said "not allowed: .toggle".
+  The AI, planning, serve-by, rest timer, recommendations and Home Assistant probe picks now say they need the
+  package (with a link to how to add it) instead of offering controls with nothing behind them.
+
 ## [0.2.16] - 2026-11-22
 
 - **The bridge recovers from a lost grill link by itself, and says what it's doing.** New *Grill link status*

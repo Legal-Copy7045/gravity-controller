@@ -34,6 +34,7 @@
       var h = getHass(); if (!h || !h.states) return null;
       var best = null, bs = -1;
       (nameIndex(h)[lc(name)] || []).forEach(function (eid) {
+        if (!h.states[eid]) return;
         var di = doms ? doms.indexOf(eid.split('.')[0]) : 0; if (di < 0) return;
         var sc = (h.states[eid].state !== 'unavailable' ? 100 : 0) + (doms ? doms.length - di : 0);
         if (sc > bs) { bs = sc; best = eid; }

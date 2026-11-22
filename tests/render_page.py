@@ -438,6 +438,18 @@ def main():
                     const t = document.getElementById('topbar').innerText; st[k] = keep; st[ks] = keepS; window.__smOnHass(); return t; }""")
                 if "Grill not connected" not in nc or "All good" in nc or "reconnecting over Bluetooth" not in nc:
                     failures.append(f"{scheme}/{name}: not-connected strip: {nc!r}")
+                # Without the HA package: the AI, plan and recommendation cards say so instead of offering dead controls.
+                np = fr.evaluate("""async () => {
+                    const hs = window.parent.__smHass, keep = hs.states, st = Object.assign({}, keep);
+                    hs.states = st;  // HA hands the page a new states object on every change
+                    for (const k of Object.keys(st)) if (/^(input_|script\\.|timer\\.|automation\\.)/.test(k) || /Smoker (AI|recommendations|start cooking)/.test((st[k].attributes || {}).friendly_name || '')) delete st[k];
+                    window.__smOnHass(); await new Promise(r => setTimeout(r, 400));
+                    const out = { ai: document.getElementById('aicard').innerText, plan: document.getElementById('plancard').innerText,
+                                  recs: document.getElementById('recs').innerText, toggles: document.querySelectorAll('#aicard .tg').length };
+                    hs.states = keep; window.__smOnHass(); return out; }""")
+                if (np["toggles"] or "isn't installed" not in np["ai"] or "isn't installed" not in np["plan"]
+                        or "isn't installed" not in np["recs"]):
+                    failures.append(f"{scheme}/{name}: no-package cards: {np!r}")
                 # Photo mode: the readings are pinned on the user's own photo (a tiny synthetic image here).
                 photo = fr.evaluate("""async () => {
                     const c = document.createElement('canvas'); c.width = 400; c.height = 292;
