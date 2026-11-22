@@ -409,6 +409,21 @@ def main():
                     failures.append(f"{scheme}/{name}: grill drawing missing live values: {[k for k in ('<svg', '251°', '62%', 'F1 ', 'F3 171°') if k not in g]}")
                 if "Grill connected" not in checks["topbar"] or "Wi-Fi" not in checks["topbar"]:
                     failures.append(f"{scheme}/{name}: status strip: {checks['topbar'][:160]!r}")
+                # Uploading shrinks the photo to 960 px across first (a 3000 x 2000 test image here).
+                up = fr.evaluate("""async () => {
+                    const c = document.createElement('canvas'); c.width = 3000; c.height = 2000;
+                    const x = c.getContext('2d'); for (let i = 0; i < 400; i++) { x.fillStyle = `hsl(${i*7},70%,50%)`; x.fillRect((i*37)%3000, (i*53)%2000, 120, 90); }
+                    const big = await new Promise(r => c.toBlob(r, 'image/png'));
+                    let sent = null; const keep = window.hdHA.api;
+                    window.hdHA.api = (m, p, body) => { if (p === '/api/smoker/grill_photo' && m === 'POST') sent = body.get('photo'); return Promise.resolve({ url: '/api/smoker/grill_photo/image?v=1' }); };
+                    const inp = { files: [new File([big], 'big.png', { type: 'image/png' })], value: 'x' };
+                    await act.grillPhoto(inp); await new Promise(r => setTimeout(r, 300));
+                    window.hdHA.api = keep; window.setGrillPhoto(null);
+                    if (!sent) return 'nothing sent';
+                    const bmp = await createImageBitmap(sent);
+                    return [big.size, sent.size, sent.type, bmp.width, bmp.height]; }""")
+                if not isinstance(up, list) or up[3] != 960 or up[1] >= up[0]:
+                    failures.append(f"{scheme}/{name}: photo upload resize: {up}")
                 pc = fr.inner_text("#photocard")
                 if "Grill photo" not in pc or "Upload a photo" not in pc:
                     failures.append(f"{scheme}/{name}: grill photo card: {pc[:120]!r}")

@@ -686,10 +686,25 @@ window.act = {
   source(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' probe', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast(p.label + ' reads ' + v)).catch(fail); },
   extEntity(n, v) { const e = byName('Smoker external probe ' + n + ' entity', ['input_text']); e && H().call('input_text', 'set_value', e, { value: (v || '').trim() }).then(() => toast(v ? 'Food ' + n + ' reads ' + v : 'Food ' + n + ': default thermometer')).catch(fail); },
   pressName(n) { press(n); toast(n.replace('Grill Wi-Fi: ', 'Grill Wi-Fi · ')); },
-  grillPhoto(input) {
+  async grillPhoto(input) {
     const f = input.files && input.files[0]; if (!f) return;
-    if (f.size > 8 * 1024 * 1024) { input.value = ''; return toast('That photo is over 8 MB'); }
-    const fd = new FormData(); fd.append('photo', f, f.name);
+    toast('Preparing the photo…');
+    // The page never shows it wider than 640 px (about 1000 px on a sharp phone screen): shrink it to 960 px across
+    // before sending (a phone photo goes from several MB to under ~150 kB). WebP keeps a transparent background;
+    // browsers that can't write WebP send JPEG.
+    let blob = f, name = f.name;
+    try {
+      const bmp = await createImageBitmap(f);
+      const k = Math.min(1, 960 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      const enc = (type, q) => new Promise(res => c.toBlob(res, type, q));
+      let b = await enc('image/webp', 0.82);
+      if (!b || b.type !== 'image/webp') b = await enc('image/jpeg', 0.85);
+      if (b && b.size < f.size) { blob = b; name = 'grill.' + (b.type === 'image/webp' ? 'webp' : 'jpg'); }
+    } catch (e) { /* can't decode it here: send the original */ }
+    if (blob.size > 8 * 1024 * 1024) { input.value = ''; return toast('That photo is over 8 MB'); }
+    const fd = new FormData(); fd.append('photo', blob, name);
     toast('Uploading…');
     api('POST', '/api/smoker/grill_photo', fd).then(r => {
       grillPhoto = r.url; sendPhotoToController(r.url); toast('Photo saved'); render();

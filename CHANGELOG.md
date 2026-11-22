@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.14] - 2026-11-22
+
+- Grill photo uploads are shrunk in the browser first: 960 px across (the page never shows it wider than 640 px), WebP
+  (keeps transparency) or JPEG, so a phone photo goes from several MB to around 100 kB.
+
 ## [0.2.13] - 2026-11-22
 
 - **Upload your grill photo from the dashboard** (Setup → Grill photo; on a phone, camera or library): the integration
