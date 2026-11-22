@@ -128,6 +128,7 @@ class Gravity980Component : public Component {
 #ifdef USE_TEXT_SENSOR
   void set_raw_frame_text_sensor(text_sensor::TextSensor *s) { this->raw_ts_ = s; }
   void set_transport_text_sensor(text_sensor::TextSensor *s) { this->transport_ts_ = s; }
+  void set_wifi_text_sensor(text_sensor::TextSensor *s) { this->wifi_ts_ = s; }
 #endif
 #ifdef USE_NUMBER
   void set_target_number(Probe p, Gravity980TargetNumber *n) { this->target_numbers_[p] = n; }
@@ -171,6 +172,8 @@ class Gravity980Component : public Component {
   uint16_t from_unit_(float v) const;
 
   std::string host_;
+  std::string auto_host_;  // the IP the grill reports over BLE, used when host_ is empty
+  const std::string &host_for_tcp_() const { return this->host_.empty() ? this->auto_host_ : this->host_; }
   uint16_t port_{3333};
   bool fahrenheit_{true};
   bool read_only_{false};
@@ -222,6 +225,7 @@ class Gravity980Component : public Component {
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *raw_ts_{nullptr};
   text_sensor::TextSensor *transport_ts_{nullptr};
+  text_sensor::TextSensor *wifi_ts_{nullptr};
 #endif
 #ifdef USE_NUMBER
   Gravity980TargetNumber *target_numbers_[PROBE_COUNT]{nullptr, nullptr, nullptr};

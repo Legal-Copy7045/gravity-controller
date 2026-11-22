@@ -95,7 +95,7 @@ void Gravity980Component::set_enabled(bool enabled) {
 
 void Gravity980Component::loop() {
   const uint32_t now = millis();
-  if (this->enabled_ && !this->host_.empty()) {
+  if (this->enabled_ && !this->host_for_tcp_().empty()) {
     switch (this->tcp_state_) {
       case TcpState::IDLE:
         if (this->tcp_last_attempt_ == 0 || now - this->tcp_last_attempt_ >= this->reconnect_interval_)
@@ -129,24 +129,25 @@ void Gravity980Component::tcp_start_connect_() {
   struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(this->port_);
-  if (inet_pton(AF_INET, this->host_.c_str(), &addr.sin_addr) != 1) {
+  const std::string &host = this->host_for_tcp_();
+  if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
     // Hostname: resolving blocks the main loop, so do it rarely (an IP address / DHCP reservation is better).
-    if (this->resolved_host_ == this->host_ && this->resolved_addr_ != 0 &&
+    if (this->resolved_host_ == host && this->resolved_addr_ != 0 &&
         int32_t(millis() - this->resolved_at_) < 600000) {
       addr.sin_addr.s_addr = this->resolved_addr_;
       goto have_addr;
     }
-    if (this->resolved_host_ == this->host_ && int32_t(millis() - this->resolved_at_) < 60000)
+    if (this->resolved_host_ == host && int32_t(millis() - this->resolved_at_) < 60000)
       return;  // failed recently: back off
-    this->resolved_host_ = this->host_;
+    this->resolved_host_ = host;
     this->resolved_at_ = millis();
     this->resolved_addr_ = 0;
     struct addrinfo hints {};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     struct addrinfo *res = nullptr;
-    if (getaddrinfo(this->host_.c_str(), nullptr, &hints, &res) != 0 || res == nullptr) {
-      ESP_LOGW(TAG, "Cannot resolve %s (use an IP address / DHCP reservation)", this->host_.c_str());
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || res == nullptr) {
+      ESP_LOGW(TAG, "Cannot resolve %s (use an IP address / DHCP reservation)", host.c_str());
       return;
     }
     addr.sin_addr = reinterpret_cast<struct sockaddr_in *>(res->ai_addr)->sin_addr;
@@ -196,7 +197,7 @@ void Gravity980Component::tcp_check_connect_() {
     this->tcp_close_("connect refused/unreachable");
     return;
   }
-  ESP_LOGI(TAG, "TCP connected to %s:%u", this->host_.c_str(), this->port_);
+  ESP_LOGI(TAG, "TCP connected to %s:%u", this->host_for_tcp_().c_str(), this->port_);
   this->tcp_state_ = TcpState::CONNECTED;
   this->tcp_since_ = this->tcp_last_frame_ = millis();  // starts the "no data" timer; not "alive" until a frame
   this->tcp_got_frame_ = false;
@@ -283,7 +284,34 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
     // Wi-Fi info: [07][status][signal][..][..][ssid_len][ssid][bssid6][ip4]...
     if (len >= 6 && len >= size_t(6 + data[5] + 6 + 4)) {
       const uint8_t *ip = data + 6 + data[5] + 6;
-      ESP_LOGI(TAG, "Grill reports Wi-Fi status 0x%02X, IP %u.%u.%u.%u", data[1], ip[0], ip[1], ip[2], ip[3]);
+      std::string ssid;
+      for (size_t i = 0; i < data[5]; i++) {
+        char ch = char(data[6 + i]);
+        ssid += (ch >= 0x20 && ch < 0x7F) ? ch : '?';
+      }
+      char ipb[16];
+      std::snprintf(ipb, sizeof(ipb), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+      bool has_ip = ip[0] != 0 && ip[0] != 255;
+      ESP_LOGI(TAG, "Grill reports Wi-Fi status 0x%02X, signal %d, network '%s', IP %s", data[1], int8_t(data[2]),
+               ssid.c_str(), ipb);
+      if (this->wifi_ts_ != nullptr) {
+        char b[96];
+        if (ssid.empty())
+          std::snprintf(b, sizeof(b), "No network set up (status 0x%02X)", data[1]);
+        else if (has_ip)
+          std::snprintf(b, sizeof(b), "On %s, IP %s, signal %d (status 0x%02X)", ssid.c_str(), ipb, int8_t(data[2]),
+                        data[1]);
+        else
+          std::snprintf(b, sizeof(b), "Trying %s, no IP yet (status 0x%02X)", ssid.c_str(), data[1]);
+        if (!this->wifi_ts_->has_state() || this->wifi_ts_->state != b)
+          this->wifi_ts_->publish_state(b);
+      }
+      // Grill IP address left empty: use the address the grill reports for the Wi-Fi link.
+      if (has_ip && this->auto_host_ != ipb) {
+        this->auto_host_ = ipb;
+        if (this->host_.empty())
+          ESP_LOGI(TAG, "Using the grill's reported IP %s for Wi-Fi (Grill IP address is empty)", ipb);
+      }
     }
     return;
   }

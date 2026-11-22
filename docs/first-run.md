@@ -94,3 +94,19 @@ controllers joining. The easiest fix is a dedicated IoT network for them:
 - Give the grill a fixed IP (DHCP reservation), then enter it in **Grill IP address**.
 
 The smoker controller itself is an ESP32 and copes with most of these, but the same IoT network suits it too.
+
+### Still won't join?
+
+Once the controller is connected to the grill over Bluetooth, the **Grill Wi-Fi** entity (device page, Diagnostic)
+shows what the grill itself reports, and the bridge picks up the grill's IP automatically when *Grill IP address* is
+empty:
+
+| Grill Wi-Fi says | Meaning | Try |
+|---|---|---|
+| *No network set up* | The Char-Griller app's setup never reached the grill | Turn **Bridge enabled** off (the grill takes one Bluetooth connection), close other phones' Char-Griller apps, stand next to the grill, set it up again, then turn the bridge back on |
+| *Trying &lt;network&gt;, no IP yet* | It has the details but can't join or get an address | Check the password (plain letters/numbers), that an AP near the grill broadcasts the network, and UniFi's client/event log for the grill (Wi-Fi address `88:4A:18:…`, usually 2 below its Bluetooth address) for authentication or DHCP failures |
+| *On &lt;network&gt;, IP …* | Joined | If *Grill link* still isn't `wifi`, something blocks TCP port 3333 between the controller and the grill (isolation, VLAN firewall) |
+
+The 980's Wi-Fi (an Opulinks module) is known to be temperamental and some owners report it dropping within seconds
+while Bluetooth stays up. Bluetooth alone is enough for this project: readings and control both work over it.
+

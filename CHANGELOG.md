@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5] - 2026-11-22
+
+- **Grill Wi-Fi** diagnostic entity: what the grill reports about its own Wi-Fi over Bluetooth (network, IP, signal,
+  status code), to find out why it won't join.
+- With *Grill IP address* empty, the bridge uses the IP the grill reports for the Wi-Fi link.
+- Docs: a "still won't join" table in first-run.
+
 ## [0.2.4] - 2026-11-22
 
 - **Control over Bluetooth** is on by default: the app controls the grill over Bluetooth when its Wi-Fi isn't
