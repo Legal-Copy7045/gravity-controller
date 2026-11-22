@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.24] - 2026-11-22
+
+Dashboard order, reviewed (the phone page is about 1,000 px shorter):
+- During a cook: Now · Food · Pit & program · Charcoal · Chart · **AI pitmaster** · Plan · Journal · Setup. With
+  nothing cooking, **Plan the next cook comes first** (the section bar follows).
+- Food times are shown once (the picture's Coming up and the Food cards), no longer also as Right now tiles; Right now
+  keeps charcoal, cook time and outside, with no empty tile.
+- The AI's finish estimate and its recommendations are together in one AI pitmaster section, below the chart, instead
+  of the recommendations sitting above the food.
+- The program editor folds away while a program runs (Edit the program opens it); open while idle.
+- Learning moved to the Cook journal; Setup no longer repeats the grill link (Controller) or the grill's Wi-Fi (now a
+  note under its signal).
+
 ## [0.2.23] - 2026-11-22
 
 - When the grill is on Wi-Fi **and** Bluetooth, both pages say so at the top ("Grill connected · Wi-Fi + Bluetooth",

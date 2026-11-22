@@ -23,6 +23,7 @@
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;flex:none}
 .dot.on{background:var(--ok)}.dot.stale{background:var(--warn)}.dot.off{background:var(--bad)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kpi:last-child:nth-child(odd){grid-column:1/-1}
 .kpi{background:var(--surface);padding:13px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .kpi .l{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .kpi .v{font:500 26px/1.15 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -230,7 +231,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
 
   <!-- section bar: sticks to the top, marks the section in view (script: "section bar") -->
   <nav class="secbar" id="secbar" aria-label="Sections on this page">
-    <a href="#now"><svg class="ic"><use href="#i-now"/></svg>Now</a><a href="#food"><svg class="ic"><use href="#i-food"/></svg>Food</a><a href="#pit"><svg class="ic"><use href="#i-grill"/></svg>Pit &amp; program</a><a href="#charcoal"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</a><a href="#temps"><svg class="ic"><use href="#i-chart"/></svg>Chart</a><a href="#plan"><svg class="ic"><use href="#i-plan"/></svg>Plan</a><a href="#journal-sec"><svg class="ic"><use href="#i-book"/></svg>Journal</a><a href="#setup"><svg class="ic"><use href="#i-setup"/></svg>Setup</a>
+    <a href="#now"><svg class="ic"><use href="#i-now"/></svg>Now</a><a href="#food"><svg class="ic"><use href="#i-food"/></svg>Food</a><a href="#pit"><svg class="ic"><use href="#i-grill"/></svg>Pit &amp; program</a><a href="#charcoal"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</a><a href="#temps"><svg class="ic"><use href="#i-chart"/></svg>Chart</a><a href="#ai"><svg class="ic"><use href="#i-flame"/></svg>AI</a><a href="#plan"><svg class="ic"><use href="#i-plan"/></svg>Plan</a><a href="#journal-sec"><svg class="ic"><use href="#i-book"/></svg>Journal</a><a href="#setup"><svg class="ic"><use href="#i-setup"/></svg>Setup</a>
   </nav>
 
   <div class="sect" id="now">
@@ -239,7 +240,6 @@ footer{color:var(--muted);font-size:12px;text-align:center}
         <span class="live-status" id="lstatus">Connecting to Home Assistant…</span></div>
       <div class="kpis" id="kpis"></div>
     </section>
-    <section class="live" id="recs"></section>
   </div>
 
   <div class="sect" id="food">
@@ -252,7 +252,6 @@ footer{color:var(--muted);font-size:12px;text-align:center}
     <div class="grid">
       <section class="tc" id="pitcard"></section>
       <section class="tc" id="progcard"></section>
-      <section class="tc" id="aicard"></section>
     </div>
   </div>
 
@@ -266,12 +265,18 @@ footer{color:var(--muted);font-size:12px;text-align:center}
     <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
   </div>
 
+  <div class="sect" id="ai">
+    <h2 class="sec"><svg class="ic"><use href="#i-flame"/></svg>AI pitmaster <small>a second opinion</small></h2>
+    <div class="grid">
+      <section class="tc" id="aicard"></section>
+      <section class="tc" id="recs"></section>
+    </div>
+  </div>
   <div class="sect" id="plan">
     <h2 class="sec"><svg class="ic"><use href="#i-plan"/></svg>Plan the next cook</h2>
     <div class="grid">
       <section class="tc" id="plancard"></section>
       <section class="tc" id="scancard"></section>
-      <section class="tc" id="learncard"></section>
     </div>
   </div>
 
@@ -280,6 +285,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
     <section class="tc" id="journal"><div id="jlist"><div class="empty">Loading…</div></div>
       <div id="jcmp" style="display:none"><h3 id="jcmptitle" style="margin-top:14px">Compared with similar cooks</h3>
         <div class="chart" id="jchart"></div><div class="legend" id="jlegend"></div></div></section>
+    <section class="tc" id="learncard"></section>
   </div>
 
   <div class="sect" id="setup">
@@ -1030,7 +1036,7 @@ function renderTop() {
 function renderKpis() {
   const k = [];
   const add = (l, v, u, n) => k.push(`<div class="kpi"><span class="l">${esc(l)}</span><span class="v">${v}${u ? `<small>${esc(u)}</small>` : ''}</span><span class="n">${n || '&nbsp;'}</span></div>`);
-  PROBES.filter(p => probeState(p).t != null).slice(0, 2).forEach(p => { const s = probeState(p); add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) + (isExp(s.info) ? ' · experimental' : '') : esc(s.phase || '')); });
+  // Food times are on the picture (Coming up) and the Food cards: not repeated here.
   const lvl = num(E('Charcoal level', ['sensor'])), hrs = num(E('Charcoal hours left', ['sensor']));
   if (lvl != null) add('Charcoal', fmt(lvl), '%', hrs != null ? '~' + fmt(hrs, 1) + ' h left' : 'level');
   const el = num(E('Cook elapsed', ['sensor']));
@@ -1042,7 +1048,7 @@ function renderKpis() {
 }
 
 function renderRecs() {
-  if (!hasPkg()) return put('recs', `<div class="live-head"><h2 class="lh">Recommendations</h2></div>${pkgNote('AI recommendations')}`);
+  if (!hasPkg()) return put('recs', `<h3>Recommendations</h3>${pkgNote('AI recommendations')}`);
   const e = byName('Smoker recommendations', ['sensor']), st = S(e);
   const a = (st && st.attributes) || {}, items = Array.isArray(a.items) ? a.items : [];
   const mode = a.mode === 'live' ? 'During the cook' : 'Plan for the next cook';
@@ -1051,8 +1057,8 @@ function renderRecs() {
     ? '<div class="recs">' + items.map(i => `<div class="rec"><span class="w">${esc(i.when || '')}</span><span class="t">${esc(i.title || '')}</span>
         <span class="d">${esc(i.detail || '')}</span></div>`).join('') + '</div>'
     : '<div class="empty">No recommendations yet. Set the protein, weight and serve-by time (or start a cook) and ask the AI.</div>';
-  put('recs', `<div class="live-head"><h2 class="lh">Recommendations · ${esc(mode)} ${EXP('Written by the AI from the cook data, the weather and your journal. Use your judgement.')}</h2>
-      <span class="small muted">${when ? 'AI · ' + esc(when) + ' · ' : ''}<button class="btn" onclick="act.advise()">Ask the AI</button></span></div>
+  put('recs', `<h3>Recommendations ${EXP('Written by the AI from the cook data, the weather and your journal. Use your judgement.')}</h3>
+      <div class="row"><span class="small muted">${esc(mode)}${when ? ' · written ' + esc(when) : ' · not written yet'}</span><button class="btn" onclick="act.advise()">Ask the AI</button></div>
     ${a.summary ? `<p style="margin:0">${esc(a.summary)}</p>` : ''}${body}`);
 }
 
@@ -1095,7 +1101,7 @@ function renderControl() {
     ${signalRows()}
     ${tog(bleE, ble, 'Control over Bluetooth', 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
     ${tog(bridge, val(bridge) === 'on', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}
-    <div class="row"><span>Grill's Wi-Fi</span><span class="r" style="white-space:normal">${esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')}</span></div>
+    ${E('Grill Wi-Fi signal', ['sensor']) ? '' : `<div class="row"><span>Grill's Wi-Fi</span><span class="r" style="white-space:normal">${esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')}</span></div>`}
     <div class="row"><span>Grill IP address</span><span class="r">${esc(ip && ip !== 'unknown' ? ip : 'automatic')}</span></div>
     ${E('Grill Wi-Fi: scan', ['button']) ? `<details class="more" data-k="wifi"><summary>Set up the grill's Wi-Fi</summary>
       <p class="muted small" style="margin:4px 0">Over Bluetooth, like the Char-Griller app (close the app first). 2.4 GHz only.</p>
@@ -1121,7 +1127,9 @@ function renderProgram() {
   const preset = S(E('Program preset', ['select'])), err = val(E('Program error', ['sensor']));
   const opts = preset ? (preset.attributes.options || []) : [];
   const running = st === 'Running', paused = st === 'Paused';
-  if (!$('progedit')) $('progcard').innerHTML = '<h3 id="proghead"></h3><div id="progstat"></div><div id="progedit" class="pe"></div><div id="progbtns"></div>';
+  if (!$('progedit')) $('progcard').innerHTML = '<h3 id="proghead"></h3><div id="progstat"></div><details class="more" id="progfold"><summary>Edit the program</summary><div id="progedit" class="pe"></div></details><div id="progbtns"></div>';
+  const fold = $('progfold'), live = running || paused;
+  if (fold && fold._live !== live) { fold._live = live; fold.open = !live; }
   put('proghead', `Cook program <span class="chip ${running ? 'ok' : paused ? 'warn' : ''}">${esc(st)}</span>`);
   put('progstat', `<div class="small" style="margin-bottom:8px">${esc(status)}</div>
     ${err ? `<div class="err" role="alert">The controller says: ${esc(err)}</div>` : ''}
@@ -1147,7 +1155,7 @@ function renderAI() {
   const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
   const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
   if (!hasPkg()) return put('aicard', `<h3>AI pitmaster</h3>${pkgNote('The AI advisor')}`);
-  put('aicard', `<h3>AI pitmaster <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
+  put('aicard', `<h3>Finish estimate <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
     <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span>${left != null && left > 0 ? EXP('A language model reading the cook so far; not learned from your grill.') : ''}</div>
     <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
     ${sug ? `<div class="row"><span>Tip</span><span class="small" style="text-align:right">${esc(sug)}</span></div>` : ''}
@@ -1413,7 +1421,8 @@ function signalRows() {
     b == null ? 'grill off or out of range' : conn && via === 'bluetooth' ? 'controller ↔ grill link' : 'the grill\'s advertisements (not connected)');
   if (wE) out += r('Grill\'s Wi-Fi signal', (w != null ? `${fmt(w)} dBm · ${sigWord(w)}` : 'not reported')
       + (E('Grill Wi-Fi: join saved network', ['button']) ? ` <button class="btn" onclick="act.pressName('Grill Wi-Fi: join saved network')">Check</button>` : ''),
-    w != null && ws ? 'as the grill reported it ' + esc(ago(ws.last_changed)) : 'the grill reports it over Bluetooth when asked');
+    (w != null && ws ? 'as the grill reported it ' + esc(ago(ws.last_changed)) : 'the grill reports it over Bluetooth when asked')
+      + ((gw => gw && !/^(unknown|unavailable)$/.test(gw) ? '<br>' + esc(gw) : '')(val(E('Grill Wi-Fi', ['sensor'])))));
   return out;
 }
 const durTxt = s => { if (s == null || !isFinite(s)) return '--'; const m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
@@ -1429,7 +1438,6 @@ function renderDiag() {
   const row = (l, v, note) => `<div class="row"><span>${esc(l)}${note ? `<br><span class="muted small">${esc(note)}</span>` : ''}</span><span class="r" style="white-space:normal">${esc(v)}</span></div>`;
   put('diag', [
     row('Release', [ok(ctl) ? 'controller ' + ctl : '', integ ? 'integration ' + integ : ''].filter(Boolean).join(' · ') || '--'),
-    row('Grill link', ok(link) ? link : ok(via) && via !== 'none' ? via : 'not connected'),
     ok(raw) ? row('Last status frame', raw) : '',
     sig != null ? row('Controller Wi-Fi', fmt(sig) + ' dBm', 'The controller\'s own connection to your router, not the grill\'s') : '',
     row('H5198 signal', h5 != null ? fmt(h5) + ' dBm' : 'not heard'),
@@ -1484,7 +1492,18 @@ function renderRange() {
 }
 
 // ---------------------------------------------------------------- loop
+// Nothing cooking: planning the next cook is what's wanted, so Plan sits first; during a cook it goes after the AI.
+let planUp = null;
+function placePlan() {
+  const cooking = val(E('Cook active', ['binary_sensor'])) === 'on' || /Running|Paused/.test(val(E('Program state', ['sensor'])) || '');
+  if (planUp === !cooking) return; planUp = !cooking;
+  const plan = $('plan'), bar = $('secbar'), link = bar && bar.querySelector('a[href="#plan"]');
+  const before = planUp ? $('now') : $('journal-sec'), beforeLink = bar && bar.querySelector(planUp ? 'a[href="#now"]' : 'a[href="#journal-sec"]');
+  if (plan && before) before.parentNode.insertBefore(plan, before);
+  if (link && beforeLink) bar.insertBefore(link, beforeLink);
+}
 function render() {
+  placePlan();
   findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
   loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
@@ -1495,7 +1514,8 @@ window.addEventListener('resize', () => drawChart());
 // marked link visible when the bar scrolls sideways (phones). As on the Energy and EV9 pages.
 (function () {
   const bar = $('secbar'); if (!bar) return;
-  const links = [...bar.querySelectorAll('a')], secs = links.map(a => $(a.getAttribute('href').slice(1)));
+  // Read fresh each time: Plan moves between "idle" and "cooking" positions.
+  const L = () => [...bar.querySelectorAll('a')], X = () => L().map(a => $(a.getAttribute('href').slice(1)));
   // In the home-dashboards project the site bar sticks to the top: sit just under it.
   const site = document.querySelector('nav.site');
   const top = () => site ? Math.max(0, site.getBoundingClientRect().height - 1) : 0;
@@ -1503,15 +1523,15 @@ window.addEventListener('resize', () => drawChart());
   place(); addEventListener('resize', place); if (window.ResizeObserver && site) new ResizeObserver(place).observe(site);
   let cur = -1;
   function mark() {
-    const y = top() + bar.offsetHeight + 40; let k = 0;
+    const links = L(), secs = X(); const y = top() + bar.offsetHeight + 40; let k = 0;
     secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top <= y) k = i; });
     if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) k = secs.length - 1;
     if (k === cur) return; cur = k;
     links.forEach((a, i) => { if (i === k) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
     const a = links[k]; if (bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
   }
-  links.forEach((a, i) => a.addEventListener('click', e => {
-    e.preventDefault(); const el = secs[i];
+  L().forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); const el = $(a.getAttribute('href').slice(1));
     if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - top() - bar.offsetHeight - 10, behavior: 'smooth' });
   }));
   let raf = 0; addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });

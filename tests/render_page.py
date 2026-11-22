@@ -205,6 +205,11 @@ def program_editor(pg, fr):
     """The step editor in the Cook program card."""
     fails = []
     fr.evaluate("document.activeElement && document.activeElement.blur()")
+    # The fixture's program is running, so the editor starts folded away: open it.
+    if fr.evaluate("!!document.getElementById('progfold') && !document.getElementById('progfold').open"):
+        fr.click("#progfold > summary")
+    else:
+        fails.append("program editor: expected it folded while the program runs")
     # The fixture's program as steps.
     steps = fr.evaluate("""() => [...document.querySelectorAll('#progedit .pe-step')].map(li => ({
         kind: li.querySelector('[data-pe=kind]').value, temp: (li.querySelector('[data-pe=temp]') || {}).value,
@@ -315,6 +320,7 @@ def program_editor(pg, fr):
 def editor_on_phone(pg, fr):
     """At 390 px: the editor with a few conditions fits the screen."""
     fails = []
+    fr.evaluate("document.getElementById('progfold') && (document.getElementById('progfold').open = true)")
     fr.click("#pe-addstep")
     fr.select_option("#pe-s2-c0-type", "after")
     fr.fill("#pe-s2-c0-v", "90")
@@ -453,6 +459,22 @@ def main():
                 tb = fr.evaluate("async () => { window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return document.getElementById('topbar').innerText; }")
                 if "Wi-Fi + Bluetooth" not in tb or fr.evaluate("document.querySelectorAll('#topbar .ic.via').length") != 2:
                     failures.append(f"{scheme}/{name}: both links at the top: {tb!r}")
+                order = fr.evaluate("[...document.querySelectorAll('.sect')].map(e => e.id).join(',')")
+                if order != "now,food,pit,charcoal,temps,ai,plan,journal-sec,setup":
+                    failures.append(f"{scheme}/{name}: section order while cooking: {order}")
+                idle = fr.evaluate("""async () => {
+                    const hs = window.parent.__smHass, keep = hs.states, st = Object.assign({}, keep);
+                    for (const k of Object.keys(st)) { const n = (st[k].attributes || {}).friendly_name || '';
+                      if (n === 'Smoker Cook active') st[k] = Object.assign({}, st[k], {state: 'off'});
+                      if (n === 'Smoker Program state') st[k] = Object.assign({}, st[k], {state: 'Idle'}); }
+                    hs.states = st; window.__smOnHass(); await new Promise(r => setTimeout(r, 400));
+                    const o = [...document.querySelectorAll('.sect')].map(e => e.id).join(',');
+                    const bar = [...document.querySelectorAll('#secbar a')].map(a => a.getAttribute('href')).join(',');
+                    hs.states = keep; window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return [o, bar]; }""")
+                if not idle[0].startswith("plan,now,food") or not idle[1].startswith("#plan,#now"):
+                    failures.append(f"{scheme}/{name}: idle order: {idle}")
+                if "FOOD 1" in fr.inner_text("#kpis").upper():
+                    failures.append(f"{scheme}/{name}: food repeated in Right now")
                 dg = fr.inner_text("#diag")
                 if "controller 0.2.20" not in dg or "Controller Wi-Fi" not in dg or "not the grill" not in dg:
                     failures.append(f"{scheme}/{name}: diagnostics: {dg[:200]!r}")
@@ -481,7 +503,7 @@ def main():
                     return r; }""")
                 if not photo["img"] or photo["pins"] < 6 or "251" not in photo["text"] or "62%" not in photo["text"] or not photo["back"]:
                     failures.append(f"{scheme}/{name}: photo mode {photo}")
-                if checks["secbar"] != ["Now", "Food", "Pit & program", "Charcoal", "Chart", "Plan", "Journal", "Setup"]:
+                if checks["secbar"] != ["Now", "Food", "Pit & program", "Charcoal", "Chart", "AI", "Plan", "Journal", "Setup"]:
                     failures.append(f"{scheme}/{name}: section bar {checks['secbar']}")
                 if "Pork shoulder" not in checks["heronext"] or "Poultry" not in checks["heronext"]:
                     failures.append(f"{scheme}/{name}: coming up: {checks['heronext'][:160]!r}")
