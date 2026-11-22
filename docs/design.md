@@ -10,10 +10,11 @@ Status: **draft, before hardware measurements.** Items marked ⚠ depend on the 
 | G1 | Replace the stock controller completely and keep the stock fan | ESP32-S3 board drives the stock fan directly (§4) |
 | G2 | Pit control that works with no Wi-Fi or HA | PID loop runs on the ESP32; HA only changes setpoints |
 | G3 | Extra probes for zone temperatures | 4 meat + 4 zone NTC channels, plus 2 thermocouple channels (§5) |
-| G4 | Hopper fuel level | ToF distance sensor plus a burn-front estimate from hopper wall temperatures (§6) |
+| G4 | Hopper fuel level (low priority) | Fuel-use estimate and burn-front probes first; ToF last (§6) |
 | G5 | Logging and stall detection in HA | Native ESPHome API, HA recorder, derivative sensors (§8) |
-| G6 | Phone control with a mobile-friendly UI | HA Companion app dashboard as the main UI; on-device web UI as a fallback (§7) |
+| G6 | Phone control with a mobile-friendly UI, °C/°F configurable | HA Companion app dashboard as the main UI; on-device web UI as a fallback (§7) |
 | G7 | Notifications | HA Companion actionable notifications; ntfy direct from the ESP for critical alarms (§7.3) |
+| G9 | Probe-driven cook programs | Multi-step rules, e.g. "meat ≥ 165 °F for 30 min → pit 300 °F" (features.md, C-group) |
 | G8 | Safe | Hardware fan-off default, lid interlock, overtemp/probe-fault cut-off, fuse (§4.4) |
 
 ## 2. Architecture
@@ -127,7 +128,7 @@ fits ⚠.
 - Show a grill "heat map" card (left/right/top) and the left-vs-right spread.
 - Optional: control on the average of the pit probe and a chosen zone probe (a "control at the grate" mode).
 
-## 6. Hopper level
+## 6. Hopper level (deprioritised: see §11)
 
 The 980 hopper holds ~7 kg (16 lb) of briquettes, with the lid at the top and a hopper switch. There are two complementary methods:
 
@@ -147,7 +148,7 @@ HA derives the **burn rate** (kg/h) from the level history and fan duty, and fro
 ### 7.1 Primary: HA Companion app
 - A dedicated "Smoker" dashboard: big pit temp and setpoint (thermostat card), meat probe tiles with targets,
   zone temps, hopper gauge, fan %, cook timer, and history graphs. It's mobile-first (sections/tile cards).
-- Remote access via Nabu Casa or your existing VPN/reverse proxy ⚠ (how do you reach HA today?).
+- Remote access via Nabu Casa (confirmed).
 
 ### 7.2 Fallback: on-device web UI
 - ESPHome `web_server` (v3) on the ESP, at `http://smoker.local`. It shows every entity and allows setpoint changes, and works with HA down.
@@ -205,12 +206,14 @@ Bring a multimeter, a phone camera, and an IR thermometer if you have one.
 | 3 | Hopper level (ToF and burn-front), burn rate and time-to-empty | Refill alert fires within ±20 min of reality |
 | 4 | Perfboard or PCB, weatherproof enclosure with panel connectors, optional OLED/encoder | Mounted in place of the stock controller |
 
-## 11. Open questions for you
-- Which ESP32-S3 board exactly (dev kit, PSRAM, antenna)?
-- How do you reach HA away from home (Nabu Casa, VPN, none)?
-- Do you want the ESP→ntfy backup alarms, or HA-only notifications?
-- °C throughout? (I've assumed yes.)
-- Do you want a local OLED and knob on the controller, or is the phone enough?
+## 11. Decisions so far
+- **Board:** Lonely Binary ESP32-S3 N16R8 (PCB antenna; GPIO 35–37 reserved for the PSRAM).
+- **Remote access:** Nabu Casa → the Companion app works away from home with no extra setup.
+- **ntfy:** yes, as a direct ESP→phone path for critical alarms.
+- **Local UI:** a "current temp" display is enough; a knob or buttons are a nice-to-have.
+- **Units:** °C or °F, user-configurable (device setting, mirrored in HA).
+- **Hopper ToF sensor:** moved to the back of the list (the hopper runs too hot); the burn-front and fuel-estimate methods come first.
+- **Cook programs:** probe-driven, multi-step cook automation is wanted. See [features.md](features.md) for the feature list awaiting prioritisation.
 
 ## 12. Proposed repo layout
 ```
