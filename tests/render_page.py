@@ -191,6 +191,7 @@ def main():
                     "pitcard": fr.inner_text("#pitcard"),
                     "controlcard": fr.inner_text("#controlcard"),
                     "heronext": fr.inner_text("#heronext"),
+                    "grill": fr.inner_html("#grillpic"),
                     "secbar": fr.eval_on_selector_all("#secbar a", "as => as.map(a => a.textContent)"),
                 }
                 if errors:
@@ -219,6 +220,9 @@ def main():
                     failures.append(f"{scheme}/{name}: control row: {checks['pitcard'][:200]!r}")
                 if "Control over Bluetooth" not in checks["controlcard"] or "Bridge enabled" not in checks["controlcard"]:
                     failures.append(f"{scheme}/{name}: connection card: {checks['controlcard'][:200]!r}")
+                g = checks["grill"]
+                if "<svg" not in g or "251°" not in g or "62%" not in g or "F1 " not in g or "F3 171°" not in g:
+                    failures.append(f"{scheme}/{name}: grill drawing missing live values: {[k for k in ('<svg', '251°', '62%', 'F1 ', 'F3 171°') if k not in g]}")
                 if checks["secbar"] != ["Now", "Food", "Pit & program", "Charcoal", "Chart", "Plan", "Journal", "Setup"]:
                     failures.append(f"{scheme}/{name}: section bar {checks['secbar']}")
                 if "Pork shoulder" not in checks["heronext"] or "Poultry" not in checks["heronext"]:
