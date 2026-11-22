@@ -1,0 +1,9 @@
+# Prebuilt firmware (built by GitHub Actions, installed from the GitHub Pages
+# installer, updated over the air). Uses the components from this checkout.
+packages:
+  core: !include core.yaml
+
+external_components:
+  - source:
+      type: local
+      path: ../components

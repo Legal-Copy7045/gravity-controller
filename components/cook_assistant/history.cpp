@@ -67,7 +67,7 @@ float CookHistory::grill_factor() const {
   return float(std::max(0.4, std::min(2.5, g)));
 }
 
-Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapped) const {
+Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapped, const Environment &env) const {
   if (profile < 0 || profile >= profile_count())
     profile = 0;
   const Profile &pr = profiles()[profile];
@@ -81,6 +81,14 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
   p.stall_h = pr.stall_hours * std::pow(W / ref_weight(profile), 1.0f / 3.0f) * std::pow(107.0f / pit, 1.5f);
   if (wrapped && pr.stalls)
     p.stall_h *= 0.6f;
+  // Dry air evaporates faster and stretches the stall; humid air shortens it.
+  if (pr.stalls && !std::isnan(env.humidity))
+    p.stall_h *= std::max(0.75f, std::min(1.3f, 1.0f + 0.3f * (50.0f - env.humidity) / 50.0f));
+  // Cold and wind cool the meat surface a little even at the same pit temperature.
+  if (!std::isnan(env.ambient_c))
+    p.k *= std::max(0.85f, std::min(1.05f, 1.0f - 0.004f * (15.0f - env.ambient_c)));
+  if (!std::isnan(env.wind_kmh))
+    p.k *= std::max(0.9f, 1.0f - 0.002f * env.wind_kmh);
   p.pit_c = pit;
   p.stall_onset_c = pr.stall_onset_c;
 
@@ -96,6 +104,13 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
     double sim = std::exp(-(lw * lw) / (2 * 0.35 * 0.35)) * std::exp(-std::pow((pit - rpit) / 25.0, 2) / 2);
     if (bool(r.flags & 1) != wrapped)
       sim *= 0.5;
+    // Outdoor conditions (only when known for both cooks).
+    if (!std::isnan(env.ambient_c) && !std::isnan(r.ambient_c))
+      sim *= std::exp(-std::pow((env.ambient_c - r.ambient_c) / 12.0, 2) / 2);
+    if (!std::isnan(env.humidity) && r.humidity != 255)
+      sim *= std::exp(-std::pow((env.humidity - r.humidity) / 30.0, 2) / 2);
+    if (!std::isnan(env.wind_kmh) && r.wind_kmh != 255)
+      sim *= std::exp(-std::pow((env.wind_kmh - r.wind_kmh) / 20.0, 2) / 2);
     if (sim < 0.02)
       continue;
     similar++;

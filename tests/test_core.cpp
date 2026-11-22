@@ -150,7 +150,8 @@ struct CookResult {
 };
 
 static CookResult run_cook(float weight_kg, float pit_c, float target_c, int profile, const cook::Priors &pri,
-                           bool wrap_at_stall, const std::vector<cook::PlanSegment> &plan_template, bool verbose) {
+                           bool wrap_at_stall, const std::vector<cook::PlanSegment> &plan_template, bool verbose,
+                           float pit_bias = 0.0f) {
   cook::Predictor p;
   p.set_profile(profile);
   p.set_target(target_c);
@@ -165,11 +166,11 @@ static CookResult run_cook(float weight_kg, float pit_c, float target_c, int pro
   std::vector<cook::PlanSegment> plan = plan_template;
   for (int i = 0; i < int(30 * 360); i++) {
     // Pit noise: slow wobble.
-    float pit_meas = pit + 4.0f * std::sin(float(t) * 3.0f);
+    float pit_meas = pit + pit_bias + 4.0f * std::sin(float(t) * 3.0f);
     step_meat(m, pit_meas, dt, wrapped);
     t += dt;
     float probe = m.core + 0.1f * std::sin(float(t) * 50.0f);
-    p.add_sample(t, probe, pit_meas);
+    p.add_sample(t, probe, pit_meas, pit);
     if (p.take_stall_started()) {
       r.stall_detected = true;
       if (wrap_at_stall) {
@@ -291,6 +292,24 @@ static void test_predictor() {
     std::printf("  poultry actual %.0f min, stall %d, error %.1f%%\n", r6.actual_total_min, r6.stall_detected,
                 mean_abs_error_pct(r6, 0.0f));
     CHECK(!r6.stall_detected);
+  }
+
+  // 6b) Cold, windy day: the pit holds 12 °C under its setpoint. The predictor
+  // is told the setpoint but should plan with what the pit actually holds.
+  {
+    auto r = run_cook(3.6f, 107.0f, 93.0f, pork, hist.priors(pork, 3.6f, 107.0f, false), false, {}, false, -12.0f);
+    float e = mean_abs_error_pct(r, 0.3f);
+    std::printf("  cold-day cook (pit 12 C under setpoint) actual %.0f min, error %.1f%%\n", r.actual_total_min, e);
+    CHECK(e < 20.0f);
+  }
+  // 6c) Environment changes priors: dry air lengthens the expected stall.
+  {
+    cook::Environment dry, humid;
+    dry.humidity = 15;
+    humid.humidity = 85;
+    auto pd = empty.priors(pork, 3.6f, 107.0f, false, dry);
+    auto ph = empty.priors(pork, 3.6f, 107.0f, false, humid);
+    CHECK(pd.stall_h > ph.stall_h);
   }
 
   // 7) History persistence round trip and capacity.

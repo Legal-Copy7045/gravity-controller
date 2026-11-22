@@ -11,6 +11,7 @@
 // temperature before averaging:
 //   k     ∝ weight^(-2/3)                 (heating time ∝ thickness² ∝ mass^(2/3))
 //   stall ∝ weight^(1/3) · pit^(-1.5)
+//   plus outdoor temperature / humidity / wind closeness when known.
 // With no similar cooks, profile defaults are used, corrected by a grill
 // factor learned from *all* past cooks (how this grill compares to typical).
 
@@ -24,7 +25,8 @@ struct CookRecord {
   uint32_t seq{0};       // increasing id; 0 = empty slot
   uint8_t profile{0};
   uint8_t flags{0};      // bit0 wrapped, bit1 stalled
-  uint16_t reserved{0};
+  uint8_t humidity{255};    // outdoor relative humidity %, 255 = unknown
+  uint8_t wind_kmh{255};    // outdoor wind speed km/h, 255 = unknown
   float weight_kg{NAN};
   float pit_c{NAN};      // average pit temperature during the cook
   float start_c{NAN};
@@ -34,9 +36,15 @@ struct CookRecord {
   float stall_h{NAN};
   float total_h{NAN};
   float stall_onset_c{NAN};
-  float spare{NAN};
+  float ambient_c{NAN};  // outdoor temperature
 };
 static_assert(sizeof(CookRecord) == 48, "CookRecord layout is persisted; keep it stable");
+
+struct Environment {
+  float ambient_c{NAN};
+  float humidity{NAN};  // %
+  float wind_kmh{NAN};
+};
 
 struct Priors {
   float k{0.15f};            // warming coefficient, 1/h
@@ -59,7 +67,7 @@ class CookHistory {
   void clear();
 
   /// Priors for a new cook. `weight_kg` NAN = unknown (profile reference weight).
-  Priors priors(int profile, float weight_kg, float pit_c, bool wrapped) const;
+  Priors priors(int profile, float weight_kg, float pit_c, bool wrapped, const Environment &env = {}) const;
 
   /// How this grill heats compared with the profile defaults (1.0 = typical).
   float grill_factor() const;

@@ -1,0 +1,5 @@
+Fake Gravity 980 on 127.0.0.1:13333 (speed x120.0)
+client ('127.0.0.1', 39702) connected
+  set target id 0x00 = 250 F
+  set target id 0x00 = 260 F
+  set target id 0x00 = 275 F

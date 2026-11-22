@@ -78,6 +78,11 @@ class Predictor {
   void set_priors(const Priors &p) { priors_ = p; }
   const Priors &priors() const { return priors_; }
   void set_weight(float kg) { weight_kg_ = kg; }
+  /// Outdoor conditions (stored with the cook record; used by CookHistory::priors).
+  void set_environment(const Environment &e) { env_ = e; }
+  const Environment &environment() const { return env_; }
+  /// Average (setpoint - measured pit) over the last 30 min, °C. Positive = running cold.
+  float pit_deficit() const;
   /// Mark the food as wrapped (foil / butcher paper). Shortens the remaining stall.
   void set_wrapped(bool w);
   bool wrapped() const { return wrapped_; }
@@ -85,7 +90,7 @@ class Predictor {
   /// Feed a sample. `now_h` is a monotonic time in hours. Call at any rate;
   /// samples are bucketed to one per minute internally.
   /// `food_c` NAN means the probe is absent; `pit_c` NAN means unknown.
-  void add_sample(double now_h, float food_c, float pit_c);
+  void add_sample(double now_h, float food_c, float pit_c, float pit_setpoint_c = NAN);
 
   /// Compute the prediction. `plan` describes the pit temperature from now on
   /// (first element = current state). If empty, the current pit temperature
@@ -146,6 +151,11 @@ class Predictor {
   float target_c_{NAN};
   Priors priors_{};
   float weight_kg_{NAN};
+  Environment env_{};
+  double env_sum_[3]{0, 0, 0};
+  int env_n_[3]{0, 0, 0};
+  float last_setpoint_{NAN};
+  std::vector<float> deficit_;  // per minute, last 30
   bool wrapped_{false};
   bool wrapped_in_stall_{false};
 

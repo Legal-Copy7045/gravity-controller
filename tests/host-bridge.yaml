@@ -1,0 +1,67 @@
+# Native (Linux) build of the bridge for end-to-end tests against tools/fake_grill.py.
+#   esphome compile tests/host-bridge.yaml && run the binary, see tests/e2e.py
+esphome:
+  name: smoker-host-test
+host:
+logger:
+  level: INFO
+api:
+  port: 6053
+  actions:
+    - action: load_program
+      variables:
+        program: string
+      then:
+        - lambda: id(smoker).load_program(program);
+    - action: start_program
+      then:
+        - lambda: id(smoker).start_program();
+external_components:
+  - source:
+      type: local
+      path: ../components
+gravity980:
+  id: grill
+  host: 127.0.0.1
+  port: 13333
+  temperature_unit: F
+sensor:
+  - platform: gravity980
+    pit_temperature: {id: pit_temp, name: Pit temperature}
+    pit_target: {id: pit_target_reported, name: Pit target reported}
+    food1_temperature: {id: food1_temp, name: Food 1 temperature}
+    food1_target: {id: food1_target_reported, name: Food 1 target reported}
+binary_sensor:
+  - platform: gravity980
+    connected: {id: grill_connected, name: Grill connected}
+    door: {id: lid_open, name: Lid}
+number:
+  - platform: gravity980
+    pit_target: {id: pit_setpoint, name: Pit target}
+cook_assistant:
+  id: smoker
+  temperature_unit: F
+  pit_temperature: pit_temp
+  pit_setpoint: pit_target_reported
+  lid: lid_open
+  link: grill_connected
+  on_set_pit:
+    - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, x);
+  on_notify:
+    - logger.log:
+        format: "NOTIFY %d %s: %s"
+        args: [priority, title.c_str(), message.c_str()]
+  probes:
+    - key: food1
+      name: Food 1
+      temperature: food1_temp
+      target: food1_target_reported
+      profile: {name: Food 1 protein}
+      weight: {name: Food 1 weight}
+      time_remaining: {name: Food 1 time remaining}
+      estimated_total: {name: Food 1 estimated total}
+      phase: {name: Food 1 phase}
+      rate: {name: Food 1 rate}
+  program_status: {name: Program status}
+  program_state: {name: Program state}
+  program_error: {name: Program error}

@@ -66,6 +66,11 @@ void Predictor::reset() {
   suspect_ = false;
   for (int i = 0; i < 2; i++)
     sxy_[i] = sxx_[i] = 0;
+  for (int i = 0; i < 3; i++) {
+    env_sum_[i] = 0;
+    env_n_[i] = 0;
+  }
+  deficit_.clear();
   stall_end_min_ = -1;
   pit_sum_ = 0;
   pit_n_ = 0;
@@ -80,7 +85,8 @@ void Predictor::set_wrapped(bool w) {
   wrapped_ = w;
 }
 
-void Predictor::add_sample(double now_h, float food_c, float pit_c) {
+void Predictor::add_sample(double now_h, float food_c, float pit_c, float pit_setpoint_c) {
+  last_setpoint_ = pit_setpoint_c;
   if (std::isnan(food_c)) {
     // Probe unplugged: a gap of more than a few minutes resets the cook.
     if (phase_ != Phase::NO_PROBE && bucket_start_h_ >= 0 && now_h - bucket_start_h_ > 5.0 / 60.0) {
@@ -92,6 +98,8 @@ void Predictor::add_sample(double now_h, float food_c, float pit_c) {
   }
   if (bucket_start_h_ < 0)
     bucket_start_h_ = now_h;
+  if (phase_ == Phase::NO_PROBE)
+    phase_ = Phase::WAITING;  // a probe is plugged in; data accumulates per minute
   bucket_food_sum_ += food_c;
   bucket_food_n_++;
   if (!std::isnan(pit_c)) {
@@ -128,6 +136,17 @@ void Predictor::process_minute_(float food, float pit) {
   if (!std::isnan(pit) && phase_ != Phase::WAITING && phase_ != Phase::NO_PROBE && phase_ != Phase::DONE) {
     pit_sum_ += pit;
     pit_n_++;
+    const float ev[3] = {env_.ambient_c, env_.humidity, env_.wind_kmh};
+    for (int i = 0; i < 3; i++)
+      if (!std::isnan(ev[i])) {
+        env_sum_[i] += ev[i];
+        env_n_[i]++;
+      }
+  }
+  if (!std::isnan(pit) && !std::isnan(last_setpoint_)) {
+    if (deficit_.size() >= 30)
+      deficit_.erase(deficit_.begin());
+    deficit_.push_back(last_setpoint_ - pit);
   }
   last_food_ = food;
   if (std::isnan(start_food_))
@@ -214,8 +233,8 @@ void Predictor::update_fit_() {
 
 float Predictor::k_data(bool post) const {
   int idx = post ? 1 : 0;
-  // Need roughly 45 minutes of usable data at a 50 °C difference.
-  if (sxx_[idx] < 45.0 * 50.0 * 50.0 * 0.5)
+  // Need roughly 30 minutes of usable data at a 30 °C difference.
+  if (sxx_[idx] < 30.0 * 30.0 * 30.0)
     return NAN;
   return float(sxy_[idx] / sxx_[idx]);
 }
@@ -294,6 +313,12 @@ void Predictor::update_phase_() {
                         : (p.stalls ? 0.0f : NAN);
         r.total_h = float(cook_minutes_() / 60.0);
         r.stall_onset_c = stall_onset_temp_;
+        if (env_n_[0])
+          r.ambient_c = float(env_sum_[0] / env_n_[0]);
+        if (env_n_[1])
+          r.humidity = uint8_t(std::max(0.0, std::min(100.0, env_sum_[1] / env_n_[1])));
+        if (env_n_[2])
+          r.wind_kmh = uint8_t(std::max(0.0, std::min(254.0, env_sum_[2] / env_n_[2])));
         completed_ = r;
         completed_pending_ = true;
       }
@@ -456,8 +481,19 @@ Prediction Predictor::predict(const std::vector<PlanSegment> &plan, float pit_se
     r.reason = "no pit temperature";
     return r;
   }
+  // If the pit has been running below (or above) its setpoint – cold, wind,
+  // low fuel – plan with what it actually holds rather than what it is set to.
+  float deficit = !std::isnan(pit_setpoint_c) ? pit_deficit() : NAN;
+  std::vector<PlanSegment> adj = plan;
+  if (!std::isnan(deficit) && std::fabs(deficit) > 2.0f) {
+    pit_now -= deficit;
+    for (auto &seg : adj)
+      if (!std::isnan(seg.pit_c))
+        seg.pit_c -= deficit;
+  }
+  const std::vector<PlanSegment> &plan_used = adj;
   float stall_in = NAN;
-  float best = simulate_(last_food_, phase_, plan, pit_now, 1.0f, 1.0f, &stall_in);
+  float best = simulate_(last_food_, phase_, plan_used, pit_now, 1.0f, 1.0f, &stall_in);
   if (std::isnan(best)) {
     r.reason = "pit too low for target";
     return r;
@@ -468,8 +504,8 @@ Prediction Predictor::predict(const std::vector<PlanSegment> &plan, float pit_se
     spread *= 0.7f;
   r.valid = true;
   r.minutes = best;
-  r.minutes_low = simulate_(last_food_, phase_, plan, pit_now, 1.0f + spread, 1.0f - 1.6f * spread, nullptr);
-  r.minutes_high = simulate_(last_food_, phase_, plan, pit_now, 1.0f - 0.8f * spread, 1.0f + 2.0f * spread, nullptr);
+  r.minutes_low = simulate_(last_food_, phase_, plan_used, pit_now, 1.0f + spread, 1.0f - 1.6f * spread, nullptr);
+  r.minutes_high = simulate_(last_food_, phase_, plan_used, pit_now, 1.0f - 0.8f * spread, 1.0f + 2.0f * spread, nullptr);
   if (std::isnan(r.minutes_high))
     r.minutes_high = best * 1.5f;
   r.stall_start_in_min = stall_in;
@@ -482,6 +518,16 @@ float Predictor::estimate_total_minutes(float start_c, float pit_c, const std::v
   if (std::isnan(target_c_) || std::isnan(pit_c))
     return NAN;
   return simulate_(std::isnan(start_c) ? 4.0f : start_c, Phase::WAITING, plan, pit_c, 1.0f, 1.0f, nullptr);
+}
+
+float Predictor::pit_deficit() const {
+  if (deficit_.size() < 10)
+    return NAN;
+  double s = 0;
+  for (float d : deficit_)
+    s += d;
+  // Clamp: big gaps are lid openings or start-up, not steady bias.
+  return float(std::max(-15.0, std::min(25.0, s / deficit_.size())));
 }
 
 double Predictor::cook_minutes_() const { return cook_start_min_ >= 0 ? minutes_ - cook_start_min_ : minutes_; }

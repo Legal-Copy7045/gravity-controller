@@ -1,0 +1,378 @@
+# Gravity 980 smoker bridge: shared device configuration.
+#
+# Included by gravity980-bridge.yaml (prebuilt firmware) and by your own
+# ESPHome dashboard config (see docs/install.md). Override any substitution.
+
+substitutions:
+  name: gravity980
+  friendly_name: Smoker
+  temperature_unit: "F"            # F or C (HA converts for display anyway)
+  weather_entity: weather.forecast_home
+  ntfy_server: https://ntfy.sh
+  update_manifest: https://legal-copy7045.github.io/gravity-controller/firmware/manifest.json
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  min_version: 2025.11.0
+  project:
+    name: legal-copy7045.gravity980-bridge
+    version: dev
+
+esp32:
+  variant: esp32s3
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+
+api:
+  actions:
+    - action: load_program
+      variables:
+        program: string
+      then:
+        - lambda: id(smoker).load_program(program);
+    - action: start_program
+      then:
+        - lambda: id(smoker).start_program();
+    - action: pause_program
+      then:
+        - lambda: id(smoker).pause_program();
+    - action: resume_program
+      then:
+        - lambda: id(smoker).resume_program();
+    - action: skip_step
+      then:
+        - lambda: id(smoker).skip_step();
+    - action: stop_program
+      then:
+        - lambda: id(smoker).stop_program();
+    - action: set_pit_target
+      variables:
+        value: float
+      then:
+        - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, value);
+    # Context for the HA AI advisor: fires esphome.smoker_context with live state + cook history.
+    - action: request_context
+      then:
+        - homeassistant.event:
+            event: esphome.smoker_context
+            data:
+              state: !lambda return id(smoker).state_json();
+              history: !lambda return id(smoker).history_json();
+
+ota:
+  - platform: esphome
+  - platform: http_request
+
+http_request:
+  timeout: 15s
+
+update:
+  - platform: http_request
+    id: firmware_update
+    name: Firmware
+    source: ${update_manifest}
+    update_interval: 6h
+
+wifi:
+  ap:
+    ssid: "${friendly_name} setup"
+  on_connect:
+    - logger.log: Wi-Fi connected
+
+captive_portal:
+improv_serial:
+esp32_improv:
+  authorizer: none
+
+web_server:
+  port: 80
+  version: 3
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+# ----------------------------------------------------------------- grill link
+
+gravity980:
+  id: grill
+  temperature_unit: ${temperature_unit}
+  log_raw: false
+  bluetooth:
+    writes: false   # setpoints over BLE are unverified on the 980; TCP is used
+
+text:
+  - platform: template
+    id: grill_host
+    name: Grill IP address
+    icon: mdi:ip-network
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: ""
+    on_value:
+      - lambda: id(grill).set_host(x);
+  - platform: template
+    id: ntfy_topic
+    name: ntfy topic
+    icon: mdi:bell-ring
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: ""
+
+sensor:
+  - platform: gravity980
+    pit_temperature:
+      id: pit_temp
+      name: Pit temperature
+    pit_target:
+      id: pit_target_reported
+      name: Pit target (reported)
+      entity_category: diagnostic
+    food1_temperature:
+      id: food1_temp
+      name: Food 1 temperature
+    food1_target:
+      id: food1_target_reported
+      name: Food 1 target (reported)
+      entity_category: diagnostic
+    food2_temperature:
+      id: food2_temp
+      name: Food 2 temperature
+    food2_target:
+      id: food2_target_reported
+      name: Food 2 target (reported)
+      entity_category: diagnostic
+  - platform: homeassistant
+    id: outdoor_temp
+    entity_id: ${weather_entity}
+    attribute: temperature
+    internal: true
+  - platform: homeassistant
+    id: outdoor_humidity
+    entity_id: ${weather_entity}
+    attribute: humidity
+    internal: true
+  - platform: homeassistant
+    id: outdoor_wind
+    entity_id: ${weather_entity}
+    attribute: wind_speed
+    internal: true
+  - platform: wifi_signal
+    name: Wi-Fi signal
+    update_interval: 60s
+    entity_category: diagnostic
+  - platform: uptime
+    name: Uptime
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: gravity980
+    connected:
+      id: grill_connected
+      name: Grill connected
+    door:
+      id: lid_open
+      name: Lid
+    fan:
+      name: Fan
+    fan_turbo:
+      name: Fan turbo
+    alarm:
+      name: Grill alarm
+
+text_sensor:
+  - platform: gravity980
+    raw_frame:
+      name: Raw status frame
+    link:
+      name: Grill link
+  - platform: version
+    name: Firmware version
+    hide_timestamp: true
+
+number:
+  - platform: gravity980
+    pit_target:
+      id: pit_setpoint
+      name: Pit target
+    food1_target:
+      id: food1_target
+      name: Food 1 target
+    food2_target:
+      id: food2_target
+      name: Food 2 target
+
+switch:
+  - platform: gravity980
+    bridge_enabled:
+      name: Bridge enabled
+
+# ----------------------------------------------------------------- cook assistant
+
+cook_assistant:
+  id: smoker
+  temperature_unit: ${temperature_unit}
+  pit_temperature: pit_temp
+  pit_setpoint: pit_target_reported
+  lid: lid_open
+  link: grill_connected
+  ambient_temperature: outdoor_temp
+  ambient_humidity: outdoor_humidity
+  wind_speed: outdoor_wind
+  time_id: ha_time
+  on_set_pit:
+    - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, x);
+  on_notify:
+    - homeassistant.event:
+        event: esphome.smoker_notify
+        data:
+          title: !lambda return title;
+          message: !lambda return message;
+          priority: !lambda return priority;
+          tag: !lambda return tag;
+    # Critical alarms also go straight to ntfy, so they arrive even if HA is down.
+    - if:
+        condition:
+          lambda: return priority >= 2 && !id(ntfy_topic).state.empty();
+        then:
+          - http_request.post:
+              url: !lambda return std::string("${ntfy_server}/") + id(ntfy_topic).state;
+              request_headers:
+                Title: !lambda return title.c_str();
+                Priority: "urgent"
+                Tags: "fire,warning"
+              body: !lambda return message;
+  on_cook_complete:
+    - homeassistant.event:
+        event: esphome.smoker_cook_complete
+        data:
+          summary: !lambda return json;
+  presets:
+    - name: Pork shoulder (Texas crutch)
+      program: "name: Pork shoulder; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify \"Pork is done - rest it\""
+    - name: Brisket
+      program: "name: Brisket; pit 250 until food1 >= 165; pit 275 until food1 >= 203; hold 160 notify \"Brisket done - rest 1-2h\""
+    - name: Ribs
+      program: "name: Ribs; pit 250 until after 3h; pit 250 notify \"Wrap the ribs now\" until after 2h; pit 275 until after 1h; hold 160 notify \"Ribs done\""
+    - name: Chicken (hot & fast)
+      program: "name: Chicken; pit 325 until food1 >= 160; hold 200 notify \"Chicken is done\""
+    - name: Hold warm
+      program: "name: Hold; hold 160"
+  probes:
+    - key: food1
+      name: Food 1
+      temperature: food1_temp
+      target: food1_target_reported
+      profile:
+        name: Food 1 protein
+      weight:
+        name: Food 1 weight
+      wrapped:
+        name: Food 1 wrapped
+      time_remaining:
+        name: Food 1 time remaining
+      time_remaining_low:
+        name: Food 1 time remaining (early)
+      time_remaining_high:
+        name: Food 1 time remaining (late)
+      estimated_total:
+        name: Food 1 estimated total cook time
+      stall_remaining:
+        name: Food 1 stall remaining
+      rate:
+        name: Food 1 rate
+      finish_time:
+        name: Food 1 finish time
+      phase:
+        name: Food 1 phase
+      estimate_info:
+        name: Food 1 estimate basis
+      stall:
+        name: Food 1 stall
+      probe_warning:
+        name: Food 1 probe warning
+    - key: food2
+      name: Food 2
+      temperature: food2_temp
+      target: food2_target_reported
+      profile:
+        name: Food 2 protein
+      weight:
+        name: Food 2 weight
+      wrapped:
+        name: Food 2 wrapped
+      time_remaining:
+        name: Food 2 time remaining
+      time_remaining_low:
+        name: Food 2 time remaining (early)
+      time_remaining_high:
+        name: Food 2 time remaining (late)
+      estimated_total:
+        name: Food 2 estimated total cook time
+      stall_remaining:
+        name: Food 2 stall remaining
+      rate:
+        name: Food 2 rate
+      finish_time:
+        name: Food 2 finish time
+      phase:
+        name: Food 2 phase
+      estimate_info:
+        name: Food 2 estimate basis
+      stall:
+        name: Food 2 stall
+      probe_warning:
+        name: Food 2 probe warning
+  cook_active:
+    name: Cook active
+  cook_elapsed:
+    name: Cook elapsed
+  history_count:
+    name: Cooks learned
+  grill_factor:
+    name: Grill heat factor
+  program_status:
+    name: Program status
+  program_state:
+    name: Program state
+  program_error:
+    name: Program error
+  program_text:
+    name: Program
+    mode: text
+  preset:
+    name: Program preset
+  alerts_enabled:
+    name: Alerts enabled
+  start_program:
+    name: Start program
+  pause_program:
+    name: Pause program
+  resume_program:
+    name: Resume program
+  skip_step:
+    name: Skip program step
+  stop_program:
+    name: Stop program
+  clear_history:
+    name: Clear cook history
+    entity_category: config

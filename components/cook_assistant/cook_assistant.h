@@ -1,0 +1,294 @@
+#pragma once
+// ESPHome glue for the cook assistant: per-probe cook-time prediction with
+// learning from past cooks, stall detection, cook programs, alerts.
+// Transport-agnostic: it reads ordinary ESPHome sensors and sets the pit
+// target through an automation (`on_set_pit`), so it works with the stock
+// controller bridge today and the replacement controller later.
+
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "esphome/core/automation.h"
+#include "esphome/core/component.h"
+#include "esphome/core/defines.h"
+#include "esphome/core/preferences.h"
+#include "esphome/components/sensor/sensor.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/number/number.h"
+#include "esphome/components/select/select.h"
+#include "esphome/components/switch/switch.h"
+#include "esphome/components/button/button.h"
+#include "esphome/components/text/text.h"
+#ifdef USE_TIME
+#include "esphome/components/time/real_time_clock.h"
+#endif
+
+#include "history.h"
+#include "predictor.h"
+#include "program.h"
+
+namespace esphome {
+namespace cook_assistant {
+
+class CookAssistant;
+
+// ---- small entity helpers that call back into the assistant ----
+
+class CANumber : public number::Number, public Component {
+ public:
+  void setup() override;
+  void set_on_change(std::function<void(float)> &&f) { this->on_change_ = std::move(f); }
+  void set_initial(float v) { this->initial_ = v; }
+
+ protected:
+  void control(float value) override;
+  std::function<void(float)> on_change_;
+  ESPPreferenceObject pref_;
+  float initial_{NAN};
+};
+
+class CASelect : public select::Select, public Component {
+ public:
+  void setup() override;
+  void set_on_change(std::function<void(size_t)> &&f) { this->on_change_ = std::move(f); }
+  void set_restore(bool r) { this->restore_ = r; }
+
+ protected:
+  void control(size_t index) override;
+  std::function<void(size_t)> on_change_;
+  ESPPreferenceObject pref_;
+  bool restore_{true};
+};
+
+class CASwitch : public switch_::Switch, public Component {
+ public:
+  void setup() override;
+  void set_on_change(std::function<void(bool)> &&f) { this->on_change_ = std::move(f); }
+
+ protected:
+  void write_state(bool state) override;
+  std::function<void(bool)> on_change_;
+};
+
+class CAButton : public button::Button {
+ public:
+  void set_on_press(std::function<void()> &&f) { this->on_press_ = std::move(f); }
+
+ protected:
+  void press_action() override {
+    if (this->on_press_)
+      this->on_press_();
+  }
+  std::function<void()> on_press_;
+};
+
+class CAText : public text::Text, public Component {
+ public:
+  void set_on_change(std::function<void(const std::string &)> &&f) { this->on_change_ = std::move(f); }
+
+ protected:
+  void control(const std::string &value) override;
+  std::function<void(const std::string &)> on_change_;
+};
+
+// ---- per probe ----
+
+struct FoodProbe {
+  std::string key;   // "food1"
+  std::string name;  // "Brisket"
+  sensor::Sensor *temperature{nullptr};
+  sensor::Sensor *target{nullptr};  // optional external target source
+  CANumber *target_number{nullptr}; // optional local target
+  CASelect *profile{nullptr};
+  CANumber *weight{nullptr};
+  CASwitch *wrapped{nullptr};
+
+  sensor::Sensor *remaining{nullptr};
+  sensor::Sensor *remaining_low{nullptr};
+  sensor::Sensor *remaining_high{nullptr};
+  sensor::Sensor *estimated_total{nullptr};
+  sensor::Sensor *rate{nullptr};
+  sensor::Sensor *stall_remaining{nullptr};
+  text_sensor::TextSensor *finish_time{nullptr};
+  text_sensor::TextSensor *phase{nullptr};
+  text_sensor::TextSensor *estimate_info{nullptr};
+  binary_sensor::BinarySensor *stall{nullptr};
+  binary_sensor::BinarySensor *probe_warning{nullptr};
+
+  cook::Predictor predictor;
+  bool approach_notified{false};
+  bool done_notified{false};
+  bool suspect_notified{false};
+  bool stall_started_tick{false};
+  bool stall_ended_tick{false};
+  float last_priors_pit{NAN};
+};
+
+class NotifyTrigger;
+class SetPitTrigger;
+class CookCompleteTrigger;
+
+class CookAssistant : public Component {
+ public:
+  // configuration
+  void set_fahrenheit(bool f) { this->fahrenheit_ = f; }
+  bool is_fahrenheit() const { return this->fahrenheit_; }
+  void set_pit_temperature(sensor::Sensor *s) { this->pit_temp_ = s; }
+  void set_pit_setpoint(sensor::Sensor *s) { this->pit_setpoint_ = s; }
+  void set_lid(binary_sensor::BinarySensor *b) { this->lid_ = b; }
+  void set_link(binary_sensor::BinarySensor *b) { this->link_ = b; }
+  /// Outdoor conditions (e.g. from the HA weather entity). Temperature in the configured unit, wind in km/h (or mph if °F).
+  void set_ambient_temperature(sensor::Sensor *s) { this->ambient_ = s; }
+  void set_ambient_humidity(sensor::Sensor *s) { this->humidity_ = s; }
+  void set_wind_speed(sensor::Sensor *s) { this->wind_ = s; }
+#ifdef USE_TIME
+  void set_time(time::RealTimeClock *t) { this->time_ = t; }
+#endif
+  void add_probe(FoodProbe *p) { this->probes_.push_back(p); }
+  void add_preset(const std::string &name, const std::string &program) { this->presets_.push_back({name, program}); }
+
+  // entities
+  void set_cook_active_binary_sensor(binary_sensor::BinarySensor *b) { this->cook_active_bs_ = b; }
+  void set_cook_elapsed_sensor(sensor::Sensor *s) { this->cook_elapsed_ = s; }
+  void set_history_count_sensor(sensor::Sensor *s) { this->history_count_ = s; }
+  void set_grill_factor_sensor(sensor::Sensor *s) { this->grill_factor_ = s; }
+  void set_program_status_text_sensor(text_sensor::TextSensor *t) { this->program_status_ = t; }
+  void set_program_state_text_sensor(text_sensor::TextSensor *t) { this->program_state_ = t; }
+  void set_program_error_text_sensor(text_sensor::TextSensor *t) { this->program_error_ = t; }
+  void set_program_text(CAText *t) { this->program_text_ = t; }
+  void set_preset_select(CASelect *s) { this->preset_select_ = s; }
+  void set_alerts_switch(CASwitch *s) { this->alerts_switch_ = s; }
+
+  // triggers
+  void add_notify_trigger(NotifyTrigger *t) { this->notify_triggers_.push_back(t); }
+  void add_set_pit_trigger(SetPitTrigger *t) { this->set_pit_triggers_.push_back(t); }
+  void add_cook_complete_trigger(CookCompleteTrigger *t) { this->complete_triggers_.push_back(t); }
+
+  void setup() override;
+  void loop() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::LATE; }
+
+  // ---- API (buttons, HA actions, lambdas) ----
+  /// Load a program from text. Returns false and publishes the error if invalid.
+  bool load_program(const std::string &text);
+  void start_program();
+  void pause_program();
+  void resume_program();
+  void skip_step();
+  void stop_program();
+  void select_preset(size_t index);
+  void clear_history();
+  /// Record a manual note that the user wrapped/unwrapped a probe's food.
+  void set_wrapped(size_t probe, bool wrapped);
+  /// Send a notification through on_notify (title, message, priority 0-2, tag).
+  void notify(const std::string &title, const std::string &message, int priority, const std::string &tag);
+  /// JSON with the live state of every probe: used by the HA AI advisor.
+  std::string state_json();
+  /// JSON with the cook history (for HA / AI context).
+  std::string history_json();
+
+  std::vector<std::string> probe_keys() const;
+  const std::vector<FoodProbe *> &probes() const { return this->probes_; }
+  const std::vector<std::pair<std::string, std::string>> &presets() const { return this->presets_; }
+
+ protected:
+  float to_c_(float v) const { return this->fahrenheit_ ? (v - 32.0f) * 5.0f / 9.0f : v; }
+  float from_c_(float c) const { return this->fahrenheit_ ? c * 9.0f / 5.0f + 32.0f : c; }
+  float rate_from_c_(float r) const { return this->fahrenheit_ ? r * 9.0f / 5.0f : r; }
+  std::string fmt_temp_(float c) const;
+  std::string fmt_minutes_(float m) const;
+  double now_min_() const;
+  int minute_of_day_();
+  void tick_second_();
+  void tick_minute_();
+  void apply_outputs_(const cook::RunnerOutputs &o);
+  void set_pit_(float c);
+  void refresh_priors_(FoodProbe *p, bool force);
+  float probe_target_c_(FoodProbe *p) const;
+  float pit_c_() const;
+  float pit_setpoint_c_() const;
+  cook::Environment environment_() const;
+  void publish_program_();
+  void save_program_state_();
+  void restore_program_state_();
+  void save_history_();
+  void update_cook_session_();
+  void check_alerts_();
+
+  bool fahrenheit_{true};
+  sensor::Sensor *pit_temp_{nullptr};
+  sensor::Sensor *pit_setpoint_{nullptr};
+  binary_sensor::BinarySensor *lid_{nullptr};
+  binary_sensor::BinarySensor *link_{nullptr};
+  sensor::Sensor *ambient_{nullptr};
+  sensor::Sensor *humidity_{nullptr};
+  sensor::Sensor *wind_{nullptr};
+#ifdef USE_TIME
+  time::RealTimeClock *time_{nullptr};
+#endif
+  std::vector<FoodProbe *> probes_;
+  std::vector<std::pair<std::string, std::string>> presets_;
+
+  binary_sensor::BinarySensor *cook_active_bs_{nullptr};
+  sensor::Sensor *cook_elapsed_{nullptr};
+  sensor::Sensor *history_count_{nullptr};
+  sensor::Sensor *grill_factor_{nullptr};
+  text_sensor::TextSensor *program_status_{nullptr};
+  text_sensor::TextSensor *program_state_{nullptr};
+  text_sensor::TextSensor *program_error_{nullptr};
+  CAText *program_text_{nullptr};
+  CASelect *preset_select_{nullptr};
+  CASwitch *alerts_switch_{nullptr};
+
+  std::vector<NotifyTrigger *> notify_triggers_;
+  std::vector<SetPitTrigger *> set_pit_triggers_;
+  std::vector<CookCompleteTrigger *> complete_triggers_;
+
+  cook::CookHistory history_;
+  cook::ProgramRunner runner_;
+  std::string program_source_;
+
+  uint32_t last_second_{0};
+  uint32_t last_minute_{0};
+  uint32_t last_state_save_{0};
+
+  // cook session
+  bool cook_active_{false};
+  double cook_start_min_{0};
+  double cool_since_min_{-1};
+  bool pit_reached_{false};
+  double pit_off_since_{-1};
+  double fire_low_since_{-1};
+  double lid_open_since_{-1};
+  double link_lost_since_{-1};
+  bool pit_band_notified_{false};
+  bool fire_notified_{false};
+  bool lid_notified_{false};
+  bool link_notified_{false};
+  float last_pit_c_{NAN};
+  double override_since_{-1};
+  float last_commanded_c_{NAN};
+  uint32_t last_set_pit_ms_{0};
+  ESPPreferenceObject history_pref_;
+  ESPPreferenceObject program_pref_;
+  ESPPreferenceObject state_pref_;
+};
+
+class NotifyTrigger : public Trigger<std::string, std::string, int, std::string> {
+ public:
+  explicit NotifyTrigger(CookAssistant *parent) { parent->add_notify_trigger(this); }
+};
+class SetPitTrigger : public Trigger<float> {
+ public:
+  explicit SetPitTrigger(CookAssistant *parent) { parent->add_set_pit_trigger(this); }
+};
+class CookCompleteTrigger : public Trigger<std::string> {
+ public:
+  explicit CookCompleteTrigger(CookAssistant *parent) { parent->add_cook_complete_trigger(this); }
+};
+
+}  // namespace cook_assistant
+}  // namespace esphome

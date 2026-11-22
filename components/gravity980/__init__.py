@@ -66,7 +66,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_BLUETOOTH): _ble_schema,
         }
     ).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on_esp32,
+    cv.only_on(["esp32", "host"]),
 )
 
 GRAVITY980_CHILD_SCHEMA = cv.Schema({cv.GenerateID(CONF_GRAVITY980_ID): cv.use_id(Gravity980Component)})

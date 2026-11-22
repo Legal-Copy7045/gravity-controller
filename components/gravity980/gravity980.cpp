@@ -160,7 +160,7 @@ void Gravity980Component::tcp_check_connect_() {
   FD_ZERO(&wfds);
   FD_SET(this->fd_, &wfds);
   struct timeval tv {0, 0};
-  int rc = select(this->fd_ + 1, nullptr, &wfds, nullptr, &tv);
+  int rc = ::select(this->fd_ + 1, nullptr, &wfds, nullptr, &tv);
   if (rc < 0) {
     this->tcp_close_("select() failed");
     return;

@@ -1,0 +1,22 @@
+[06:17:01][0;32m[I][app:073]: Running through setup()[0m
+[06:17:01][0;33m[W][component:290]: api set Warning flag: waiting for client connection[0m
+[06:17:01][0;32m[I][app:130]: setup() finished successfully![0m
+[06:17:01][0;32m[I][app:163]: ESPHome version 2026.11.0 compiled on 2026-11-22 06:16:21 +0000[0m
+[06:17:01][0;32m[I][gravity980:180]: TCP connected to 127.0.0.1:13333[0m
+[06:17:01][0;32m[I][gravity980:296]: Active link: wifi[0m
+[06:17:02][0;33m[W][component:325]: api cleared Warning flag[0m
+[06:17:03][0;32m[I][gravity980:415]: Set pit target 250°F via TCP: FF 00 00 FA[0m
+[06:17:03][0;32m[I][gravity980:340]: Grill accepted pit target 250°F[0m
+[06:17:04][0;33m[W][number:016]: 'Pit target': 100.000000 < min 200.000000[0m
+[06:17:06][0;32m[I][cook_assistant:464]: Cook session started[0m
+[06:17:07][0;33m[W][cook_assistant:615]: Program error: step 1: unknown probe 'food9'[0m
+[06:17:07][0;32m[I][cook_assistant:631]: Loaded program 'Test' with 3 steps[0m
+[06:17:07][0;32m[I][gravity980:415]: Set pit target 260°F via TCP: FF 00 01 04[0m
+[06:17:07][0;32m[I][cook_assistant:562]: Notify [0] Program step: Step 1 of 3: pit to 260°F[0m
+[06:17:07][0;32m[I][gravity980:340]: Grill accepted pit target 260°F[0m
+[06:17:18][0;32m[I][gravity980:415]: Set pit target 275°F via TCP: FF 00 01 13[0m
+[06:17:18][0;32m[I][cook_assistant:562]: Notify [0] Program step: Step 2 of 3: pit to 275°F[0m
+[06:17:19][0;32m[I][gravity980:340]: Grill accepted pit target 275°F[0m
+[06:18:02][0;33m[W][gravity980:236]: TCP disconnected: closed by grill[0m
+[06:18:02][0;32m[I][gravity980:296]: Active link: none[0m
+[06:18:02][0;33m[W][component:290]: api set Warning flag: waiting for client connection[0m
