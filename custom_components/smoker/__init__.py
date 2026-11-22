@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 from .journal import async_setup_journal, async_unload_journal
+from .sharing import async_setup_sharing, async_unload_sharing
 from .package_install import async_setup_package_install
 from .panel import async_remove_panel, async_setup_panel
 
@@ -22,14 +23,17 @@ DOMAIN = "smoker"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    await async_setup_journal(hass)
+    journal = await async_setup_journal(hass)
     await async_setup_panel(hass)
-    version = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+    version = await hass.async_add_executor_job(
+        lambda: json.loads((Path(__file__).parent / "manifest.json").read_text())["version"])
+    await async_setup_sharing(hass, journal, version)
     await async_setup_package_install(hass, version)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_unload_journal(hass)
+    async_unload_sharing(hass)
     async_remove_panel(hass)
     return True

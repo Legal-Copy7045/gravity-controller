@@ -207,6 +207,7 @@ label.btn{display:inline-flex;align-items:center}
 .toast.show{opacity:.95}
 .toast.err{pointer-events:auto;cursor:pointer}
 .empty{color:var(--muted);font-size:13.5px;padding:8px 0}
+.sharebox{border:1px solid var(--page);border-radius:12px;padding:10px 12px;margin-bottom:12px}
 footer{color:var(--muted);font-size:12px;text-align:center}
 </style>
 </head>
@@ -282,7 +283,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
 
   <div class="sect" id="journal-sec">
     <h2 class="sec"><svg class="ic"><use href="#i-book"/></svg>Cook journal</h2>
-    <section class="tc" id="journal"><div id="jlist"><div class="empty">Loading…</div></div>
+    <section class="tc" id="journal"><div id="jshare"></div><div id="jlist"><div class="empty">Loading…</div></div>
       <div id="jcmp" style="display:none"><h3 id="jcmptitle" style="margin-top:14px">Compared with similar cooks</h3>
         <div class="chart" id="jchart"></div><div class="legend" id="jlegend"></div></div></section>
     <section class="tc" id="learncard"></section>
@@ -295,6 +296,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
       <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
       <section class="tc"><h3>Controller</h3><div id="diag"></div></section>
       <section class="tc" id="photocard"></section>
+      <section class="tc" id="sharecard"></section>
     </div>
   </div>
   <footer id="foot"></footer>
@@ -768,6 +770,22 @@ window.act = {
   fuelType(v) { const e = E('Charcoal type', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
   pulled(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' pulled', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   slice(v) { setNum(E('Slice at', ['number']), parseFloat(v)); },
+  shareSet(o) { api('POST', '/api/smoker/sharing', o).then(d => { share = d; renderShare(); renderJournal(true);
+    toast(o.enabled === true ? 'Sharing on: the journal asks after each cook' : o.enabled === false ? 'Sharing off: nothing more is sent' : o.auto ? 'Cooks are shared when they end' : 'The journal asks after each cook'); }).catch(fail); },
+  shareOne(id) { toast('Sharing…'); api('POST', '/api/smoker/sharing/share/' + id).then(d => { share = d; renderShare(); renderJournal(true); toast('Shared, anonymously. Thank you!'); }).catch(fail); },
+  shareNo(id) { api('POST', '/api/smoker/sharing/decline/' + id).then(d => { share = d; renderShare(); renderJournal(true); }).catch(fail); },
+  shareWithdraw() {
+    if (!withdrawArmed) { withdrawArmed = setTimeout(() => { withdrawArmed = 0; renderShare(); }, 4000); return renderShare(); }
+    clearTimeout(withdrawArmed); withdrawArmed = 0; toast('Removing…');
+    api('POST', '/api/smoker/sharing/withdraw').then(d => { share = d; renderShare(); renderJournal(true);
+      toast(d.failed ? `Removed ${d.removed}; ${d.failed} couldn't be reached, try again later` : `Removed ${d.removed} shared cook${d.removed === 1 ? '' : 's'}`); }).catch(fail);
+  },
+  shareExport() {
+    api('GET', '/api/smoker/sharing/export').then(d => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' }));
+      a.download = 'smoker-cooks-anonymised.json'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }).catch(fail);
+  },
   scanAdd(input) {
     const room = 6 - scanQueue.length, add = [...input.files].slice(0, Math.max(0, room));
     add.forEach(file => scanQueue.push({ file, url: URL.createObjectURL(file) }));
@@ -1331,7 +1349,43 @@ async function loadJournal(force) {
   journal.loaded = Date.now();
   const d = await api('GET', '/api/smoker/journal');
   journal.entries = d.entries || []; journal.draft = d.draft || { items: [], photos: [] };
-  renderScan(); renderJournal();
+  try { share = await api('GET', '/api/smoker/sharing'); } catch (e) { share = null; }
+  renderScan(); renderJournal(); renderShare();
+}
+// ---------------------------------------------------------------- sharing cooks (opt-in, anonymous)
+// The integration builds the anonymous record (no date, place, notes, photos or names) and sends it only when sharing
+// is on; this page shows exactly what goes out. docs/sharing.md.
+let share = null, withdrawArmed = 0;
+const recWords = r => [r.cut, r.weight_lb != null ? r.weight_lb + ' lb' : '', r.pit_f != null ? 'pit ' + r.pit_f + '°F' : '',
+  r.stall_h != null ? 'stall ' + r.stall_h + ' h' : '', r.total_h + ' h total', r.wrapped === true ? 'wrapped' : r.wrapped === false ? 'not wrapped' : '',
+  r.outside_f != null ? r.outside_f + '–' + (r.outside_f + 5) + '°F outside' : '', r.season, r.rating ? r.rating + '★' : ''].filter(Boolean).join(' · ');
+const shareFor = id => share && (share.entries || []).find(x => x.entry === id);
+function sharePreview(r) {
+  return `<details class="more"><summary>Exactly what's sent</summary><p class="small" style="margin:4px 0">${esc(recWords(r))}</p>
+    <pre class="small" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0">${esc(JSON.stringify(r))}</pre>
+    <p class="small muted" style="margin:0">No date or time, no place, no notes, photos or names; a new random id that links to nothing else.</p></details>`;
+}
+function renderShare() {
+  if (!hasApi()) { put('sharecard', ''); put('jshare', ''); return; }
+  if (!share) { put('sharecard', `<h3>Share cooks</h3><p class="small muted" style="margin:0">Loading…</p>`); return; }
+  const c = share.community || {};
+  put('sharecard', `<h3>Share cooks <small>anonymous · off unless you turn it on</small></h3>
+    <p class="small" style="margin:0 0 6px">Add your finished cooks, anonymously, to an open dataset that makes everyone's
+      predictions and AI advice better. Only rounded numbers are shared (cut, weight, pit, stall, total time, outside
+      temperature band, season, rating): never dates, place, notes, photos or names. <a href="${esc(share.privacy)}" target="_blank" rel="noopener">What's shared and why</a></p>
+    <div class="row"><span>Share my cooks</span><button class="tg ${share.enabled ? 'on' : ''}" onclick="act.shareSet({enabled: ${!share.enabled}})" aria-label="Share my cooks"></button></div>
+    ${share.enabled ? `<div class="row"><span>Share automatically<br><span class="muted small">Off: the journal asks after each cook</span></span>
+      <button class="tg ${share.auto ? 'on' : ''}" onclick="act.shareSet({auto: ${!share.auto}})" aria-label="Share automatically"></button></div>` : ''}
+    <div class="row"><span>Shared from here</span><span class="r">${fmt(share.shared)} cook${share.shared === 1 ? '' : 's'}</span></div>
+    <div class="row"><span>Community dataset</span><span class="r">${c.cooks != null ? fmt(c.cooks) + ' shared cooks' + (c.updated ? ' · ' + esc(c.updated) : '') : 'not downloaded yet'}</span></div>
+    <div class="btns"><button class="btn" onclick="act.shareExport()">Download my cooks (anonymised)</button>
+      ${share.shared ? `<button class="btn${withdrawArmed ? ' arm' : ''}" onclick="act.shareWithdraw()">${withdrawArmed ? 'Tap again to remove them' : 'Remove my shared cooks'}</button>` : ''}</div>`);
+  // Journal: offer the newest cook not yet decided (when sharing is on and not automatic).
+  const pend = share.enabled && !share.auto ? [...(share.entries || [])].reverse().find(x => x.status === 'pending') : null;
+  const je = pend && journal.entries.find(e => e.id === pend.entry);
+  put('jshare', pend && je ? `<div class="sharebox"><div class="row"><span><b>Share this cook?</b><br><span class="small muted">${esc(recWords(pend.record))}</span></span></div>
+      <div class="btns"><button class="btn pri" onclick="act.shareOne('${esc(pend.entry)}')">Share it</button>
+        <button class="btn" onclick="act.shareNo('${esc(pend.entry)}')">Not this one</button></div>${sharePreview(pend.record)}</div>` : '');
 }
 const cToU = c => c == null ? null : (isF() ? c * 9 / 5 + 32 : c);
 function renderJournal(force) {
@@ -1342,7 +1396,7 @@ function renderJournal(force) {
         <span class="small muted">${dayLabel(d)} · ${esc(e.probe_name || '')}</span></div>
       <div class="chips"><span class="chip">${fmt(e.total_h, 1)} h total</span>${e.stall_h ? `<span class="chip warn">stall ${fmt(e.stall_h, 1)} h</span>` : ''}
         ${e.pit_c != null ? `<span class="chip hot">pit ${fmt(cToU(e.pit_c))}${esc(TU())}</span>` : ''}${e.ambient_c != null ? `<span class="chip">outside ${fmt(cToU(e.ambient_c))}${esc(TU())}</span>` : ''}
-        ${e.wrapped ? '<span class="chip">wrapped</span>' : ''}</div>
+        ${e.wrapped ? '<span class="chip">wrapped</span>' : ''}${(s => s && s.status === 'shared' ? '<span class="chip ok">shared</span>' : s && share.enabled && s.status === 'declined' ? `<button class="btn" style="min-height:26px;padding:2px 8px" onclick="act.shareOne('${esc(e.id)}')">Share</button>` : '')(shareFor(e.id))}</div>
       ${(e.items || []).length ? `<div class="small">${e.items.map(i => esc(i.name) + (i.weight_lb ? ' (' + fmt(i.weight_lb, 1) + ' lb)' : '')).join(' · ')}</div>` : ''}
       ${(e.photos || []).length ? `<div class="thumbs">${e.photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
       <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" onclick="act.rate('${esc(e.id)}', ${n})" aria-label="${n} stars">★</button>`).join('')}</span>
@@ -1505,7 +1559,7 @@ function placePlan() {
 function render() {
   placePlan();
   findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
-  loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange();
+  loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange(); renderShare();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }
 window.addEventListener('resize', () => drawChart());

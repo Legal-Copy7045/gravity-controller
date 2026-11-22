@@ -421,6 +421,8 @@ script:
             wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph.
             Packages scanned for this cook (from photos): {{ state_attr('sensor.smoker_journal', 'draft_items') or 'none' }}.
             Past cooks with notes and ratings: {{ state_attr('sensor.smoker_journal', 'recent') or [] }}.
+            Shared cooks from other Gravity 980 owners (anonymous community averages; a second reference to your own
+            journal, weigh by the number of cooks): {{ state_attr('sensor.smoker_community', 'similar') or 'none yet' }}.
             The cook: {{ req }}
           structure:
             program:
@@ -500,6 +502,8 @@ script:
             Scanned for the next cook: {{ state_attr('sensor.smoker_journal', 'draft_items') or 'nothing' }}.
             The cook's own journal (recent cooks with the cook's notes and 1-5 ratings; learn from them, e.g. a low
             rating with "dry" means cook lower or wrap earlier): {{ state_attr('sensor.smoker_journal', 'recent') or [] }}.
+            Shared cooks from other Gravity 980 owners (anonymous community averages; a second reference to your own
+            journal, weigh by the number of cooks): {{ state_attr('sensor.smoker_community', 'similar') or 'none yet' }}.
             Fuel: the live state's fuel_percent / fuel_hours_left are the hopper estimate; flag a top-up if it won't last.
             Recommendations: 3 to 6 concrete, ordered instructions for what to do next, each on its own line as
             "WHEN | TITLE | DETAIL" (WHEN like "now", "18:30", "at 165°F", "when it stalls"). Before a cook: prep

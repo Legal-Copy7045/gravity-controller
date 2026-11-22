@@ -86,6 +86,7 @@ class Journal:
         self.unsub = None
         self.store: Store = Store(hass, STORE_VERSION, STORE_KEY)
         self.data: dict[str, Any] = {"entries": [], "draft": {"items": [], "photos": []}}
+        self.listeners: list = []  # called with each new entry (sharing offers it)
         self.photo_dir = Path(hass.config.path(".storage", "smoker_photos"))
 
     async def async_load(self) -> None:
@@ -153,6 +154,8 @@ class Journal:
         if mine:
             self.data["draft"]["photos"] = []
         self._save()
+        for cb in list(self.listeners):
+            cb(entry)
 
     def update_entry(self, entry_id: str, changes: dict[str, Any]) -> dict | None:
         for e in self.data["entries"]:

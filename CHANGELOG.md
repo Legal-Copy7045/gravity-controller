@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.25] - 2026-11-23
+
+- **Share cooks, anonymously, if you want to** (Setup → Share cooks; **off unless you turn it on**). Finished cooks
+  can go into an open dataset (CC0) that improves everyone's predictions and AI advice. Only rounded numbers are
+  shared: cut, weight, pit, stall, total time, outside temperature band, season and rating. Never dates, place, notes,
+  photos or names, and no id that links two cooks. The journal asks after each cook and shows exactly what's sent;
+  *Share automatically* skips the question; *Remove my shared cooks* deletes them; *Download my cooks (anonymised)*
+  lets you look first. Details: docs/sharing.md.
+- **Community averages for everyone** (sharing or not): typical times by cut, weight, pit and weather from all shared
+  cooks, as `sensor.smoker_community`, included in the AI pitmaster's prompts.
+- New in the repo: the receiving service (`sharing/worker`, a Cloudflare Worker) and the nightly dataset build
+  (`community-data` branch).
+
 ## [0.2.24] - 2026-11-22
 
 Dashboard order, reviewed (the phone page is about 1,000 px shorter):
