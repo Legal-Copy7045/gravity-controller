@@ -90,6 +90,22 @@ Step 3  pit 160 °F (hold)   notify "Pork done – resting"
 | H4 | External antenna if Wi-Fi is weak on the grill | test |
 | H5 | Motorised damper on the fan intake (tighter control at low temps) | P1 |
 
+## X: Further ideas (added later)
+
+| ID | Feature | Dep |
+|---|---|---|
+| X1 | "Ready by" planner: enter a serve time and the cook plan, get a "light the grill by" time and reminders | A3, C2 |
+| X2 | Rest timer and carry-over: once off the grill, track the rest with a probe still in, and alert at the rest target | T2 |
+| X3 | Probe sanity checks: a probe that suddenly jumps to pit temperature (it slipped out of the meat) or reads implausibly; alert instead of acting on it | T2, C2 |
+| X4 | Grease-fire / flare-up detection: fast pit or chute rise with the lid closed and the fan low → critical alert | T4 |
+| X5 | Power-loss / reboot recovery: resume the program and setpoint after a brown-out or crash, if the pit is still hot | C2 |
+| X6 | Weather compensation: use HA weather (ambient, wind) as a feed-forward term, plus rain alerts during a cook | P1 |
+| X7 | Fuel profiles (briquettes vs lump) with separate PID gains and fuel-burn rates | P8, A5 |
+| X8 | Maintenance counters: burn hours since the ash bin was emptied, the fan was cleaned or the probes were calibrated | A1 |
+| X9 | HA Assist voice queries: "what's the brisket at?", "set the smoker to 275" | U1 |
+| X10 | Cook comparison: overlay this cook's curves on a previous one | A1 |
+| X11 | Diagnostics: Wi-Fi signal, controller board temperature, uptime, fan current trend | |
+
 ## Design notes for C2 (cook programs)
 - **Where it runs:** on the ESP32 (custom ESPHome component). It is robust without HA, and HA just shows and edits it.
   The alternative, running programs as HA scripts/automations, is quicker to build and easy to edit, but stops if HA or Wi-Fi drops mid-cook.
