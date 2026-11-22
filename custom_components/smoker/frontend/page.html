@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Smoker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22t%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23f97316%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23b4330a%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22url%28%23t%29%22/%3E%3Cpath%20d%3D%22M32%2054c-10%200-16-6-16-14%200-8%206-12%209-19%201%205%203%208%206%209%200-8%205-15%2011-19-1%207%202%2012%206%2017%203%204%206%208%206%2012%200%209-8%2014-22%2014z%22%20fill%3D%22%23fff7ed%22/%3E%3C/svg%3E">
 <style>
 /* page-specific tokens (ember accent comes from style.css --page) */
 :root{--pit:#c2410c;--food1:#2b7fb8;--food2:#7c3aed;--g1:#0f9d76;--g2:#b5552a;--g3:#a16207;--g4:#be185d;--ai:#6d28d9}
@@ -40,6 +41,13 @@ h2.sec .seg{margin-left:auto}
 .secbar a:hover,.secbar a:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
 .secbar a[aria-current="true"]{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
 @media (max-width:560px){.secbar a{padding:4px 11px;font-size:12.5px}}
+/* brand + icons (brand/: mark.svg, icons.svg) */
+.ic{width:1.1em;height:1.1em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.18em;flex:none}
+.secbar a .ic{margin-right:5px;width:15px;height:15px}
+h2.sec>.ic{color:var(--page);width:22px;height:22px;align-self:center;margin-right:-4px}
+h1.brand{display:flex;align-items:center;gap:12px}
+h1.brand .mark{width:.95em;height:.95em;flex:none;filter:drop-shadow(0 2px 6px rgba(180,51,10,.25))}
+.topbar .conn .ic.via{width:18px;height:18px;color:var(--ink-2)}
 /* status strip (top of the page) */
 .topbar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
 .topbar .conn{display:flex;align-items:center;gap:9px;font:700 15px "Instrument Sans",system-ui,sans-serif}
@@ -196,13 +204,54 @@ footer{color:var(--muted);font-size:12px;text-align:center}
 </style>
 </head>
 <body>
+<!-- brand/icons.svg (Smoker line icons) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-now" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></symbol>
+<symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 21c-3.9 0-6.5-2.6-6.5-6 0-3.3 2.4-4.8 3.6-7.6.4 2.1 1.3 3.1 2.4 3.6.1-3.2 1.7-5.8 4-7.6-.5 2.8.8 4.7 2.3 6.6 1.2 1.6 1.7 3 1.7 4.6C19.5 18.6 16.4 21 12 21z"/></symbol>
+<symbol id="i-food" viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></symbol>
+<symbol id="i-grill" viewBox="0 0 24 24"><path d="M3 12a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5H3z"/><path d="M3 12h16M6 12v8M16 12v8M5 17h12"/><path d="M19 4h3v16h-3z"/></symbol>
+<symbol id="i-hopper" viewBox="0 0 24 24"><path d="M7 4h10v17H7zM6 4h12M10 8h4M10 12h4M10 16h4"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16"/><path d="M7 15l4-5 3 3 5-6"/></symbol>
+<symbol id="i-plan" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></symbol>
+<symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M5 18a2 2 0 0 1 2-2h12M9 8h6"/></symbol>
+<symbol id="i-setup" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+<symbol id="i-steps" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></symbol>
+<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4 9.5a12 12 0 0 1 16 0M7 13a7.5 7.5 0 0 1 10 0M10 16.4a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".6"/></symbol>
+<symbol id="i-bt" viewBox="0 0 24 24"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></symbol>
+<symbol id="i-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9 5.5A12 12 0 0 1 20 9.5M4 9.5a12 12 0 0 1 2.3-1.7M7 13a7.5 7.5 0 0 1 3-1.6"/><circle cx="12" cy="19.5" r=".6"/></symbol>
+<symbol id="i-fan" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C11 7 12 4 15 4c2 0 2.5 3-3 6.4zM13.6 12c3.4-1 6.4 0 6.4 3 0 2-3 2.5-6.4-3zM12 13.6c1 3.4 0 6.4-3 6.4-2 0-2.5-3 3-6.4zM10.4 12C7 13 4 12 4 9c0-2 3-2.5 6.4 3z"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.5v.1"/></symbol>
+</svg>
 <div class="wrap">
   <!-- the important things first: is the grill connected, can the app control it, anything wrong -->
   <div class="topbar" id="topbar" role="status" aria-live="polite"><span class="conn"><span class="dot"></span>Connecting…</span></div>
   <header class="hero wide">
     <div>
       <div class="eyebrow">Smoker · live</div>
-      <h1 id="title">Smoker</h1>
+      <h1 id="title" class="brand"><svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" aria-hidden="true">
+  <defs>
+    <linearGradient id="mk-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f97316"/><stop offset="1" stop-color="#b4330a"/>
+    </linearGradient>
+    <linearGradient id="mk-flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#fff7ed"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#mk-tile)"/>
+  <!-- hopper tower -->
+  <rect x="160" y="52" width="42" height="132" rx="7" fill="#1c1917"/>
+  <rect x="155" y="46" width="52" height="14" rx="5" fill="#1c1917"/>
+  <!-- barrel -->
+  <rect x="44" y="104" width="124" height="62" rx="31" fill="#1c1917"/>
+  <!-- flame in the barrel -->
+  <path d="M106 158c-15 0-24-10-24-22 0-11 8-17 12-27 1 7 5 11 9 13 0-11 7-21 15-27-2 10 3 17 9 24 5 6 8 11 8 17 0 13-11 22-29 22z" fill="url(#mk-flame)"/>
+  <!-- legs and shelf -->
+  <rect x="62" y="166" width="10" height="42" rx="4" fill="#1c1917"/>
+  <rect x="140" y="166" width="10" height="42" rx="4" fill="#1c1917"/>
+  <rect x="54" y="190" width="104" height="8" rx="4" fill="#1c1917"/>
+  <!-- smoke -->
+  <path d="M181 40c-7-8 7-14 0-24" fill="none" stroke="#fff7ed" stroke-width="7" stroke-linecap="round" opacity=".85"/>
+</svg><span>Smoker</span></h1>
       <div class="big" id="pitbig">--<small>°F pit</small></div>
       <div class="chips" id="chips"></div>
       <p class="sub small" id="gstatus" style="margin-top:8px"></p>
@@ -214,7 +263,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
 
   <!-- section bar: sticks to the top, marks the section in view (script: "section bar") -->
   <nav class="secbar" id="secbar" aria-label="Sections on this page">
-    <a href="#now">Now</a><a href="#food">Food</a><a href="#pit">Pit &amp; program</a><a href="#charcoal">Charcoal</a><a href="#temps">Chart</a><a href="#plan">Plan</a><a href="#journal-sec">Journal</a><a href="#setup">Setup</a>
+    <a href="#now"><svg class="ic"><use href="#i-now"/></svg>Now</a><a href="#food"><svg class="ic"><use href="#i-food"/></svg>Food</a><a href="#pit"><svg class="ic"><use href="#i-grill"/></svg>Pit &amp; program</a><a href="#charcoal"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</a><a href="#temps"><svg class="ic"><use href="#i-chart"/></svg>Chart</a><a href="#plan"><svg class="ic"><use href="#i-plan"/></svg>Plan</a><a href="#journal-sec"><svg class="ic"><use href="#i-book"/></svg>Journal</a><a href="#setup"><svg class="ic"><use href="#i-setup"/></svg>Setup</a>
   </nav>
 
   <div class="sect" id="now">
@@ -227,12 +276,12 @@ footer{color:var(--muted);font-size:12px;text-align:center}
   </div>
 
   <div class="sect" id="food">
-    <h2 class="sec">Food <small id="foodsub"></small></h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-food"/></svg>Food <small id="foodsub"></small></h2>
     <div class="grid" id="probes"></div>
   </div>
 
   <div class="sect" id="pit">
-    <h2 class="sec">Pit &amp; program</h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-grill"/></svg>Pit &amp; program</h2>
     <div class="grid">
       <section class="tc" id="pitcard"></section>
       <section class="tc" id="progcard"></section>
@@ -241,17 +290,17 @@ footer{color:var(--muted);font-size:12px;text-align:center}
   </div>
 
   <div class="sect" id="charcoal">
-    <h2 class="sec">Charcoal</h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</h2>
     <div class="grid"><section class="tc" id="fuelcard"></section></div>
   </div>
 
   <div class="sect" id="temps">
-    <h2 class="sec">Temperatures <span class="seg" id="range"></span></h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-chart"/></svg>Temperatures <span class="seg" id="range"></span></h2>
     <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
   </div>
 
   <div class="sect" id="plan">
-    <h2 class="sec">Plan the next cook</h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-plan"/></svg>Plan the next cook</h2>
     <div class="grid">
       <section class="tc" id="plancard"></section>
       <section class="tc" id="scancard"></section>
@@ -260,14 +309,14 @@ footer{color:var(--muted);font-size:12px;text-align:center}
   </div>
 
   <div class="sect" id="journal-sec">
-    <h2 class="sec">Cook journal</h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-book"/></svg>Cook journal</h2>
     <section class="tc" id="journal"><div id="jlist"><div class="empty">Loading…</div></div>
       <div id="jcmp" style="display:none"><h3 id="jcmptitle" style="margin-top:14px">Compared with similar cooks</h3>
         <div class="chart" id="jchart"></div><div class="legend" id="jlegend"></div></div></section>
   </div>
 
   <div class="sect" id="setup">
-    <h2 class="sec">Setup <small>connection, probes and the controller</small></h2>
+    <h2 class="sec"><svg class="ic"><use href="#i-setup"/></svg>Setup <small>connection, probes and the controller</small></h2>
     <div class="grid">
       <section class="tc" id="controlcard"></section>
       <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
@@ -937,7 +986,8 @@ function renderTop() {
   else { const how = via === 'wifi' ? 'Wi-Fi' : 'Bluetooth', ctl = via === 'wifi' || ble;
     head = `<span class="t">Grill connected · ${how}<small>${ctl ? 'the app controls it' : 'read-only: turn on Bluetooth control in Setup'}</small></span>`; cls = ctl ? '' : 'warn'; }
   const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
-  put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span>${head}</span>
+  const vic = !conn || via === 'none' ? 'off' : via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill';
+  put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span><svg class="ic via"><use href="#i-${vic}"/></svg>${head}</span>
     <span class="alerts">${a.join('') || '<span class="chip ok">All good</span>'}</span>`);
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.11] - 2026-11-22
+
+- **Branding:** an original mark (a gravity smoker with an ember flame), favicon and app icons (`brand/`), and a set of
+  line icons used across the dashboard, the controller's own page and the installer (section bar, headings, status
+  strip). See [brand/README.md](brand/README.md).
+
 ## [0.2.10] - 2026-11-22
 
 - The Smoker page can also live in the **home-dashboards** project (one copy, owned here: see

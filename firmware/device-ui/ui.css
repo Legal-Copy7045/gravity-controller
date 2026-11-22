@@ -161,3 +161,10 @@
 .gx .pe-load{align-items:center}
 .gx .pe-state{font-size:12.5px;color:var(--muted)}
 @media (max-width:560px){.gx .pe-cond,.gx .pe-sf{padding-left:0}.gx .pe-hint{margin-left:0}}
+/* brand + icons */
+.gx .ic{width:1.1em;height:1.1em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.18em;flex:none}
+.gx .secbar a .ic{margin-right:5px;width:15px;height:15px}
+.gx h2.sec>.ic{color:var(--page);width:22px;height:22px;margin-right:8px;vertical-align:-.12em}
+.gx .eyebrow .brandline{display:inline-flex;align-items:center;gap:8px}
+.gx .eyebrow .mark{width:22px;height:22px;flex:none}
+.gx .topbar .conn .ic{width:18px;height:18px;color:var(--ink-2)}

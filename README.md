@@ -1,3 +1,5 @@
+<img src="brand/icon.png" alt="" width="96" align="right">
+
 # Gravity 980 smoker controller
 
 Local, cloud-free control and monitoring for the **Char-Griller Gravity Fed 980** charcoal smoker, built on an
