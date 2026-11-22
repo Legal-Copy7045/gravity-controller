@@ -17,7 +17,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "screens")
+OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "screens"))
 
 
 def build_page():
