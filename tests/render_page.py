@@ -490,6 +490,15 @@ def main():
                     if not any(c[0] == "button" and c[2].get("entity_id") == "button.smoker_grill_wi_fi_join_saved_network"
                                for c in pg.evaluate("window.calls")):
                         failures.append("grill wi-fi: join saved network not pressed")
+                    # Without the Smoker integration's API (e.g. inside home-dashboards before its shim allows it): no errors,
+                    # the journal and scans explain what they need.
+                    noapi = fr.evaluate("""async () => {
+                        const keep = window.hdHA.api; delete window.hdHA.api;
+                        try { journal.loaded = 0; await loadJournal(true); renderScan(true); render(); } catch (e) { return 'error: ' + e; }
+                        const r = document.getElementById('jlist').innerText + ' | ' + document.getElementById('scancard').innerText;
+                        window.hdHA.api = keep; return r; }""")
+                    if "needs the Smoker integration" not in noapi:
+                        failures.append(f"without the integration API: {noapi[:160]!r}")
                     # Restart needs a second tap.
                     btn = "#diag button"
                     fr.click(btn); time.sleep(0.2)

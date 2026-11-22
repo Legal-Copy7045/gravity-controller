@@ -705,21 +705,21 @@ window.act = {
     const f = $('scanfiles'); if (!f || !f.files.length) return toast('Take or pick a photo of the label or barcode first');
     const fd = new FormData(); [...f.files].slice(0, 6).forEach(x => fd.append('photo', x, x.name || 'photo.jpg'));
     toast('Reading the labels…'); $('scanbtn') && ($('scanbtn').disabled = true);
-    H().api('POST', '/api/smoker/identify', fd).then(r => { journal.draft = r.draft; f.value = ''; renderScan(true);
+    api('POST', '/api/smoker/identify', fd).then(r => { journal.draft = r.draft; f.value = ''; renderScan(true);
       toast(r.items.length ? 'Found ' + r.items.length + ' item' + (r.items.length > 1 ? 's' : '') : 'Nothing recognised: try a clearer photo of the label'); })
       .catch(fail).finally(() => { $('scanbtn') && ($('scanbtn').disabled = false); });
   },
   assign(id, probe) {
     const items = (journal.draft.items || []).map(i => i.id === id ? Object.assign({}, i, { probe: probe || null }) : i);
-    H().api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); toast(d.problems && d.problems.length ? d.problems.join('; ') : probe ? 'Probe set from the label' : 'Unassigned'); }).catch(fail);
+    api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); toast(d.problems && d.problems.length ? d.problems.join('; ') : probe ? 'Probe set from the label' : 'Unassigned'); }).catch(fail);
   },
   dropItem(id) {
     const items = (journal.draft.items || []).filter(i => i.id !== id);
-    H().api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); }).catch(fail);
+    api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); }).catch(fail);
   },
-  rate(id, n) { H().api('POST', '/api/smoker/journal/' + id, { rating: n }).then(() => loadJournal(true)).catch(fail); },
+  rate(id, n) { api('POST', '/api/smoker/journal/' + id, { rating: n }).then(() => loadJournal(true)).catch(fail); },
   note(id) { const f = $('jn-' + id); if (!f) return;
-    H().api('POST', '/api/smoker/journal/' + id, { notes: f.value }).then(() => { clean('jn-' + id); toast('Saved'); loadJournal(true); }).catch(fail); },
+    api('POST', '/api/smoker/journal/' + id, { notes: f.value }).then(() => { clean('jn-' + id); toast('Saved'); loadJournal(true); }).catch(fail); },
   compare(id) { compareCooks(id).catch(fail); },
   jall() { journalAll = true; renderJournal(true); },
 };
@@ -879,19 +879,33 @@ function renderGrill() {
 let grillPhoto = null;
 const rerender = () => { try { if (H() && H().live()) render(); } catch (e) { /* not connected yet: the next update draws it */ } };
 window.setGrillPhoto = url => { grillPhoto = url || null; rerender(); };
+// The Smoker integration's own API (journal, scans, photo). Served from the Smoker panel, or from the home-dashboards
+// project's shim once it allows /api/smoker/...; without it those features are simply hidden.
+const hasApi = () => !!(H() && typeof H().api === 'function');
+const api = (m, path, body) => hasApi() ? H().api(m, path, body) : Promise.reject(new Error('The Smoker integration isn\'t reachable from this page'));
 let photoAsked = false;
 function findPhoto() {  // asked once Home Assistant is connected (see render)
   if (photoAsked) return; photoAsked = true;
-  H().api('GET', '/api/smoker/grill_photo').then(r => {
+  const viaImage = () => {  // no Smoker integration: try Home Assistant's /local/ path directly
+    const tryOne = list => { if (!list.length) return; const img = new Image();
+      img.onload = () => { grillPhoto = list[0]; rerender(); sendPhotoToController(list[0]); };
+      img.onerror = () => tryOne(list.slice(1)); img.src = list[0]; };
+    tryOne(['/local/smoker/grill.png', '/local/smoker/grill.jpg', '/local/smoker/grill.webp']);
+  };
+  if (!hasApi()) { viaImage(); return; }
+  api('GET', '/api/smoker/grill_photo').then(r => {
     if (!r || !r.url) return;
     grillPhoto = r.url; rerender();
-    // The controller's own page can show it too: tell the controller where it is (its "Grill photo URL").
-    const txt = E('Grill photo URL', ['text']); if (!txt) return;
-    let origin = ''; try { origin = window.parent.location.origin; } catch (e) { origin = location.origin; }
-    if (!/^https?:/.test(origin)) return;
-    const abs = origin + r.url;
-    if (val(txt) !== abs) H().call('text', 'set_value', txt, { value: abs }).catch(() => {});
-  }).catch(() => {});
+    sendPhotoToController(r.url);
+  }).catch(viaImage);
+}
+// The controller's own page can show the photo too: tell the controller where it is (its "Grill photo URL").
+function sendPhotoToController(url) {
+  const txt = E('Grill photo URL', ['text']); if (!txt) return;
+  let origin = ''; try { origin = window.parent.location.origin; } catch (e) { origin = location.origin; }
+  if (!/^https?:/.test(origin)) return;
+  const abs = origin + url;
+  if (val(txt) !== abs) H().call('text', 'set_value', txt, { value: abs }).catch(() => {});
 }
 document.addEventListener('click', e => {  // a part of the grill → its section
   const g = e.target.closest && e.target.closest('#grillpic [data-go]'); if (!g) return;
@@ -1180,7 +1194,7 @@ const photoURL = {};
 function photo(name) {
   if (photoURL[name]) return photoURL[name];
   photoURL[name] = 'data:,';
-  H().api('GET', '/api/smoker/photo/' + name).then(b => { photoURL[name] = URL.createObjectURL(b); renderScan(true); renderJournal(true); }).catch(() => {});
+  api('GET', '/api/smoker/photo/' + name).then(b => { photoURL[name] = URL.createObjectURL(b); renderScan(true); renderJournal(true); }).catch(() => {});
   return photoURL[name];
 }
 function probeOptions(sel) {
@@ -1188,6 +1202,8 @@ function probeOptions(sel) {
     .map(p => `<option value="${p.key}" ${sel === p.key ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
 }
 function renderScan(force) {
+  if (!hasApi()) { put('scancard', `<h3>What's cooking</h3><p class="muted small" style="margin:0">Photograph package labels and the AI
+    sets the protein and weight: this needs the Smoker integration (HACS → Smoker).</p>`); return; }
   const items = journal.draft.items || [], photos = journal.draft.photos || [];
   const html = `<h3>What's cooking</h3>
     <p class="small muted" style="margin:0 0 8px">Photograph the barcode / label of each package (several at once is fine). The AI reads the cut and weight; pick a probe to set its protein and weight.</p>
@@ -1204,9 +1220,10 @@ function renderScan(force) {
 
 // ---------------------------------------------------------------- journal
 async function loadJournal(force) {
+  if (!hasApi()) { put('jlist', '<div class="empty">The cook journal needs the Smoker integration (HACS → Smoker).</div>'); return; }
   if (!force && Date.now() - journal.loaded < 60000) return;
   journal.loaded = Date.now();
-  const d = await H().api('GET', '/api/smoker/journal');
+  const d = await api('GET', '/api/smoker/journal');
   journal.entries = d.entries || []; journal.draft = d.draft || { items: [], photos: [] };
   renderScan(); renderJournal();
 }
@@ -1343,9 +1360,14 @@ window.addEventListener('resize', () => drawChart());
 (function () {
   const bar = $('secbar'); if (!bar) return;
   const links = [...bar.querySelectorAll('a')], secs = links.map(a => $(a.getAttribute('href').slice(1)));
+  // In the home-dashboards project the site bar sticks to the top: sit just under it.
+  const site = document.querySelector('nav.site');
+  const top = () => site ? Math.max(0, site.getBoundingClientRect().height - 1) : 0;
+  const place = () => { bar.style.top = top() + 'px'; };
+  place(); addEventListener('resize', place); if (window.ResizeObserver && site) new ResizeObserver(place).observe(site);
   let cur = -1;
   function mark() {
-    const y = bar.offsetHeight + 40; let k = 0;
+    const y = top() + bar.offsetHeight + 40; let k = 0;
     secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top <= y) k = i; });
     if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) k = secs.length - 1;
     if (k === cur) return; cur = k;
@@ -1354,7 +1376,7 @@ window.addEventListener('resize', () => drawChart());
   }
   links.forEach((a, i) => a.addEventListener('click', e => {
     e.preventDefault(); const el = secs[i];
-    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - bar.offsetHeight - 10, behavior: 'smooth' });
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - top() - bar.offsetHeight - 10, behavior: 'smooth' });
   }));
   let raf = 0; addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
   mark();

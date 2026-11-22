@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.10] - 2026-11-22
+
+- The Smoker page can also live in the **home-dashboards** project (one copy, owned here: see
+  [docs/home-dashboards.md](docs/home-dashboards.md)): its section bar sits under that project's site bar, and it works
+  without the Smoker integration's API (journal and package scans say they need it; the grill photo is found at
+  `/local/smoker/grill.*` directly and passed on to the controller).
+
 ## [0.2.9] - 2026-11-22
 
 - **Cook program step editor** on the dashboard and the controller's own page: each stage is "Set pit to N° until …"
