@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.6"
+  project_version: "0.2.7"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -372,6 +372,12 @@ number:
       id: grill_probe2_target
       name: Grill probe 2 target
       entity_category: config
+
+button:
+  # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
+  - platform: restart
+    name: Restart
+    icon: mdi:restart
 
 switch:
   - platform: gravity980

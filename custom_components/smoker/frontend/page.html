@@ -317,6 +317,10 @@ window.act = {
   weight(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' weight', ['number']), parseFloat(v) || 0); },
   source(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' probe', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast(p.label + ' reads ' + v)).catch(fail); },
   extEntity(n, v) { const e = byName('Smoker external probe ' + n + ' entity', ['input_text']); e && H().call('input_text', 'set_value', e, { value: (v || '').trim() }).then(() => toast(v ? 'Food ' + n + ' reads ' + v : 'Food ' + n + ': default thermometer')).catch(fail); },
+  restart() {  // two taps: the first arms it for 3 s
+    if (!restartArmed) { restartArmed = setTimeout(() => { restartArmed = 0; renderDiag(); }, 3000); renderDiag(); return; }
+    clearTimeout(restartArmed); restartArmed = 0; press('Restart'); toast('Restarting the controller…'); renderDiag();
+  },
   wrap(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' wrapped', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   preset(v) { clean('progtext'); const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
   // The typed text stays until the controller shows it as its program (a refused program keeps your text).
@@ -769,6 +773,7 @@ function renderPlan() {
 
 // ---------------------------------------------------------------- charcoal
 let fuelMode = 'check';
+let restartArmed = 0;
 function renderFuel() {
   const lvl = num(E('Charcoal level', ['sensor'])), hrs = num(E('Charcoal hours left', ['sensor']));
   const empty = val(E('Charcoal empty at', ['sensor'])), rateE = E('Charcoal burn rate', ['sensor']), rate = num(rateE);
@@ -898,6 +903,8 @@ function renderDiag() {
     ['H5198 signal', E('H5198 signal', ['sensor'])]];
   const fw = E('Firmware', ['update']);
   put('diag', rows.filter(r => r[1]).map(([l, e]) => `<div class="row"><span>${esc(l)}</span><span class="r">${esc(val(e) || '--')} ${esc(unitOf(e))}</span></div>`).join('') +
+    (E('Restart', ['button']) ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
+      <button class="btn" onclick="act.restart(this)">${restartArmed ? 'Tap again to restart' : 'Restart'}</button></div>` : '') +
     (fw && S(fw) ? `<div class="row"><span>Firmware update</span><span class="r">${S(fw).state === 'on' ? 'available: ' + esc(S(fw).attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : ''));
   put('foot', 'Smoker controller · ' + esc(val(E('Firmware version', ['sensor'])) || ''));
 }

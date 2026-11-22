@@ -87,6 +87,7 @@ STATES = dict([
     st("sensor.smoker_charcoal_estimate_basis", "Experimental: default burn rate for briquettes (learned from 0.0 of 3 kg).",
        "Smoker Charcoal estimate basis"),
     st("switch.smoker_control_over_bluetooth_experimental", "on", "Smoker Control over Bluetooth (experimental)"),
+    st("button.smoker_restart", "unknown", "Smoker Restart"),
     st("sensor.smoker_program_state", "Running", "Smoker Program state"),
     st("sensor.smoker_program_status", "Step 1/3, pit 250°F, until food1 158/165°F (held 0/30 min)", "Smoker Program status"),
     st("sensor.smoker_program_error", "", "Smoker Program error"),
@@ -294,6 +295,17 @@ def main():
                         failures.append("program card did not re-render on state change")
                     if fr.input_value("#progtext") != "pit 300 until food1 >= 190":
                         failures.append("typed program text was lost on re-render")
+                    # Restart needs a second tap.
+                    btn = "#diag button"
+                    fr.click(btn); time.sleep(0.2)
+                    if any(c[0] == "button" for c in pg.evaluate("window.calls")):
+                        failures.append("restart pressed on the first tap")
+                    if "Tap again" not in fr.inner_text("#diag"):
+                        failures.append("restart did not ask for a second tap")
+                    fr.click(btn); time.sleep(0.3)
+                    if not any(c[0] == "button" and c[1] == "press" and c[2].get("entity_id") == "button.smoker_restart"
+                               for c in pg.evaluate("window.calls")):
+                        failures.append(f"restart not pressed after the second tap: {pg.evaluate('window.calls')[-2:]}")
                     # Fuel: 'Topped up to' then '1/2' calls the refill action with 50 %.
                     fr.click("#fuelcard .seg button:nth-child(3)")
                     time.sleep(0.3)

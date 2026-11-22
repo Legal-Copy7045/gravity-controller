@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.7] - 2026-11-22
+
+- **Restart** button for the controller (device page in Home Assistant, the dashboard's Setup → Controller, and the
+  controller's own page; the last two ask for a second tap). Settings and learned cooks are kept.
+
 ## [0.2.6] - 2026-11-22
 
 ### Firmware

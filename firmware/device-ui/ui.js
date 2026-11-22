@@ -372,6 +372,8 @@ function renderSetup(u) {
   const ver = T('Firmware version'), sig = S('Wi-Fi signal'), up = S('Uptime');
   put('dev', `<h3>This controller</h3>${ver ? row('Firmware', esc(ver)) : ''}${sig != null ? row('Wi-Fi signal', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', mins(up / 60)) : ''}
     ${row('Cooks learned', fmt(S('Cooks learned')))}
+    ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
+      <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}
     <p class="note"><a href="?classic">Full device view</a>: ESPHome's standard page with every entity and the logs (loads from the internet).</p>`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
 }
