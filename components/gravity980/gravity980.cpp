@@ -1,5 +1,8 @@
 #include "gravity980.h"
 
+#include <algorithm>
+#include <cstring>
+
 #include <cerrno>
 #include <cmath>
 #include <cstring>
@@ -93,7 +96,115 @@ void Gravity980Component::set_enabled(bool enabled) {
   this->update_active_();
 }
 
+void Gravity980Component::wifi_status_(const std::string &msg) {
+  ESP_LOGI(TAG, "Grill Wi-Fi: %s", msg.c_str());
+  if (this->wifi_ts_ != nullptr)
+    this->wifi_ts_->publish_state(msg);
+}
+
+bool Gravity980Component::ble_raw_(const std::vector<uint8_t> &data, const char *what) {
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr && this->ble_->ready() && this->ble_->write(data))
+    return true;
+#endif
+  this->wifi_status_(std::string("Can't ") + what + ": the grill isn't connected over Bluetooth");
+  return false;
+}
+
+bool Gravity980Component::wifi_rejoin() {
+  if (!this->ble_raw_({0x06, 0x00, 0x00, 0x00}, "ask the grill to join Wi-Fi"))
+    return false;
+  this->wifi_status_("Asked the grill to join its saved Wi-Fi…");
+  return true;
+}
+
+bool Gravity980Component::wifi_scan() {
+  if (!this->ble_raw_({0x00, 0x00, 0x02, 0x00, 0x01, 0x02}, "scan for Wi-Fi"))
+    return false;
+  this->wifi_nets_.clear();
+  this->wifi_scan_at_ = millis();
+  if (this->wifi_networks_ts_ != nullptr)
+    this->wifi_networks_ts_->publish_state("Scanning…");
+  return true;
+}
+
+void Gravity980Component::wifi_scan_done_() {
+  this->wifi_scan_at_ = 0;
+  // Strongest first, one entry per network name.
+  std::sort(this->wifi_nets_.begin(), this->wifi_nets_.end(),
+            [](const WifiNet &a, const WifiNet &b) { return a.signal > b.signal; });
+  std::string list;
+  std::vector<std::string> seen;
+  for (const auto &w : this->wifi_nets_) {
+    if (std::find(seen.begin(), seen.end(), w.ssid) != seen.end())
+      continue;
+    seen.push_back(w.ssid);
+    if (!list.empty())
+      list += ", ";
+    list += w.ssid;
+    if (list.size() > 200) {
+      list += ", …";
+      break;
+    }
+  }
+  if (this->wifi_networks_ts_ != nullptr)
+    this->wifi_networks_ts_->publish_state(list.empty() ? "No networks found (2.4 GHz only)" : list);
+  if (!this->wifi_join_ssid_.empty()) {
+    std::string ssid = this->wifi_join_ssid_, pass = this->wifi_join_pass_;
+    this->wifi_join_ssid_.clear();
+    this->wifi_join_pass_.clear();
+    for (const auto &w : this->wifi_nets_)
+      if (w.ssid == ssid) {
+        this->wifi_send_credentials_(w, pass);
+        return;
+      }
+    this->wifi_status_("The grill can't see '" + ssid + "' (it only joins 2.4 GHz networks; is it in range?)");
+  }
+}
+
+bool Gravity980Component::wifi_send_credentials_(const WifiNet &net, const std::string &password) {
+  std::vector<uint8_t> m;
+  if (!build_wifi_credentials(net.bssid, password, m)) {
+    this->wifi_status_("Password too long (max 63 characters)");
+    return false;
+  }
+  bool ok = this->ble_raw_(m, "send the Wi-Fi details");
+  std::fill(m.begin(), m.end(), 0);  // don't leave the password lying around
+  if (!ok)
+    return false;
+  this->wifi_cred_at_ = millis();
+  this->wifi_status_("Sent the Wi-Fi details for '" + net.ssid + "' to the grill…");
+  return true;
+}
+
+bool Gravity980Component::wifi_join(const std::string &ssid, const std::string &password) {
+  if (ssid.empty()) {
+    this->wifi_status_("Enter the network name first");
+    return false;
+  }
+  for (const auto &w : this->wifi_nets_)
+    if (w.ssid == ssid)
+      return this->wifi_send_credentials_(w, password);
+  // The grill needs the access point's address, which comes from a scan: scan first, then send.
+  this->wifi_join_ssid_ = ssid;
+  this->wifi_join_pass_ = password;
+  if (!this->wifi_scan()) {
+    this->wifi_join_ssid_.clear();
+    this->wifi_join_pass_.clear();
+    return false;
+  }
+  this->wifi_status_("Looking for '" + ssid + "'…");
+  return true;
+}
+
 void Gravity980Component::loop() {
+  // Wi-Fi setup timers: scan results arrive over ~5 s; after sending credentials, join even without an ack.
+  if (this->wifi_scan_at_ != 0 && millis() - this->wifi_scan_at_ > 7000)
+    this->wifi_scan_done_();
+  if (this->wifi_cred_at_ != 0 && millis() - this->wifi_cred_at_ > 4000) {
+    this->wifi_cred_at_ = 0;
+    this->wifi_rejoin();
+  }
   const uint32_t now = millis();
   if (this->enabled_ && !this->host_for_tcp_().empty()) {
     switch (this->tcp_state_) {
@@ -312,6 +423,27 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
         if (this->host_.empty())
           ESP_LOGI(TAG, "Using the grill's reported IP %s for Wi-Fi (Grill IP address is empty)", ipb);
       }
+    }
+    return;
+  }
+  if (len >= 5 && data[0] == 0x00 && data[1] == 0x10) {
+    WifiScanResult r;
+    if (parse_wifi_scan_result(data, len, r)) {
+      ESP_LOGI(TAG, "Grill sees Wi-Fi '%s' (signal %u, security %u)", r.ssid.c_str(), r.signal, r.security);
+      WifiNet w;
+      w.ssid = r.ssid;
+      std::memcpy(w.bssid, r.bssid, 6);
+      w.signal = r.signal;
+      w.security = r.security;
+      this->wifi_nets_.push_back(w);
+    }
+    return;
+  }
+  if (len >= 1 && data[0] == 0x02) {
+    ESP_LOGI(TAG, "Grill stored the Wi-Fi details; asking it to join");
+    if (this->wifi_cred_at_ != 0) {
+      this->wifi_cred_at_ = 0;
+      this->wifi_rejoin();
     }
     return;
   }
@@ -612,8 +744,14 @@ bool Gravity980BLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
 bool Gravity980BLE::write(const std::vector<uint8_t> &data) {
   if (this->write_handle_ == 0)
     return false;
+  // Short commands go without response (as the grill's own app does). Anything longer than one packet (the Wi-Fi
+  // credentials) is written with response, which the stack splits into a long write when needed.
+  bool long_write = data.size() + 3 > this->mtu_;
+  if (long_write)
+    ESP_LOGD(TAG, "BLE write of %u bytes (MTU %u): with response", (unsigned) data.size(), this->mtu_);
   auto err = esp_ble_gattc_write_char(this->get_gattc_if(), this->get_conn_id(), this->write_handle_, data.size(),
-                                      const_cast<uint8_t *>(data.data()), ESP_GATT_WRITE_TYPE_NO_RSP,
+                                      const_cast<uint8_t *>(data.data()),
+                                      long_write ? ESP_GATT_WRITE_TYPE_RSP : ESP_GATT_WRITE_TYPE_NO_RSP,
                                       ESP_GATT_AUTH_REQ_NONE);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "BLE write failed: %d", err);

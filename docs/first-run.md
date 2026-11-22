@@ -66,19 +66,27 @@ starts from it.
 
 ## Control over Bluetooth
 
-The app (dashboard, programs, voice, notification buttons) changes the grill's pit and food targets through the
-controller, over Wi-Fi when the grill is on Wi-Fi and otherwise over Bluetooth. **Control over Bluetooth
-(experimental)** is on by default; the dashboard's pit card shows which link is in use. The 980 is known to take
-targets over Wi-Fi; over Bluetooth it hasn't been confirmed yet, so check it on your first cook:
+The app (dashboards, programs, voice, notification buttons) changes the grill's pit and food targets through the
+controller: over Wi-Fi when the grill is on Wi-Fi, otherwise over Bluetooth. **Control over Bluetooth** is on by
+default and has been confirmed working on a Gravity 980. Remember the grill only takes new targets while it's cooking
+(start the cook on its panel). Only pit and food targets are ever sent (the same three commands as over Wi-Fi, within
+the grill's 200–700 °F range), and each write is checked against what the grill reports back. Turn the switch off
+(device page → Configuration) to make the Bluetooth link read-only.
 
-1. Start a cook on the grill's panel (the grill ignores target changes while idle, over either link).
-2. On the dashboard, change the pit target by 5–10 degrees. Within a few seconds the grill's display and *Pit target
-   (reported)* should follow. The log shows `Set pit target … via BLE` and then the reported value.
-3. If the log says `Grill ignored … target`, nothing was changed: tell us, and use Wi-Fi for control.
+## Set up the grill's Wi-Fi from Home Assistant
 
-Only pit and food targets are ever sent (the same three commands as over Wi-Fi, within the grill's 200–700 °F range);
-each write is checked against what the grill reports back. Turn the switch off (device page → Configuration) to make
-the Bluetooth link read-only.
+The controller can do what the Char-Griller app does over Bluetooth, so you don't need the app (turn its Bluetooth
+off, or close it: the grill takes one Bluetooth connection, and the controller holds it). With the grill connected
+over Bluetooth, on the controller's device page (Configuration):
+
+- **Grill Wi-Fi: join saved network** — asks the grill to join the network it already knows. Try this first: the
+  Char-Griller app sends this every time it connects, and the grill may not join on its own.
+- **Grill Wi-Fi: scan** — the grill lists the networks it can see in **Grill Wi-Fi networks** (2.4 GHz only).
+- **Grill Wi-Fi: network name** and **password**, then **Grill Wi-Fi: set up** — sends them to the grill and asks it
+  to join. The password isn't saved by the controller (it's cleared as soon as it's sent).
+
+**Grill Wi-Fi** then shows the result ("On &lt;network&gt;, IP …"), and the controller switches to Wi-Fi by itself
+(with *Grill IP address* empty it uses the address the grill reports). Bluetooth stays as the fallback.
 
 ## The grill's Wi-Fi (UniFi and mesh networks)
 

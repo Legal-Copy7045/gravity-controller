@@ -122,4 +122,34 @@ bool FrameAssembler::take_lone_frame(Status &out) {
   return true;
 }
 
+bool parse_wifi_scan_result(const uint8_t *data, size_t len, WifiScanResult &out) {
+  if (len < 5 || data[0] != 0x00 || data[1] != 0x10)
+    return false;
+  size_t n = data[4];
+  if (len < 5 + n + 9)
+    return false;
+  out.ssid.clear();
+  for (size_t i = 0; i < n; i++) {
+    char ch = char(data[5 + i]);
+    out.ssid += (ch >= 0x20 && ch < 0x7F) ? ch : '?';
+  }
+  for (int i = 0; i < 6; i++)
+    out.bssid[i] = data[5 + n + i];
+  out.security = data[11 + n];
+  out.signal = data[12 + n];
+  return !out.ssid.empty();
+}
+
+bool build_wifi_credentials(const uint8_t bssid[6], const std::string &password, std::vector<uint8_t> &out) {
+  if (password.size() > 63)
+    return false;
+  uint16_t plen = uint16_t(6 + 1 + 1 + password.size());
+  out = {0x01, 0x00, uint8_t(plen & 0xFF), uint8_t(plen >> 8)};
+  out.insert(out.end(), bssid, bssid + 6);
+  out.push_back(0x01);  // WPA/WPA2 (provisioning uses its own encoding, not the scan's)
+  out.push_back(uint8_t(password.size()));
+  out.insert(out.end(), password.begin(), password.end());
+  return true;
+}
+
 }  // namespace g980proto

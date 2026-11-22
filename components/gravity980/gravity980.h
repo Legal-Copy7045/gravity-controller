@@ -129,6 +129,13 @@ class Gravity980Component : public Component {
   void set_raw_frame_text_sensor(text_sensor::TextSensor *s) { this->raw_ts_ = s; }
   void set_transport_text_sensor(text_sensor::TextSensor *s) { this->transport_ts_ = s; }
   void set_wifi_text_sensor(text_sensor::TextSensor *s) { this->wifi_ts_ = s; }
+  void set_wifi_networks_text_sensor(text_sensor::TextSensor *s) { this->wifi_networks_ts_ = s; }
+
+  // Grill Wi-Fi setup over Bluetooth (the Char-Griller app's provisioning commands, as documented by cg980app).
+  // Only these raw 4/6-byte commands and the credentials message are sent; never control ids 0x01/0x04/0x05.
+  bool wifi_rejoin();                                                   // join the network the grill has stored
+  bool wifi_scan();                                                     // grill reports the networks it can see
+  bool wifi_join(const std::string &ssid, const std::string &password);  // store credentials, then join
 #endif
 #ifdef USE_NUMBER
   void set_target_number(Probe p, Gravity980TargetNumber *n) { this->target_numbers_[p] = n; }
@@ -226,6 +233,21 @@ class Gravity980Component : public Component {
   text_sensor::TextSensor *raw_ts_{nullptr};
   text_sensor::TextSensor *transport_ts_{nullptr};
   text_sensor::TextSensor *wifi_ts_{nullptr};
+  text_sensor::TextSensor *wifi_networks_ts_{nullptr};
+  struct WifiNet {
+    std::string ssid;
+    uint8_t bssid[6];
+    uint8_t signal;
+    uint8_t security;
+  };
+  std::vector<WifiNet> wifi_nets_;
+  uint32_t wifi_scan_at_{0};        // scan running since (0 = not scanning)
+  std::string wifi_join_ssid_, wifi_join_pass_;  // a join waiting for a scan (password kept only until sent)
+  uint32_t wifi_cred_at_{0};        // credentials sent at (waiting for the grill's ack before "rejoin")
+  void wifi_status_(const std::string &msg);
+  void wifi_scan_done_();
+  bool wifi_send_credentials_(const WifiNet &net, const std::string &password);
+  bool ble_raw_(const std::vector<uint8_t> &data, const char *what);
 #endif
 #ifdef USE_NUMBER
   Gravity980TargetNumber *target_numbers_[PROBE_COUNT]{nullptr, nullptr, nullptr};

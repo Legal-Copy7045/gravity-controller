@@ -729,6 +729,33 @@ static void test_forecast_and_rest() {
   CHECK(pri2.rests == 1 && pri.rests == 0);
 }
 
+static void test_wifi_setup() {
+  std::printf("grill wi-fi setup messages\n");
+  using namespace g980proto;
+  // Scan result: ssid "Grill-Net", bssid 11:22:33:44:55:66, security 2, signal 44, flags 0.
+  std::vector<uint8_t> n = {0x00, 0x10, 0x00, 0x00, 9};
+  for (char c : std::string("Grill-Net"))
+    n.push_back(uint8_t(c));
+  for (uint8_t b : {0x11, 0x22, 0x33, 0x44, 0x55, 0x66})
+    n.push_back(b);
+  n.push_back(2);
+  n.push_back(44);
+  n.push_back(0);
+  WifiScanResult r;
+  CHECK(parse_wifi_scan_result(n.data(), n.size(), r));
+  CHECK(r.ssid == "Grill-Net" && r.bssid[0] == 0x11 && r.bssid[5] == 0x66 && r.security == 2 && r.signal == 44);
+  CHECK(!parse_wifi_scan_result(n.data(), n.size() - 1, r));  // truncated
+  n[1] = 0x19;
+  CHECK(!parse_wifi_scan_result(n.data(), n.size(), r));      // a status frame, not a scan result
+  // Credentials: 01 00 [len] bssid 01 [pass_len] pass
+  std::vector<uint8_t> m;
+  CHECK(build_wifi_credentials(r.bssid, "secret12", m));
+  std::vector<uint8_t> want = {0x01, 0x00, 16, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x01, 8,
+                               's', 'e', 'c', 'r', 'e', 't', '1', '2'};
+  CHECK(m == want);
+  CHECK(!build_wifi_credentials(r.bssid, std::string(64, 'x'), m));  // WPA2 passwords are at most 63
+}
+
 static void test_sources_and_upgrade() {
   std::printf("h5198 / fuel idle gap / record layout\n");
   // H5198 (layout per govee-ble; synthetic packets shaped like a real unit's 20-byte manufacturer data).
@@ -813,6 +840,7 @@ static void test_sources_and_upgrade() {
 
 int main() {
   test_protocol();
+  test_wifi_setup();
   test_sources_and_upgrade();
   test_program();
   test_regressions();

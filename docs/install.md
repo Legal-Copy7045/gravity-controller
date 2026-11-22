@@ -46,7 +46,7 @@ dashboard (pull the latest and install).
 2. Device page → **Grill IP address**: the grill's IP (give it a DHCP reservation on your router). Find it in your
    router's client list, or in the device log, which prints `Grill reports Wi-Fi status …, IP a.b.c.d` when it
    connects over Bluetooth. **Optional:** without it the bridge reads *and controls* the grill over Bluetooth
-   (**Control over Bluetooth (experimental)**, on by default; see
+   (**Control over Bluetooth**, on by default; see
    [first run](first-run.md#control-over-bluetooth)). Grill Wi-Fi not joining (common on UniFi)? See
    [the grill's Wi-Fi](first-run.md#the-grills-wi-fi-unifi-and-mesh-networks), or just leave it on Bluetooth.
 3. **Bridge enabled** (device page): turn it **off** while you use the Char-Griller app (setting up the grill's

@@ -187,6 +187,27 @@ text:
     initial_value: ""
     on_value:
       - lambda: id(grill).set_host(x);
+  # Grill Wi-Fi setup: the network the grill should join (2.4 GHz) and its password (not saved; cleared once sent).
+  - platform: template
+    id: grill_wifi_ssid
+    name: "Grill Wi-Fi: network name"
+    icon: mdi:wifi
+    entity_category: config
+    mode: text
+    max_length: 32
+    optimistic: true
+    restore_value: true
+    initial_value: ""
+  - platform: template
+    id: grill_wifi_password
+    name: "Grill Wi-Fi: password"
+    icon: mdi:form-textbox-password
+    entity_category: config
+    mode: password
+    max_length: 63
+    optimistic: true
+    restore_value: false
+    initial_value: ""
   # A photo of your grill for the controller's own page (any http(s) URL it can load, e.g. Home Assistant's
   # /local/smoker/grill.png). The Smoker dashboard fills this in when it finds your photo; empty = the drawing.
   - platform: template
@@ -367,6 +388,8 @@ text_sensor:
       name: Grill link
     grill_wifi:
       name: Grill Wi-Fi
+    wifi_networks:
+      name: Grill Wi-Fi networks
   - platform: version
     name: Firmware version
     hide_timestamp: true
@@ -390,6 +413,30 @@ button:
   - platform: restart
     name: Restart
     icon: mdi:restart
+  # Grill Wi-Fi setup over Bluetooth (what the Char-Griller app does): needs the grill connected over Bluetooth.
+  - platform: template
+    name: "Grill Wi-Fi: join saved network"
+    icon: mdi:wifi-refresh
+    entity_category: config
+    on_press:
+      - lambda: id(grill).wifi_rejoin();
+  - platform: template
+    name: "Grill Wi-Fi: scan"
+    icon: mdi:wifi-star
+    entity_category: config
+    on_press:
+      - lambda: id(grill).wifi_scan();
+  - platform: template
+    name: "Grill Wi-Fi: set up"
+    icon: mdi:wifi-plus
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(grill).wifi_join(id(grill_wifi_ssid).state, id(grill_wifi_password).state);
+          // the password is not kept: clear it once handed to the grill
+          auto call = id(grill_wifi_password).make_call();
+          call.set_value("");
+          call.perform();
 
 switch:
   - platform: gravity980
@@ -397,11 +444,10 @@ switch:
       name: Bridge enabled
   # Log every raw TCP/BLE byte from the grill (for protocol investigation; logs at DEBUG level).
   # Target changes over Bluetooth, for grills whose Wi-Fi is unreliable (it is on some mesh/UniFi networks). On by
-  # default; experimental until confirmed: the 980 is known to take setpoints over Wi-Fi, over Bluetooth it's
-  # unverified. Every write is checked against what the grill reports back (an ignored write changes nothing), and
-  # only pit/food targets are ever sent. Wi-Fi is used instead whenever it's connected.
+  # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
+  # changes nothing), and only pit/food targets are ever sent. Wi-Fi is used instead whenever it's connected.
   - platform: template
-    name: Control over Bluetooth (experimental)
+    name: Control over Bluetooth
     id: ble_control
     icon: mdi:bluetooth-settings
     entity_category: config

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace g980proto {
@@ -60,6 +61,18 @@ bool ble_status_payload(const uint8_t *data, size_t len, const uint8_t **payload
 /// Build a setpoint command. Returns false (and builds nothing) if out of range.
 /// `ble` prefixes the BLE framing `00 19 04 00`.
 bool build_target_command(Probe probe, uint16_t value_f, bool ble, std::vector<uint8_t> &out);
+
+// ---- Grill Wi-Fi setup over BLE (the Char-Griller app's provisioning commands; layout per cg980app's protocol.md)
+// Wi-Fi scan result notification: [00][10][len lo][len hi][ssid_len][ssid][bssid6][security][signal][flags].
+struct WifiScanResult {
+  std::string ssid;
+  uint8_t bssid[6]{};
+  uint8_t security{0};
+  uint8_t signal{0};
+};
+bool parse_wifi_scan_result(const uint8_t *data, size_t len, WifiScanResult &out);
+// Set credentials: [01][00][len lo][len hi][bssid6][security=1 (WPA/WPA2)][pass_len][password]. False if too long.
+bool build_wifi_credentials(const uint8_t bssid[6], const std::string &password, std::vector<uint8_t> &out);
 
 /// Reassembles status frames from a TCP byte stream (frames have no header).
 class FrameAssembler {
