@@ -63,3 +63,19 @@ panel; or, after starting the cook on the panel, **Food 1 target** on the dashbo
 finish time and the cook isn't saved to the history. Flip **Food 1 wrapped** when you wrap. Everything is
 logged; when the probe reaches its target the controller saves the cook to its history and the next cook's estimate
 starts from it.
+
+## Control over Bluetooth
+
+The 980 is known to take pit and food targets over Wi-Fi; over Bluetooth it hasn't been confirmed yet. If the grill's
+Wi-Fi is unreliable, try it:
+
+1. Start a cook on the grill's panel (the grill ignores target changes while idle, over either link).
+2. Device page → Configuration → turn on **Control over Bluetooth (experimental)**.
+3. Change **Pit target** by 5–10 degrees. Within a few seconds *Pit target (reported)* and the grill's display should
+   follow. The log shows `Set pit target …` and then the reported value.
+4. If the grill doesn't follow, the log says `Grill ignored … target`: nothing was changed. Turn the switch off and
+   tell us; the bridge then stays read-only over Bluetooth and needs Wi-Fi for control.
+
+Only pit and food targets are ever sent (the same three commands as over Wi-Fi, within the grill's 200–700 °F range);
+each write is checked against what the grill reports back.
+

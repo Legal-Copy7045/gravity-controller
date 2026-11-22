@@ -332,7 +332,7 @@ void Gravity980Component::update_active_() {
   if (t == Transport::NONE) {
     this->publish_unknown_();
   } else if (t == Transport::BLE && this->ble_writes_ == false) {
-    ESP_LOGI(TAG, "Bluetooth link is read-only (bluetooth: writes: false): target changes need Wi-Fi");
+    ESP_LOGI(TAG, "Bluetooth link is read-only: target changes need Wi-Fi, or turn on \"Control over Bluetooth\"");
   }
 }
 
@@ -448,7 +448,7 @@ bool Gravity980Component::request_target(Probe probe, float value) {
 #endif
   if (!use_tcp && !use_ble) {
     ESP_LOGW(TAG, "No writable link to the grill (TCP down%s)",
-             this->ble_writes_ ? ", BLE not ready" : "; BLE writes disabled");
+             this->ble_writes_ ? ", BLE not ready" : "; turn on \"Control over Bluetooth\" to use Bluetooth");
     return false;
   }
   if (!build_target_command(probe, f, use_ble, cmd)) {

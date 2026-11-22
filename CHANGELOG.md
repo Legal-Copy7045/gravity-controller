@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3] - 2026-11-22
+
+### Firmware
+- **Control over Bluetooth (experimental)** switch (device page, Configuration, off by default): pit and food target
+  changes over Bluetooth when the grill's Wi-Fi isn't available. Not yet confirmed on a 980; every write is checked
+  against what the grill reports back. See [first run](docs/first-run.md#control-over-bluetooth).
+
 ## [0.2.2] - 2026-11-22
 
 ### Firmware

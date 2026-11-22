@@ -45,7 +45,9 @@ dashboard (pull the latest and install).
    proxy): you can ignore it; the controller reads the H5198 itself.
 2. Device page → **Grill IP address**: the grill's IP (give it a DHCP reservation on your router). Find it in your
    router's client list, or in the device log, which prints `Grill reports Wi-Fi status …, IP a.b.c.d` when it
-   connects over Bluetooth. Without it the bridge uses Bluetooth only (read-only).
+   connects over Bluetooth. Without it the bridge uses Bluetooth only: readings always work; changing targets over
+   Bluetooth needs **Control over Bluetooth (experimental)** turned on (device page, Configuration). Useful when the
+   grill's Wi-Fi is unreliable; see [first run](first-run.md#control-over-bluetooth).
 3. **Bridge enabled** (device page): turn it **off** while you use the Char-Griller app (setting up the grill's
    Wi-Fi, firmware updates): the grill only accepts one connection, and the bridge holds it.
 4. **ntfy topic** (optional): a long random topic name, e.g. `smoker-9f3k2q7x`. Subscribe to the same topic in the

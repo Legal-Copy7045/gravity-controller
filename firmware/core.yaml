@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.2"
+  project_version: "0.2.3"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -167,7 +167,7 @@ gravity980:
   temperature_unit: ${temperature_unit}
   log_raw: false
   bluetooth:
-    writes: false   # setpoints over BLE are unverified on the 980; TCP is used
+    writes: false   # off at boot; the "Control over Bluetooth" switch turns it on (unverified on the 980)
 
 text:
   - platform: template
@@ -370,6 +370,20 @@ switch:
     bridge_enabled:
       name: Bridge enabled
   # Log every raw TCP/BLE byte from the grill (for protocol investigation; logs at DEBUG level).
+  # Target changes over Bluetooth, for grills whose Wi-Fi is unreliable. Off by default: the 980 is known to take
+  # setpoints over Wi-Fi; over Bluetooth it's unverified. Every write is checked against what the grill reports
+  # back (an ignored write changes nothing), and only pit/food targets are ever sent.
+  - platform: template
+    name: Control over Bluetooth (experimental)
+    id: ble_control
+    icon: mdi:bluetooth-settings
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - lambda: id(grill).set_ble_writes(true);
+    on_turn_off:
+      - lambda: id(grill).set_ble_writes(false);
   - platform: template
     name: Log raw grill data
     icon: mdi:text-search
