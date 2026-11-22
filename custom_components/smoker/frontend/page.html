@@ -990,7 +990,8 @@ function renderTop() {
   if (pst === 'Paused') add('warn', 'Program paused');
   let head, cls;
   if (!conn || via === 'none') { head = '<span class="t">Grill not connected'; cls = 'bad';
-    head += `<small>${val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?'}</small></span>`; }
+    const ls = val(E('Grill link status', ['sensor'])), lsOk = ls && !/^(unknown|unavailable)$/.test(ls);
+    head += `<small>${esc(val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : lsOk ? ls : 'is the grill on and in range?')}</small></span>`; }
   else { const how = via === 'wifi' ? 'Wi-Fi' : 'Bluetooth', ctl = via === 'wifi' || ble;
     head = `<span class="t">Grill connected · ${how}<small>${ctl ? 'the app controls it' : 'read-only: turn on Bluetooth control in Setup'}</small></span>`; cls = ctl ? '' : 'warn'; }
   const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
@@ -1061,6 +1062,7 @@ function renderControl() {
   const tog = (e, on, label, note) => e ? `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span>
     <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(e)}')" aria-label="${esc(label.replace(/<[^>]+>/g, ''))}"></button></div>` : '';
   put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? (via === 'wifi' ? 'Wi-Fi' : 'Bluetooth') : 'not connected'}</span></h3>
+    ${(st => st && !/^(unknown|unavailable)$/.test(st) ? `<div class="row"><span>Status</span><span class="r" style="white-space:normal">${esc(st)}</span></div>` : '')(val(E('Grill link status', ['sensor'])))}
     ${controlRow()}
     ${tog(bleE, ble, 'Control over Bluetooth', 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
     ${tog(bridge, val(bridge) === 'on', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}

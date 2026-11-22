@@ -88,6 +88,8 @@ async def main():
               f"pit temperature published ({val('pit_temperature')})")
         check(await wait_for(lambda: isinstance(val("food_1_temperature"), float) and val("food_1_temperature") == val("food_1_temperature"), 15, "food temp"),
               f"food 1 temperature published ({val('food_1_temperature')})")
+        check(await wait_for(lambda: val("grill_link_status") == "Connected over Wi-Fi", 5, "link status"),
+              f"link status says connected ({val('grill_link_status')!r})")
         check(val("pit_target_reported") == 225.0, f"pit target reported 225 ({val('pit_target_reported')})")
 
         # Set the pit target through the number entity (as the HA UI would).
@@ -168,6 +170,15 @@ async def main():
         grill.terminate()
         grill.wait()
         check(await wait_for(lambda: val("grill_connected") is False, 25, "link lost"), "link loss detected")
+        check(await wait_for(lambda: "Trying the grill over Wi-Fi" in (val("grill_link_status") or ""), 10, "status"),
+              f"link status says what it's doing ({val('grill_link_status')!r})")
+        # The grill comes back: the bridge reconnects by itself.
+        grill = subprocess.Popen(
+            [sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", "13333", "--bind", "127.0.0.1",
+             "--speed", "120"], stdout=grill_log, stderr=subprocess.STDOUT)
+        check(await wait_for(lambda: val("grill_connected") is True, 30, "link back"), "link recovers when the grill returns")
+        grill.terminate()
+        grill.wait()
         await cli.disconnect()
     finally:
         dev.terminate()

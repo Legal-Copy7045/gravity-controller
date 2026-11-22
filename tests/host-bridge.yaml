@@ -59,6 +59,10 @@ binary_sensor:
     connected: {id: grill_connected, name: Grill connected}
     door: {id: lid_open, name: Lid}
     fan: {id: grill_fan, name: Fan}
+text_sensor:
+  - platform: gravity980
+    link: {name: Grill link}
+    link_status: {name: Grill link status}
 number:
   - platform: gravity980
     pit_target: {id: pit_setpoint, name: Pit target}

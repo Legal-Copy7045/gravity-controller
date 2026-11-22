@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.15"
+  project_version: "0.2.16"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -388,6 +388,8 @@ text_sensor:
       name: Raw status frame
     link:
       name: Grill link
+    link_status:
+      name: Grill link status
     grill_wifi:
       name: Grill Wi-Fi
     wifi_networks:

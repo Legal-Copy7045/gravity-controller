@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.16] - 2026-11-22
+
+- **The bridge recovers from a lost grill link by itself, and says what it's doing.** New *Grill link status*
+  (shown on both pages when the grill isn't connected): connected, looking for the grill, connecting, reconnecting and
+  why the last link ended. Recovery steps, in order:
+  - a Bluetooth link with no status is dropped and made again;
+  - a connection attempt stuck for 45 s is cancelled, or Bluetooth is restarted if it can't be;
+  - the grill in range but no link for 3 min: Bluetooth is restarted;
+  - still none 5 min later: the bridge restarts itself (at most 3 times in a row; a running program comes back paused
+    and the grill holds its own pit target meanwhile);
+  - no Bluetooth advertisements from anything for 5 min (scanner stuck): Bluetooth is restarted.
+  - Turning *Bridge enabled* off (for the grill's own app) stops all of this.
+- Wi-Fi drops were already retried every 10 s; their reason now shows in the status too.
+
 ## [0.2.15] - 2026-11-22
 
 - **Fix: the bridge now finds a grill that is switched on after it.** A grill that has only just started can accept the

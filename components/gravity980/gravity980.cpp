@@ -16,9 +16,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#ifdef USE_GRAVITY980_BLE
+#include "esphome/components/esp32_ble/ble.h"
+#endif
 
 namespace esphome {
 namespace gravity980 {
@@ -63,7 +67,14 @@ void Gravity980Component::set_host(const std::string &host) {
   this->tcp_last_attempt_ = 0;
 }
 
-void Gravity980Component::setup() { this->publish_unknown_(); }
+void Gravity980Component::setup() {
+  this->publish_unknown_();
+  this->recover_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("gravity980_recover_boots"));
+  if (!this->recover_pref_.load(&this->recover_boots_))
+    this->recover_boots_ = 0;
+  if (this->recover_boots_ != 0)
+    ESP_LOGW(TAG, "Restarted by the link recovery (%u in a row)", unsigned(this->recover_boots_));
+}
 
 void Gravity980Component::dump_config() {
   ESP_LOGCONFIG(TAG,
@@ -224,25 +235,10 @@ void Gravity980Component::loop() {
         break;
     }
   }
-#ifdef USE_GRAVITY980_BLE
-  // A grill that is switched on after the bridge accepts a connection before it is ready: no services yet, or no
-  // status notifications. Don't sit on that link (only a reboot used to cure it): drop it and connect again. Wi-Fi setup
-  // traffic counts as activity.
-  if (this->ble_connected_ && this->ble_ != nullptr && this->wifi_scan_at_ == 0 && this->wifi_cred_at_ == 0) {
-    const uint32_t limit = this->ble_got_frame_ ? std::max<uint32_t>(this->stale_timeout_ * 2, 30000) : 20000;
-    if (int32_t(now - this->ble_last_frame_) > int32_t(limit)) {
-      if (int32_t(now - this->ble_warned_) > 60000 || this->ble_retries_ < 3)
-        ESP_LOGW(TAG, "BLE connected but %s for %u s: reconnecting",
-                 this->ble_got_frame_ ? "no status notifications" : "no data yet", unsigned(limit / 1000));
-      this->ble_warned_ = now;
-      if (this->ble_retries_ < 255)
-        this->ble_retries_++;
-      this->ble_->reconnect(this->ble_got_frame_ ? "status notifications stopped" : "no status after connecting");
-      this->ble_connected_ = false;
-      this->ble_got_frame_ = false;
-    }
+  if (now - this->supervised_at_ >= 1000) {
+    this->supervised_at_ = now;
+    this->supervise_(now);
   }
-#endif
   this->check_pending_();
   this->update_active_();
 }
@@ -379,9 +375,10 @@ void Gravity980Component::tcp_close_(const char *reason) {
     close(this->fd_);
     this->fd_ = -1;
   }
-  if (this->tcp_state_ == TcpState::CONNECTED)
+  if (this->tcp_state_ == TcpState::CONNECTED) {
     ESP_LOGW(TAG, "TCP disconnected: %s", reason);
-  else if (this->tcp_state_ == TcpState::CONNECTING)
+    this->last_drop_ = std::string("Wi-Fi: ") + reason;
+  } else if (this->tcp_state_ == TcpState::CONNECTING)
     ESP_LOGD(TAG, "TCP connect failed: %s", reason);
   this->tcp_state_ = TcpState::IDLE;
   this->tx_.clear();
@@ -472,11 +469,178 @@ void Gravity980Component::on_ble_connected() {
   ESP_LOGI(TAG, "BLE connected");
 }
 
-void Gravity980Component::on_ble_disconnected() {
+void Gravity980Component::on_ble_disconnected(int reason) {
+  if (this->ble_connected_ && reason >= 0) {
+    // 0x08 supervision timeout (out of range / grill off), 0x13 grill ended it, 0x16 we ended it, 0x3E never set up.
+    const char *why = reason == 0x08   ? "signal lost (grill off or out of range)"
+                      : reason == 0x13 ? "the grill closed the connection"
+                      : reason == 0x16 ? nullptr
+                      : reason == 0x3E ? "connection failed to set up"
+                                       : "dropped";
+    if (why != nullptr)
+      this->last_drop_ = why;
+  }
   this->ble_connected_ = false;
   this->ble_got_frame_ = false;
-  ESP_LOGI(TAG, "BLE disconnected");
+  ESP_LOGI(TAG, "BLE disconnected (reason 0x%02X)", unsigned(reason & 0xFF));
   this->update_active_();
+}
+
+// ---------------------------------------------------------------- recovery
+//
+// The bridge must never sit silently on a dead link. Every second:
+//  - the "Grill link status" text says, in plain words, what the bridge is doing about the grill right now;
+//  - a Bluetooth link that connected but carries no status (a grill switched on after the bridge, or one whose
+//    notifications stopped) is dropped and made again;
+//  - a connection attempt stuck for 45 s is cancelled; if it can't be, Bluetooth is restarted;
+//  - the grill advertising but no link for 3 min: restart Bluetooth; still none 5 min later: reboot the bridge
+//    (at most 3 times in a row, counted across reboots; a program comes back paused, the grill keeps its own pit
+//    target meanwhile);
+//  - no Bluetooth advertisements from anything for 5 min (scanner stuck): restart Bluetooth.
+// Turning the bridge off ("Bridge enabled") stops all of this: that's how the grill's own app gets the connection.
+
+void Gravity980Component::set_link_status_(const std::string &s) {
+  if (s == this->link_status_)
+    return;
+  this->link_status_ = s;
+  ESP_LOGI(TAG, "Link status: %s", s.c_str());
+#ifdef USE_TEXT_SENSOR
+  if (this->link_status_ts_ != nullptr)
+    this->link_status_ts_->publish_state(s);
+#endif
+}
+
+#ifdef USE_GRAVITY980_BLE
+void Gravity980Component::restart_bluetooth_(const char *why) {
+  ESP_LOGW(TAG, "Restarting Bluetooth: %s", why);
+  this->last_drop_ = std::string("restarted Bluetooth (") + why + ")";
+  this->ble_connected_ = this->ble_got_frame_ = false;
+  esp32_ble::global_ble->disable();
+  this->set_timeout("g980_ble_on", 3000, []() { esp32_ble::global_ble->enable(); });
+}
+#endif
+
+void Gravity980Component::supervise_(uint32_t now) {
+  if (!this->enabled_) {
+    this->down_since_ = 0;
+    this->recover_stage_ = 0;
+    this->set_link_status_("Bridge turned off (the grill's own app can connect)");
+    return;
+  }
+  const bool tcp_wanted = !this->host_for_tcp_().empty();
+  if (this->active_ != Transport::NONE) {
+    if (this->down_since_ != 0 && !this->last_drop_.empty())
+      ESP_LOGI(TAG, "Link back after %u s", unsigned((now - this->down_since_) / 1000));
+    this->down_since_ = 0;
+    this->recover_stage_ = 0;
+    this->ble_retries_ = 0;
+    if (this->recover_boots_ != 0) {
+      this->recover_boots_ = 0;
+      this->recover_pref_.save(&this->recover_boots_);
+    }
+    this->set_link_status_(this->active_ == Transport::TCP ? "Connected over Wi-Fi" : "Connected over Bluetooth");
+    return;
+  }
+  if (this->down_since_ == 0)
+    this->down_since_ = now;
+  const uint32_t down = now - this->down_since_;
+  std::string why = this->last_drop_.empty() ? "" : " · last drop: " + this->last_drop_;
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr && esp32_ble::global_ble != nullptr) {
+    if (!esp32_ble::global_ble->is_active()) {
+      this->set_link_status_("Restarting Bluetooth…" + why);
+      return;
+    }
+    using esp32_ble_tracker::ClientState;
+    const ClientState st = this->ble_->state();
+    if (uint8_t(st) != this->ble_state_) {
+      this->ble_state_ = uint8_t(st);
+      this->ble_state_since_ = now;
+    }
+    const uint32_t in_state = now - this->ble_state_since_;
+    const bool seen = this->ble_->grill_seen_at() != 0 && now - this->ble_->grill_seen_at() < 60000;
+    const bool setup_busy = this->wifi_scan_at_ != 0 || this->wifi_cred_at_ != 0;
+
+    // 1. Connected over Bluetooth but no status: a grill still starting up, or notifications that stopped.
+    if (this->ble_connected_ && !setup_busy) {
+      const uint32_t limit = this->ble_got_frame_ ? std::max<uint32_t>(this->stale_timeout_ * 2, 30000) : 20000;
+      if (int32_t(now - this->ble_last_frame_) > int32_t(limit)) {
+        this->last_drop_ = this->ble_got_frame_ ? "status from the grill stopped" : "no status after connecting";
+        ESP_LOGW(TAG, "BLE connected but %s for %u s: reconnecting", this->last_drop_.c_str(), unsigned(limit / 1000));
+        if (this->ble_retries_ < 255)
+          this->ble_retries_++;
+        if (!this->ble_->reconnect(this->last_drop_.c_str()))
+          this->restart_bluetooth_("couldn't drop a silent link");
+        this->ble_connected_ = this->ble_got_frame_ = false;
+        return;
+      }
+    }
+    // 2. A connection attempt that never finishes.
+    const bool mid_connect = st == ClientState::DISCOVERED || st == ClientState::CONNECTING ||
+                             ((st == ClientState::CONNECTED || st == ClientState::ESTABLISHED) && !this->ble_connected_);
+    if (mid_connect && in_state > 45000) {
+      this->last_drop_ = "connecting took too long";
+      if (in_state > 60000 || !this->ble_->reconnect("connecting took too long"))
+        this->restart_bluetooth_("a connection attempt was stuck");
+      this->ble_state_since_ = now;
+      return;
+    }
+    // 3. Scanner gone quiet: no advertisements from anything for 5 min.
+    const uint32_t adv = this->ble_->any_adv_at();
+    if (adv != 0 && now - adv < 60000)
+      this->scan_restarted_ = false;
+    if (!this->scan_restarted_ && now > 300000 && (adv == 0 || now - adv > 300000)) {
+      this->scan_restarted_ = true;
+      this->restart_bluetooth_("no Bluetooth advertisements for 5 min");
+      return;
+    }
+    // 4. The grill is there (advertising) but no link comes up.
+    if (seen && st == ClientState::IDLE && this->recover_stage_ == 0 && down > 180000) {
+      this->recover_stage_ = 1;
+      this->recover_at_ = now;
+      this->restart_bluetooth_("the grill is advertising but no link for 3 min");
+      return;
+    }
+    if (seen && this->recover_stage_ == 1 && now - this->recover_at_ > 300000) {
+      if (this->recover_boots_ < 3) {
+        this->recover_boots_++;
+        this->recover_pref_.save(&this->recover_boots_);
+        global_preferences->sync();
+        this->set_link_status_("No link to the grill for 8 min: restarting the bridge");
+        ESP_LOGE(TAG, "No link to the grill for 8 min although it's advertising: rebooting (%u of 3)",
+                 unsigned(this->recover_boots_));
+        this->set_timeout("g980_reboot", 2000, []() { App.safe_reboot(); });
+        this->recover_stage_ = 2;
+        return;
+      }
+      this->recover_stage_ = 2;
+    }
+    if (this->recover_stage_ == 2 && this->recover_boots_ >= 3) {
+      this->set_link_status_("Can't connect to the grill over Bluetooth although it's in range. Is the grill's own app "
+                             "connected to it? Turn the grill off and on" + why);
+      return;
+    }
+    if (setup_busy) {
+      this->set_link_status_("Setting up the grill's Wi-Fi over Bluetooth…");
+    } else if (this->ble_connected_) {
+      this->set_link_status_("Connected over Bluetooth, waiting for the grill's status…");
+    } else if (mid_connect) {
+      this->set_link_status_("Grill found: connecting over Bluetooth…" + why);
+    } else if (seen) {
+      this->set_link_status_("Grill in range: reconnecting over Bluetooth" + why);
+    } else {
+      std::string s = "Looking for the grill over Bluetooth (not seen: off, or out of range)";
+      if (tcp_wanted)
+        s += " and over Wi-Fi at " + this->host_for_tcp_();
+      this->set_link_status_(s + why);
+    }
+    return;
+  }
+#endif
+  if (tcp_wanted)
+    this->set_link_status_("Trying the grill over Wi-Fi at " + this->host_for_tcp_() + why);
+  else
+    this->set_link_status_("Not connected: no Bluetooth and no grill IP address set");
 }
 
 // ---------------------------------------------------------------- common
@@ -696,8 +860,11 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     return false;
   const uint32_t now = millis();
   uint64_t a = device.address_uint64();
+  this->any_adv_at_ = now;
   if (a != 0 && a == this->get_address())
     this->seen_at_ = now;
+  if (a != 0 && (a == this->fixed_address_ || (this->fixed_address_ == 0 && a == this->get_address())))
+    this->grill_seen_at_ = now;
   // Found by name (no fixed address): learn the address. A grill that is power-cycled can come back on a different
   // address, so while idle a name match from a new address takes over once the old one has gone quiet for 10 s.
   if (this->fixed_address_ == 0 && a != this->get_address() &&
@@ -706,7 +873,7 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     auto name = device.get_name();
     if (name.size() >= this->name_prefix_.size() &&
         strncmp(name.c_str(), this->name_prefix_.c_str(), this->name_prefix_.size()) == 0) {
-      this->seen_at_ = now;
+      this->seen_at_ = this->grill_seen_at_ = now;
       ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
                unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
                unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
@@ -716,13 +883,19 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
   return BLEClientBase::parse_device(device);
 }
 
-void Gravity980BLE::reconnect(const char *why) {
+bool Gravity980BLE::reconnect(const char *why) {
   auto st = this->state();
-  if (st == esp32_ble_tracker::ClientState::IDLE || st == esp32_ble_tracker::ClientState::INIT ||
-      st == esp32_ble_tracker::ClientState::DISCONNECTING)
-    return;
+  if (st == esp32_ble_tracker::ClientState::IDLE || st == esp32_ble_tracker::ClientState::INIT)
+    return true;
+  if (st == esp32_ble_tracker::ClientState::DISCONNECTING)
+    return true;  // ESPHome forces it idle if the stack never confirms
   ESP_LOGI(TAG, "BLE: reconnecting to the grill (%s)", why);
   this->disconnect();
+  // Cancelling before the connection exists clears the address: keep a configured one.
+  if (this->fixed_address_ != 0 && this->get_address() == 0)
+    this->set_address(this->fixed_address_);
+  // Before the stack gave us a connection id there's nothing to close: the caller restarts Bluetooth.
+  return this->state() != st || st == esp32_ble_tracker::ClientState::DISCOVERED;
 }
 
 void Gravity980BLE::set_enabled(bool enabled) {
@@ -743,6 +916,9 @@ bool Gravity980BLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         this->parent_->on_ble_connected();
       break;
     case ESP_GATTC_DISCONNECT_EVT:
+      this->notify_handle_ = this->write_handle_ = 0;
+      this->parent_->on_ble_disconnected(param->disconnect.reason);
+      break;
     case ESP_GATTC_CLOSE_EVT:
       this->notify_handle_ = this->write_handle_ = 0;
       this->parent_->on_ble_disconnected();

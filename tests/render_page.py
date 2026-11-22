@@ -43,6 +43,7 @@ STATES = dict([
     st("number.smoker_pit_target", 250, "Smoker Pit target", **F),
     st("binary_sensor.smoker_grill_connected", "on", "Smoker Grill connected"),
     st("sensor.smoker_grill_link", "wifi", "Smoker Grill link"),
+    st("sensor.smoker_grill_link_status", "Connected over Wi-Fi", "Smoker Grill link status"),
     st("binary_sensor.smoker_lid", "off", "Smoker Lid"),
     st("binary_sensor.smoker_fan", "on", "Smoker Fan"),
     st("binary_sensor.smoker_grill_alarm", "off", "Smoker Grill alarm"),
@@ -430,9 +431,12 @@ def main():
                 # Not connected: no "All good" beside "Grill not connected".
                 nc = fr.evaluate("""async () => {
                     const st = window.parent.__smHass.states, k = 'binary_sensor.smoker_grill_connected', keep = st[k];
-                    st[k] = Object.assign({}, keep, {state: 'off'}); window.__smOnHass(); await new Promise(r => setTimeout(r, 400));
-                    const t = document.getElementById('topbar').innerText; st[k] = keep; window.__smOnHass(); return t; }""")
-                if "Grill not connected" not in nc or "All good" in nc:
+                    const ks = 'sensor.smoker_grill_link_status', keepS = st[ks];
+                    st[k] = Object.assign({}, keep, {state: 'off'});
+                    st[ks] = Object.assign({}, keepS, {state: 'Grill in range: reconnecting over Bluetooth'});
+                    window.__smOnHass(); await new Promise(r => setTimeout(r, 400));
+                    const t = document.getElementById('topbar').innerText; st[k] = keep; st[ks] = keepS; window.__smOnHass(); return t; }""")
+                if "Grill not connected" not in nc or "All good" in nc or "reconnecting over Bluetooth" not in nc:
                     failures.append(f"{scheme}/{name}: not-connected strip: {nc!r}")
                 # Photo mode: the readings are pinned on the user's own photo (a tiny synthetic image here).
                 photo = fr.evaluate("""async () => {

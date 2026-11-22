@@ -9,6 +9,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/preferences.h"
 
 #include "protocol.h"
 
@@ -86,13 +87,18 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   void set_enabled(bool enabled);
   // Drop a link that isn't delivering (the grill was still starting up, or its notifications stopped) so the next
   // advertisement reconnects from scratch.
-  void reconnect(const char *why);
+  bool reconnect(const char *why);
+  uint32_t grill_seen_at() const { return this->grill_seen_at_; }  // last advertisement from the grill (0 = never)
+  uint32_t any_adv_at() const { return this->any_adv_at_; }        // last advertisement from anything
+  bool has_fixed_address() const { return this->fixed_address_ != 0; }
 
  protected:
   Gravity980Component *parent_{nullptr};
   std::string name_prefix_{"Gravity980"};
   uint64_t fixed_address_{0};
   uint32_t seen_at_{0};  // last advertisement from the address we connect to
+  uint32_t grill_seen_at_{0};
+  uint32_t any_adv_at_{0};
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
   bool enabled_{true};
@@ -132,6 +138,7 @@ class Gravity980Component : public Component {
 #ifdef USE_TEXT_SENSOR
   void set_raw_frame_text_sensor(text_sensor::TextSensor *s) { this->raw_ts_ = s; }
   void set_transport_text_sensor(text_sensor::TextSensor *s) { this->transport_ts_ = s; }
+  void set_link_status_text_sensor(text_sensor::TextSensor *s) { this->link_status_ts_ = s; }
   void set_wifi_text_sensor(text_sensor::TextSensor *s) { this->wifi_ts_ = s; }
   void set_wifi_networks_text_sensor(text_sensor::TextSensor *s) { this->wifi_networks_ts_ = s; }
 
@@ -166,7 +173,7 @@ class Gravity980Component : public Component {
   // Called by the BLE client.
   void on_ble_data(const uint8_t *data, size_t len);
   void on_ble_connected();
-  void on_ble_disconnected();
+  void on_ble_disconnected(int reason = -1);
 
  protected:
   enum class TcpState : uint8_t { IDLE, CONNECTING, CONNECTED };
@@ -177,6 +184,11 @@ class Gravity980Component : public Component {
   void tcp_flush_();
   void handle_status_(const Status &s, Transport via);
   void update_active_();
+  void supervise_(uint32_t now);  // link watchdog + recovery, once a second
+  void set_link_status_(const std::string &s);
+#ifdef USE_GRAVITY980_BLE
+  void restart_bluetooth_(const char *why);
+#endif
   void publish_unknown_();
   void check_pending_();
   float to_unit_(uint16_t f) const;
@@ -207,6 +219,18 @@ class Gravity980Component : public Component {
   uint32_t ble_last_frame_{0};
   uint32_t ble_warned_{0};
   uint8_t ble_retries_{0};  // reconnects in a row without a status frame
+  // Recovery (supervise_): the bridge must never sit silently on a dead link.
+  uint32_t supervised_at_{0};
+  uint32_t down_since_{0};        // no grill data since (0 = connected)
+  uint8_t ble_state_{0};          // last seen BLE client state, and since when
+  uint32_t ble_state_since_{0};
+  uint8_t recover_stage_{0};      // 0 = normal, 1 = Bluetooth restarted, 2 = gave up rebooting
+  uint32_t recover_at_{0};
+  bool scan_restarted_{false};    // restarted Bluetooth for a silent scanner (once until adverts resume)
+  uint32_t recover_boots_{0};     // reboots in a row for a link that wouldn't come back (saved)
+  ESPPreferenceObject recover_pref_;
+  std::string last_drop_;         // why the last link ended, for the status text
+  std::string link_status_;
   bool tcp_got_frame_{false};
   std::string resolved_host_;
   uint32_t resolved_addr_{0};
@@ -237,6 +261,7 @@ class Gravity980Component : public Component {
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *raw_ts_{nullptr};
   text_sensor::TextSensor *transport_ts_{nullptr};
+  text_sensor::TextSensor *link_status_ts_{nullptr};
   text_sensor::TextSensor *wifi_ts_{nullptr};
   text_sensor::TextSensor *wifi_networks_ts_{nullptr};
   struct WifiNet {

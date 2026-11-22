@@ -215,7 +215,7 @@ function render() {
   const ok = conn && via !== 'none';
   const how = via === 'wifi' ? ' · Wi-Fi' : via === 'bluetooth' ? ' · Bluetooth' : '';
   const head = ok ? `<span class="t">Grill connected${how}<small>${L.cls === 'ok' ? 'this page controls it' : esc(L.why || 'read-only')}</small></span>`
-    : `<span class="t">Grill not connected<small>${esc(L.why && /bridge/i.test(L.why) ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?')}</small></span>`;
+    : `<span class="t">Grill not connected<small>${esc(T('Grill link status') || (L.why && /bridge/i.test(L.why) ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?'))}</small></span>`;
   const tb = $('topbar');
   if (tb) tb.className = 'topbar' + (!ok || al.some(x => /chip bad/.test(x)) ? ' bad' : L.cls !== 'ok' || al.length ? ' warn' : '');
   put('topbar', `<span class="conn"><i class="dot ${!ok ? 'off' : L.cls === 'ok' ? 'on' : 'stale'}"></i>${ic(!ok ? 'off' : via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill')}${head}</span>
@@ -741,6 +741,7 @@ function wifiSetup() {
 function renderSetup(u) {
   const wifi = T('Grill Wi-Fi'), ip = E('text', 'Grill IP address');
   put('conn', `<h3><span>Grill link</span><span class="chip ${on(E('binary_sensor', 'Grill connected')) ? 'ok' : 'bad'}">${on(E('binary_sensor', 'Grill connected')) ? esc({ wifi: 'Wi-Fi', bluetooth: 'Bluetooth' }[T('Grill link')] || 'connected') : 'not connected'}</span></h3>
+    ${T('Grill link status') ? row('Status', esc(T('Grill link status'))) : ''}
     ${tog(BLE(), 'Control over Bluetooth', 'Sends pit and food targets over Bluetooth when the grill isn\'t on Wi-Fi.')}
     ${tog('Bridge enabled', 'Bridge enabled', 'Turn off while you use the Char-Griller app: the grill takes one connection.')}
     ${tog('Alerts enabled', 'Alerts')}

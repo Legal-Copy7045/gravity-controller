@@ -15,6 +15,10 @@ CONFIG_SCHEMA = GRAVITY980_CHILD_SCHEMA.extend(
         cv.Optional("link"): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:connection"
         ),
+        # What the bridge is doing about the grill right now, in plain words (connected, looking, reconnecting and why).
+        cv.Optional("link_status"): text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:lan-pending"
+        ),
         # The grill's own Wi-Fi report (over Bluetooth): network, IP, signal, status code.
         cv.Optional("grill_wifi"): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:wifi-cog"
@@ -33,6 +37,8 @@ async def to_code(config):
         cg.add(parent.set_raw_frame_text_sensor(await text_sensor.new_text_sensor(config["raw_frame"])))
     if "link" in config:
         cg.add(parent.set_transport_text_sensor(await text_sensor.new_text_sensor(config["link"])))
+    if "link_status" in config:
+        cg.add(parent.set_link_status_text_sensor(await text_sensor.new_text_sensor(config["link_status"])))
     if "wifi_networks" in config:
         cg.add(parent.set_wifi_networks_text_sensor(await text_sensor.new_text_sensor(config["wifi_networks"])))
     if "grill_wifi" in config:
