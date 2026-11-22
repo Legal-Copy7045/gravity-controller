@@ -414,10 +414,18 @@ void CookAssistant::refresh_priors_(FoodProbe *p, bool force) {
   auto pri = this->history_.priors(p->predictor.profile(), kg, pit, p->predictor.wrapped(), env);
   p->predictor.set_priors(pri);
   if (p->estimate_info != nullptr) {
-    char b[128];
-    std::snprintf(b, sizeof(b), "%s, %d similar past cook%s, grill factor %.2f%s",
-                  cook::profiles()[p->predictor.profile()].name, pri.similar, pri.similar == 1 ? "" : "s",
-                  this->history_.grill_factor(), std::isnan(env.ambient_c) ? "" : ", weather-adjusted");
+    // "Experimental" until there is enough history to trust: the dashboard and alerts key off this word.
+    char b[220];
+    int n = 0;
+    if (pri.similar < ETA_TRUSTED_COOKS)
+      n += std::snprintf(b + n, sizeof(b) - n, "Experimental (learning: %d of %d similar cooks). ", pri.similar,
+                         ETA_TRUSTED_COOKS);
+    n += std::snprintf(b + n, sizeof(b) - n, "%s, %d similar past cook%s, grill factor %.2f%s",
+                       cook::profiles()[p->predictor.profile()].name, pri.similar, pri.similar == 1 ? "" : "s",
+                       this->history_.grill_factor(), std::isnan(env.ambient_c) ? "" : ", weather-adjusted (experimental)");
+    if (pri.rests < PULL_TRUSTED_RESTS && n > 0 && n < int(sizeof(b)))
+      std::snprintf(b + n, sizeof(b) - n, "; pull-at experimental (%d of %d rests measured)", pri.rests,
+                    PULL_TRUSTED_RESTS);
     p->estimate_info->publish_state(b);
   }
 }
@@ -438,29 +446,7 @@ void CookAssistant::tick_second_() {
       const auto &src = p->sources[p->active];
       if (src.temperature != nullptr && src.temperature->has_state() && !std::isnan(src.temperature->state))
         t = src.fahrenheit ? (src.temperature->state - 32.0f) * 5.0f / 9.0f : src.temperature->state;
-      // Keep the slot's target and the source's own target (e.g. the grill's probe target) in step:
-      //  * first reading after boot, a source switch or a reconnect: the slot wins (push it to the source);
-      //  * a later change on the source itself (the grill's panel): the source wins (saved as the slot target).
-      if (src.target != nullptr) {
-        float st = src.target->has_state() ? src.target->state : NAN;
-        if (std::isnan(st)) {
-          p->last_source_target = NAN;  // link down / no target: the next reading is a "first" one
-        } else if (std::isnan(p->last_source_target)) {
-          p->last_source_target = st;
-          if (p->target_number != nullptr && p->target_number->has_state() && !std::isnan(p->target_number->state))
-            this->sync_target_(p, p->target_number->state);
-        } else if (st != p->last_source_target) {
-          p->last_source_target = st;
-          float c = src.fahrenheit ? (st - 32.0f) * 5.0f / 9.0f : st;
-          if (p->target_number != nullptr && !this->same_in_source_(src, p->target_number, c)) {
-            float v = std::round(this->from_c_(c) * 2.0f) / 2.0f;
-            v = std::max(p->target_number->traits.get_min_value(), std::min(p->target_number->traits.get_max_value(), v));
-            auto call = p->target_number->make_call();
-            call.set_value(v);
-            call.perform();  // saved, and synced back (a no-op: it matches)
-          }
-        }
-      }
+      this->sync_tick_(p, src);
     }
     if (p->reading != nullptr) {
       float shown = std::isnan(t) ? NAN : std::round(this->from_c_(t) * 10.0f) / 10.0f;
@@ -529,8 +515,11 @@ void CookAssistant::tick_second_() {
     if (!std::isnan(t) && !std::isnan(pull) && !p->predictor.pulled() && t >= pull && !p->pull_notified &&
         p->predictor.phase() != cook::Phase::WAITING && p->predictor.phase() != cook::Phase::DONE) {
       p->pull_notified = true;
+      bool exp = p->predictor.priors().rests < PULL_TRUSTED_RESTS;
       this->notify(p->name + ": time to pull", p->name + " is " + this->fmt_temp_(t) + ". Pull it now and it should coast to about " +
-                       this->fmt_temp_(target) + " while it rests.",
+                       this->fmt_temp_(target) + " while it rests." +
+                       (exp ? " (Experimental: the pull point is a default until a couple of rests have been measured; "
+                              "check with your thermometer.)" : ""),
                    1, "pull_" + p->key);
     } else if (!std::isnan(t) && !std::isnan(pull) && t < pull - 5.0f) {
       p->pull_notified = false;
@@ -1183,6 +1172,18 @@ void CookAssistant::tick_fuel_(bool minute) {
     this->fuel_left_->publish_state(known ? std::round((this->fahrenheit_ ? kg * 2.2046f : kg) * 10.0f) / 10.0f : NAN);
   if (this->fuel_hours_ != nullptr)
     this->fuel_hours_->publish_state(known && !std::isnan(hrs) ? std::round(hrs * 10.0f) / 10.0f : NAN);
+  if (this->fuel_basis_ != nullptr) {
+    float w = this->fuel_.k_weight(this->fuel_.fuel());
+    const char *type = this->fuel_.fuel() == cook::FuelGauge::LUMP ? "lump" : "briquettes";
+    char b[160];
+    if (!this->fuel_learned_())
+      std::snprintf(b, sizeof(b), "Experimental: default burn rate for %s (learned from %.1f of %.0f kg). Log the start "
+                    "and the finish of a cook to teach it your grill.", type, w, FUEL_TRUSTED_KG);
+    else
+      std::snprintf(b, sizeof(b), "Learned from about %.0f kg of %s burned on this grill", w, type);
+    if (!this->fuel_basis_->has_state() || this->fuel_basis_->state != b)
+      this->fuel_basis_->publish_state(b);
+  }
   if (this->fuel_rate_ != nullptr) {
     float r = this->fuel_.rate_kg_h();
     this->fuel_rate_->publish_state(std::isnan(r) ? NAN : std::round((this->fahrenheit_ ? r * 2.2046f : r) * 100.0f) / 100.0f);
@@ -1208,7 +1209,7 @@ void CookAssistant::tick_fuel_(bool minute) {
   // Alerts: running low, or won't last to the predicted finish.
   if (hrs < 1.5f && !this->fuel_low_notified_) {
     this->fuel_low_notified_ = true;
-    this->notify("Charcoal running low", "About " + this->fmt_minutes_(hrs * 60.0f) + " of charcoal left (" +
+    this->notify("Charcoal running low", std::string(this->fuel_learned_() ? "" : "(Experimental estimate) ") + "About " + this->fmt_minutes_(hrs * 60.0f) + " of charcoal left (" +
                                             std::to_string(int(std::round(lvl * 100))) + "% of the hopper). Top it up.",
                  hrs < 0.75f ? 2 : 1, "fuel");
   }
@@ -1218,7 +1219,7 @@ void CookAssistant::tick_fuel_(bool minute) {
       finish = std::isnan(finish) ? p->remaining->state : std::max(finish, p->remaining->state);
   if (!std::isnan(finish) && finish > hrs * 60.0f + 20.0f && !this->fuel_short_notified_) {
     this->fuel_short_notified_ = true;
-    this->notify("Charcoal won't last", "The hopper should run out " + this->fmt_minutes_(finish - hrs * 60.0f) +
+    this->notify("Charcoal won't last", std::string(this->fuel_learned_() ? "" : "(Experimental estimate) ") + "The hopper should run out " + this->fmt_minutes_(finish - hrs * 60.0f) +
                                             " before the food is done. Top it up within " + this->fmt_minutes_(hrs * 60.0f * 0.7f) + ".",
                  1, "fuel_short");
   }
@@ -1250,33 +1251,100 @@ void CookAssistant::select_source_(FoodProbe *p, size_t idx) {
   }
   p->active = idx;
   p->last_source_target = NAN;  // pick up the new source's own target, if it has one
+  p->pushed_target = NAN;
 }
 
-bool CookAssistant::same_in_source_(const ProbeSource &src, number::Number *n, float c) const {
-  // Equal once both are rounded to the source's whole degrees (°C slot targets round-trip through °F and back).
-  if (!n->has_state() || std::isnan(n->state))
-    return false;
-  float slot_c = this->to_c_(n->state);
-  auto in_src = [&](float x) { return std::round(src.fahrenheit ? x * 9.0f / 5.0f + 32.0f : x); };
-  return in_src(slot_c) == in_src(c);
+// Slot target <-> a source's own target (the grill's probe targets). Rules:
+//  * the slot's target is the truth; changing it pushes it to the source;
+//  * while a push is in flight (8 s), anything else the source reports is a stale echo and is ignored;
+//  * a later change on the source itself (the grill's panel) is adopted as the slot's target;
+//  * if the source still differs with nothing in flight (e.g. the idle grill ignored the write), push again every 10 s;
+//  * only the first slot reading a source syncs with it; other slots on the same source leave its target alone.
+static const uint32_t SYNC_PENDING_MS = 8000, SYNC_RETRY_MS = 10000;
+
+bool CookAssistant::sync_owner_(const FoodProbe *p, const ProbeSource &src) const {
+  for (auto *q : this->probes_) {
+    if (q == p)
+      return true;
+    if (q->active < q->sources.size() && q->sources[q->active].sync == src.sync)
+      return false;  // an earlier slot reads the same source
+  }
+  return true;
+}
+
+float CookAssistant::slot_in_source_(const FoodProbe *p, const ProbeSource &src) const {
+  if (p->target_number == nullptr || !p->target_number->has_state() || std::isnan(p->target_number->state))
+    return NAN;
+  float c = this->to_c_(p->target_number->state);
+  return std::round(src.fahrenheit ? c * 9.0f / 5.0f + 32.0f : c);
+}
+
+void CookAssistant::push_target_(FoodProbe *p, const ProbeSource &src, float v) {
+  if (src.sync == nullptr || std::isnan(v))
+    return;
+  p->pushed_target = v;
+  p->push_ms = millis();
+  auto call = src.sync->make_call();
+  call.set_value(v);
+  call.perform();
+}
+
+void CookAssistant::sync_tick_(FoodProbe *p, const ProbeSource &src) {
+  if (src.target == nullptr || src.sync == nullptr || !this->sync_owner_(p, src))
+    return;
+  float st = src.target->has_state() ? src.target->state : NAN;
+  if (std::isnan(st)) {
+    p->last_source_target = NAN;  // link down / no target: the next reading is a "first" one
+    p->pushed_target = NAN;
+    return;
+  }
+  st = std::round(st);
+  float want = this->slot_in_source_(p, src);
+  uint32_t now = millis();
+  if (!std::isnan(p->pushed_target)) {
+    if (st == p->pushed_target) {
+      p->pushed_target = NAN;  // delivered
+      p->last_source_target = st;
+      return;
+    }
+    if (now - p->push_ms < SYNC_PENDING_MS)
+      return;  // still in flight: what the source reports is the old value
+    p->pushed_target = NAN;  // not taken (idle grill, link trouble): the retry below handles it
+    p->last_source_target = st;
+  }
+  if (std::isnan(p->last_source_target)) {
+    p->last_source_target = st;  // first reading: the slot wins
+  } else if (st != p->last_source_target) {
+    p->last_source_target = st;  // changed on the source itself: adopt it
+    if (p->target_number != nullptr) {
+      float c = src.fahrenheit ? (st - 32.0f) * 5.0f / 9.0f : st;
+      float v = std::round(this->from_c_(c) * 2.0f) / 2.0f;
+      if (v >= p->target_number->traits.get_min_value() && v <= p->target_number->traits.get_max_value()) {
+        auto call = p->target_number->make_call();
+        call.set_value(v);
+        call.perform();  // saved; sync_target_ sees the source already has it
+      }
+      return;
+    }
+  }
+  if (!std::isnan(want) && want != st && now - p->push_ms >= SYNC_RETRY_MS)
+    this->push_target_(p, src, want);
 }
 
 void CookAssistant::sync_target_(FoodProbe *p, float value) {
   if (p->active >= p->sources.size() || std::isnan(value))
     return;
   auto &src = p->sources[p->active];
-  if (src.sync == nullptr)
+  if (src.sync == nullptr || src.target == nullptr || !this->sync_owner_(p, src))
     return;
-  // The slot's target is in the controller's unit; the source's in its own (whole degrees).
-  float c = this->to_c_(value);
-  float v = src.fahrenheit ? c * 9.0f / 5.0f + 32.0f : c;
-  if (src.sync->has_state() && std::round(src.sync->state) == std::round(v))
+  float v = this->slot_in_source_(p, src);
+  if (std::isnan(v))
     return;
-  if (src.target != nullptr && src.target->has_state() && std::round(src.target->state) == std::round(v))
-    return;  // the source already reports it
-  auto call = src.sync->make_call();
-  call.set_value(std::round(v));
-  call.perform();
+  if (src.target->has_state() && std::round(src.target->state) == v && std::isnan(p->pushed_target))
+    return;  // the source already has it
+  if (!std::isnan(p->pushed_target) && p->pushed_target == v)
+    return;  // already on its way
+  this->push_target_(p, src, v);
 }
 
 void CookAssistant::set_pulled(size_t probe, bool pulled) {

@@ -52,7 +52,10 @@ async def test_voice(hass: HomeAssistant):
 
     assert "251 degrees" in await _ask(hass, "how hot is the smoker")
     a = await _ask(hass, "when will the brisket be done")
-    assert "158 degrees" in a and "done around" in a, a
+    assert "158 degrees" in a and "done around" in a and "experimental" not in a, a
+    hass.states.async_set("sensor.smoker_food_1_estimate_basis", "Experimental (learning: 1 of 3 similar cooks). Brisket")
+    a = await _ask(hass, "when will the brisket be done")
+    assert "experimental estimate" in a, a
     a = await _ask(hass, "how much charcoal is left")
     assert "62 percent" in a and "6.4 hours" in a, a
     a = await _ask(hass, "set the smoker to 275 degrees")

@@ -341,7 +341,7 @@ script:
       - delay: 3
       - action: weather.get_forecasts
         continue_on_error: true
-        target: {entity_id: weather.forecast_home}
+        target: {entity_id: weather.forecast_home}   # EDIT: your weather entity (every weather.forecast_home)
         data: {type: hourly}
         response_variable: fc
       - variables:
@@ -595,7 +595,7 @@ automation:
         value_template: "{{ states('binary_sensor.smoker_grill_connected') not in ['unavailable', 'unknown'] }}"
     actions:
       - action: weather.get_forecasts
-        target: {entity_id: weather.forecast_home}
+        target: {entity_id: weather.forecast_home}   # EDIT: your weather entity (every weather.forecast_home)
         data: {type: hourly}
         response_variable: fc
       - variables:
@@ -636,7 +636,8 @@ automation:
               {% if is_number(t) and (not want or want in prot or want in name or want in ['meat', 'food', 'it', 'cook']) %}
                 {% if is_number(rem) %}
                   {% set fin = (now() + timedelta(minutes=rem | float)).strftime('%-I:%M %p') %}
-                  {% set out.l = out.l + [name ~ (' (' ~ prot ~ ')' if prot not in ['auto', 'unknown'] else '') ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees and should be done around ' ~ fin] %}
+                  {% set out.l = out.l + [name ~ (' (' ~ prot ~ ')' if prot not in ['auto', 'unknown'] else '') ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees and should be done around ' ~ fin
+                    ~ (' (an experimental estimate: it firms up after a few similar cooks)' if states('sensor.smoker_' ~ p ~ '_estimate_basis').startswith('Experimental') else '')] %}
                 {% else %}
                   {% set out.l = out.l + [name ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees; ' ~ (states('sensor.smoker_' ~ p ~ '_phase') | lower)] %}
                 {% endif %}

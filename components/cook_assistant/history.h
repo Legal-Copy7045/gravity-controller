@@ -61,6 +61,7 @@ struct Priors {
   float stall_onset_c{65.0f};
   float confidence{0.0f};    // effective number of similar cooks
   int similar{0};            // count with non-negligible similarity
+  int rests{0};              // of those, how many have a measured rest (carryover)
 };
 
 class CookHistory {

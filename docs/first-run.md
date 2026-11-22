@@ -7,7 +7,7 @@ target, and it never sends the commands known to upset the stock controller.
 
 - Flash the board ([install.md](install.md)) and add it to Home Assistant.
 - On the device page turn on **Log raw grill data** (useful for the next steps), and open the device's logs
-  (ESPHome dashboard → *Logs*, or `http://gravity980.local` → logs).
+  (ESPHome dashboard → *Logs*, or `http://gravity980.local` → logs; on a phone use the board's IP instead, `.local` names often don't resolve there).
 
 ## 1. Power on the grill, check Bluetooth
 

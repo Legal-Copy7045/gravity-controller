@@ -32,6 +32,8 @@ STORE_VERSION = 1
 MAX_ENTRIES = 200
 MAX_PHOTOS = 6
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
+SCAN_DIR = "smoker_scans"  # our own folder under the media directory
+SCAN_NAME = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}-\d\.(jpg|png)")  # only files we wrote are ever tidied away
 PROFILES = ["Auto", "Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"]
 DATA = "smoker_journal_data"
 
@@ -155,14 +157,16 @@ class Journal:
     def update_entry(self, entry_id: str, changes: dict[str, Any]) -> dict | None:
         for e in self.data["entries"]:
             if e["id"] == entry_id:
-                if "notes" in changes:
-                    e["notes"] = str(changes["notes"])[:2000]
+                rating = e.get("rating")
                 if "rating" in changes:
                     r = changes["rating"]
                     try:
-                        e["rating"] = None if r in (None, "") else max(1, min(5, int(r)))
+                        rating = None if r in (None, "") else max(1, min(5, int(r)))
                     except (TypeError, ValueError):
                         raise ValueError("rating must be 1-5") from None
+                e["rating"] = rating
+                if "notes" in changes:
+                    e["notes"] = str(changes["notes"])[:2000]
                 self._save()
                 return e
         return None
@@ -221,7 +225,7 @@ class Journal:
         media_key = "local" if "local" in media_dirs else next(iter(media_dirs), None)
         if media_key is None:
             raise ValueError("Home Assistant has no media folder configured (needed to pass photos to the AI)")
-        media_root = Path(media_dirs[media_key]) / "smoker"
+        media_root = Path(media_dirs[media_key]) / SCAN_DIR
         stamp = time.strftime("%Y%m%d-%H%M%S")
         saved, attachments = [], []
 
@@ -236,7 +240,7 @@ class Journal:
             old = time.time() - 2 * 86400
             for folder in (media_root, self.photo_dir):
                 for f in folder.glob("*.*"):
-                    if f.suffix in (".jpg", ".png") and f.name not in keep and f.stat().st_mtime < old:
+                    if SCAN_NAME.fullmatch(f.name) and f.name not in keep and f.stat().st_mtime < old:
                         f.unlink(missing_ok=True)
             for n, (ctype, body) in enumerate(images[:MAX_PHOTOS]):
                 ext = ".png" if "png" in ctype else ".jpg"
@@ -247,7 +251,7 @@ class Journal:
 
         await self.hass.async_add_executor_job(write)
         for name in saved:
-            attachments.append({"media_content_id": f"media-source://media_source/{media_key}/smoker/{name}",
+            attachments.append({"media_content_id": f"media-source://media_source/{media_key}/{SCAN_DIR}/{name}",
                                 "media_content_type": "image/png" if name.endswith(".png") else "image/jpeg"})
         data: dict[str, Any] = {
             "task_name": "Smoker: identify what's being cooked",

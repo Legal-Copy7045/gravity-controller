@@ -30,6 +30,10 @@ Bluetooth, and adds:
 **Phase 2 (planned): replacement controller** driving the stock fan directly, with extra zone probes. See
 [docs/design.md](docs/design.md) and [hardware/shopping-list.md](hardware/shopping-list.md).
 
+Estimates that need history (finish times, pull-at, the charcoal gauge) and anything from the AI are marked
+**Experimental** until the controller has learned enough; see
+[What's experimental](docs/features-0.2.md#whats-experimental).
+
 ## Quick start
 
 1. Flash the ESP32-S3 from the [web installer](https://legal-copy7045.github.io/gravity-controller/) (Chrome/Edge).

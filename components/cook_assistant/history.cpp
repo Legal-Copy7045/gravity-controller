@@ -111,7 +111,7 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
   // Similar cooks.
   double sw = 0, sk = 0, sstall = 0, swstall = 0, sratio = 0, swratio = 0, sonset = 0, swonset = 0;
   double scarry = 0, swcarry = 0, scool = 0, swcool = 0;
-  int similar = 0;
+  int similar = 0, rests = 0;
   for (const auto &r : records_) {
     if (r.profile != profile)
       continue;
@@ -146,6 +146,7 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
     if (!std::isnan(r.carryover_c)) {
       scarry += sim * r.carryover_c * std::pow(W / rw, 0.33f);
       swcarry += sim;
+      rests++;
     }
     if (!std::isnan(r.rest_cool_k) && r.rest_cool_k > 0) {
       scool += sim * std::log(r.rest_cool_k * std::pow(rw / W, 2.0f / 3.0f));
@@ -174,6 +175,7 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
     p.stall_onset_c = float((p.stall_onset_c + sonset) / (1.0 + swonset));
   p.confidence = float(sw);
   p.similar = similar;
+  p.rests = rests;
   p.k = std::max(0.02f, std::min(2.0f, p.k));
   p.stall_h = std::max(0.0f, std::min(10.0f, p.stall_h));
   return p;

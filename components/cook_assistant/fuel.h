@@ -18,6 +18,7 @@ namespace cook {
 
 class FuelGauge {
  public:
+  static constexpr float LIT_ABOVE_AMBIENT_C = 30.0f;
   enum Fuel : uint8_t { BRIQUETTES = 0, LUMP = 1, FUEL_COUNT = 2 };
 
   void set_capacity_kg(float kg) { capacity_kg_ = kg; }

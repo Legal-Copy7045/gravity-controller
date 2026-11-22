@@ -11,7 +11,10 @@ float FuelGauge::model_rate(float pit_c, float ambient_c, float fan_fraction) co
     return 0;
   float amb = std::isnan(ambient_c) ? 15.0f : ambient_c;
   float fan = std::isnan(fan_fraction) ? 0.4f : clamp01(fan_fraction);
-  return k_[fuel_] * std::max(0.0f, pit_c - amb) * (0.3f + 0.7f * fan);
+  // A grill that's off (or just warm in the sun) burns nothing: only a pit clearly above outside counts as lit.
+  if (pit_c - amb < LIT_ABOVE_AMBIENT_C)
+    return 0;
+  return k_[fuel_] * (pit_c - amb) * (0.3f + 0.7f * fan);
 }
 
 void FuelGauge::clear() {

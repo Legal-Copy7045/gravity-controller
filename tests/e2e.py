@@ -132,6 +132,9 @@ async def main():
         # Hours left once the pit is hotter than outside (updated every minute).
         check(await wait_for(lambda: isinstance(val("charcoal_hours_left"), float) and val("charcoal_hours_left") > 0, 75, "hours"),
               f"charcoal hours left estimated ({val('charcoal_hours_left')} h, empty at {val('charcoal_empty_at')!r})")
+        # A fresh controller has no history: its estimates say they're experimental.
+        check((val("food_1_estimate_basis") or "").startswith("Experimental"), f"estimate basis {val('food_1_estimate_basis')!r}")
+        check((val("charcoal_estimate_basis") or "").startswith("Experimental"), f"charcoal basis {val('charcoal_estimate_basis')!r}")
         # Forecast is accepted (lists of floats over the API).
         await cli.execute_service(svc["set_forecast"], {"minutes": [0.0, 60.0, 120.0], "temps": [50.0, 45.0, 40.0]})
         await asyncio.sleep(1)
@@ -143,6 +146,13 @@ async def main():
         cli.number_command(by_id["food_1_target"].key, 195)
         check(await wait_for(lambda: val("grill_probe_1_target_reported") == 195.0, 10, "grill target 195"),
               f"slot target synced to the grill probe ({val('grill_probe_1_target_reported')})")
+        # Quick changes (the page's +/- buttons) end at the last value, not a bounced-back older one.
+        cli.number_command(by_id["food_1_target"].key, 197)
+        await asyncio.sleep(0.5)
+        cli.number_command(by_id["food_1_target"].key, 199)
+        await asyncio.sleep(12)
+        check(val("food_1_target") == 199.0 and val("grill_probe_1_target_reported") == 199.0,
+              f"quick target changes settle on the last one (slot {val('food_1_target')}, grill {val('grill_probe_1_target_reported')})")
         # A slot with one fixed °C source shows it in the controller's unit (60 °C = 140 °F).
         check(await wait_for(lambda: val("food_2_temperature") == 140.0, 10, "food 2 140"),
               f"single-source slot in °C converted ({val('food_2_temperature')})")

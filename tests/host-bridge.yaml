@@ -74,6 +74,7 @@ cook_assistant:
   fuel_level: {name: Charcoal level}
   fuel_hours_left: {name: Charcoal hours left}
   fuel_empty_at: {name: Charcoal empty at}
+  fuel_basis: {name: Charcoal estimate basis}
   slice_at: {name: Slice at}
   on_set_pit:
     - lambda: id(smoker).pit_write_result(id(grill).request_target(esphome::gravity980::PROBE_PIT, x));
@@ -100,6 +101,7 @@ cook_assistant:
       time_remaining: {name: Food 1 time remaining}
       estimated_total: {name: Food 1 estimated total}
       phase: {name: Food 1 phase}
+      estimate_info: {name: Food 1 estimate basis}
       rate: {name: Food 1 rate}
       pulled: {name: Food 1 pulled}
       pull_at: {name: Food 1 pull at}

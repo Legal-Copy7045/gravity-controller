@@ -12,6 +12,7 @@
 .hero .big{font:600 clamp(44px,8vw,76px)/1 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .hero .big small{font:500 18px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:6px}
 .hero .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip.exp{background:color-mix(in srgb,var(--ai) 14%,transparent);color:var(--ai);text-transform:none;letter-spacing:normal;vertical-align:middle}
 .chip{font:600 11.5px "Instrument Sans",system-ui,sans-serif;padding:2px 9px;border-radius:999px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
 .chip.hot{background:color-mix(in srgb,var(--pit) 18%,transparent);color:var(--pit)}
 .chip.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
@@ -32,9 +33,9 @@ h2.sec{font:700 22px/1.2 "Bricolage Grotesque";padding-top:14px;border-top:2px s
 .tc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;position:relative;overflow:hidden}
 .tc.probe .edge{position:absolute;left:0;top:0;bottom:0;width:4px}
 .tc h3{margin:0 0 8px;font:700 16px "Bricolage Grotesque";display:flex;justify-content:space-between;gap:8px;align-items:center}
-.tc h3 small{font:500 12px "Instrument Sans";color:var(--muted)}
+.tc h3 small{font:500 12px "Instrument Sans",system-ui,sans-serif;color:var(--muted)}
 .ptemp{font:600 38px/1.05 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums}
-.ptemp small{font:500 15px "Instrument Sans";color:var(--muted);margin-left:4px}
+.ptemp small{font:500 15px "Instrument Sans",system-ui,sans-serif;color:var(--muted);margin-left:4px}
 .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:13.5px;align-items:center}
 .row .r{font:500 12.5px "JetBrains Mono",monospace;text-align:right}
 .btn{border:1px solid var(--line);background:var(--sunk);color:var(--ink);border-radius:8px;padding:7px 12px;font:600 13px "Instrument Sans",sans-serif;cursor:pointer;min-height:36px}
@@ -63,7 +64,7 @@ input[type=number]{width:84px}
 .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--ink-2);margin-top:6px}
 .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg button{border:0;background:var(--surface);color:var(--ink-2);padding:5px 10px;font:600 12px "Instrument Sans";cursor:pointer}
+.seg button{border:0;background:var(--surface);color:var(--ink-2);padding:5px 10px;font:600 12px "Instrument Sans",system-ui,sans-serif;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--page);color:var(--on-page,#fff)}
 details.fold{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
 details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque"}
@@ -175,6 +176,10 @@ const unitOf = eid => { const s = S(eid); return (s && s.attributes && s.attribu
 const fmt = (v, d = 0) => v == null ? '--' : Number(v).toFixed(d);
 const TU = () => (unitOf(E('Pit temperature', ['sensor'])) || '°F');
 const isF = () => TU().indexOf('F') >= 0;
+// "Experimental": shown on estimates the controller hasn't got enough history for yet (it says so itself).
+const EXP = why => `<span class="chip exp" title="${esc(why)}">Experimental</span>`;
+const isExp = info => /^Experimental/.test(info || '');
+const pullExp = info => /pull-at experimental/.test(info || '');
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
 const fail = e => toast('⚠ ' + ((e && e.message) || e));
 const typing = () => { const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName); };
@@ -310,7 +315,7 @@ function renderKpis() {
   const add = (l, v, u, n) => k.push(`<div class="kpi"><span class="l">${esc(l)}</span><span class="v">${v}${u ? `<small>${esc(u)}</small>` : ''}</span><span class="n">${n || '&nbsp;'}</span></div>`);
   const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
   add('Pit', fmt(pit), TU(), tgt != null ? 'target ' + fmt(tgt) + esc(TU()) : 'no target');
-  PROBES.filter(p => p.key === 'food1' || probeState(p).t != null).slice(0, 3).forEach(p => { const s = probeState(p); add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) : esc(s.phase || '')); });
+  PROBES.filter(p => p.key === 'food1' || probeState(p).t != null).slice(0, 3).forEach(p => { const s = probeState(p); add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) + (isExp(s.info) ? ' · experimental' : '') : esc(s.phase || '')); });
   const el = num(E('Cook elapsed', ['sensor']));
   add('Cook time', el != null ? minsTxt(el) : '--', '', val(E('Cook active', ['binary_sensor'])) === 'on' ? 'in progress' : 'idle');
   const all = H().all(), w = all['weather.forecast_home'] ? 'weather.forecast_home' : Object.keys(all).find(id => id.startsWith('weather.'));
@@ -328,7 +333,7 @@ function renderRecs() {
     ? '<div class="recs">' + items.map(i => `<div class="rec"><span class="w">${esc(i.when || '')}</span><span class="t">${esc(i.title || '')}</span>
         <span class="d">${esc(i.detail || '')}</span></div>`).join('') + '</div>'
     : '<div class="empty">No recommendations yet. Set the protein, weight and serve-by time (or start a cook) and ask the AI.</div>';
-  put('recs', `<div class="live-head"><h2 class="lh">Recommendations · ${esc(mode)}</h2>
+  put('recs', `<div class="live-head"><h2 class="lh">Recommendations · ${esc(mode)} ${EXP('Written by the AI from the cook data, the weather and your journal. Use your judgement.')}</h2>
       <span class="small muted">${when ? 'AI · ' + esc(when) + ' · ' : ''}<button class="btn" onclick="act.advise()">Ask the AI</button></span></div>
     ${a.summary ? `<p style="margin:0">${esc(a.summary)}</p>` : ''}${body}`);
 }
@@ -379,7 +384,7 @@ function renderAI() {
   const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
   const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
   put('aicard', `<h3>AI pitmaster <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
-    <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span></div>
+    <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span>${left != null && left > 0 ? EXP('A language model reading the cook so far; not learned from your grill.') : ''}</div>
     <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
     ${sug ? `<div class="row"><span>Tip</span><span class="small" style="text-align:right">${esc(sug)}</span></div>` : ''}
     <div class="btns"><button class="btn" onclick="act.advise()">Ask now</button></div>`);
@@ -389,7 +394,7 @@ function rangeBar(s, ai) {
   if (s.lo == null || s.hi == null || s.rem == null) return '';
   const max = Math.max(s.hi, ai || 0) * 1.1 || 1, pc = v => Math.max(0, Math.min(100, 100 * v / max));
   return `<div class="range" title="estimate range"><span class="band" style="left:${pc(s.lo)}%;width:${pc(s.hi) - pc(s.lo)}%"></span>
-    <span class="mid" style="left:${pc(s.rem)}%"></span>${ai ? `<span class="ai" style="left:${pc(ai)}%" title="AI estimate"></span>` : ''}</div>
+    <span class="mid" style="left:${pc(s.rem)}%"></span>${ai ? `<span class="ai" style="left:${pc(ai)}%" title="AI estimate (experimental)"></span>` : ''}</div>
     <div class="small muted" style="display:flex;justify-content:space-between"><span>now</span><span>${atTxt(s.lo)} – ${atTxt(s.hi)}</span></div>`;
 }
 
@@ -408,7 +413,8 @@ function renderProbes() {
       <div class="ptemp">${fmt(s.t)}<small>${esc(TU())}${s.tgt != null ? ' / ' + fmt(s.tgt) + esc(TU()) : ''}</small></div>
       ${s.warn ? '<div class="err">Probe jumped towards pit temperature – is it still in the meat?</div>' : ''}
       <div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
-        <span class="muted small">${s.rem != null ? 'in ' + minsTxt(s.rem) : esc(s.phase || 'no estimate yet')}</span></div>
+        <span class="muted small">${s.rem != null ? 'in ' + minsTxt(s.rem) : esc(s.phase || 'no estimate yet')}</span>
+        ${s.rem != null && isExp(s.info) ? EXP('Finish times firm up after a few similar cooks. ' + (s.info || '')) : ''}</div>
       ${rangeBar(s, i === 0 ? aiLeft : null)}
       ${s.stall && s.stallRem != null ? `<div class="row"><span>Stall left</span><span class="r">~${minsTxt(s.stallRem)}</span></div>` : ''}
       <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(s.rateU || TU() + '/h') : '--'}</span></div>
@@ -418,7 +424,7 @@ function renderProbes() {
       <div class="row"><span>Protein</span><select onchange="act.profile('${p.key}',this.value)">${profOpts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
       <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${esc(s.weightU || (isF() ? 'lb' : 'kg'))}</span></div>
       <div class="row"><span>Wrapped</span><button class="tg ${wrapped ? 'on' : ''}" onclick="act.wrap('${p.key}')" aria-label="wrapped"></button></div>
-      ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span></span></div>` : ''}
+      ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span>${pullExp(s.info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}</span></div>` : ''}
       ${s.pulledE ? `<div class="row"><span>Off the grill, resting</span><button class="tg ${s.isPulled ? 'on' : ''}" onclick="act.pulled('${p.key}')" aria-label="pulled"></button></div>` : ''}
       ${s.isPulled ? `<div class="row"><span>Ready to slice</span><span class="r">${s.restReady != null ? (s.restReady <= 0 ? 'now' : 'in ' + minsTxt(s.restReady) + ' (' + atTxt(s.restReady) + ')') : 'measuring…'}</span></div>` : ''}
       ${s.info ? `<div class="small muted" style="margin-top:6px">${esc(s.info)}</div>` : ''}
@@ -442,7 +448,7 @@ function renderSources() {
         onchange="clean('ext${i + 1}'); act.extEntity(${i + 1}, this.value)" style="min-width:220px"></div>` : '');
   }).join('');
   const conn = val(E('H5198 connected', ['binary_sensor'])), rssi = num(E('H5198 signal', ['sensor']));
-  put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">H5198: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
+  put('sources', rows ? rows + `<div class="small muted" style="margin-top:8px">${EXP('The H5198 format comes from one community decoder and is not yet confirmed on this unit.')} H5198: ${conn === 'on' ? 'receiving' + (rssi != null ? ' (' + fmt(rssi) + ' dBm)' : '') : 'not heard'}.
     Grill probes keep their targets in step with the grill.</div>` : '<div class="empty">This controller has fixed probes.</div>');
 }
 
@@ -452,7 +458,7 @@ function renderPlan() {
   const restE = byName('Smoker rest timer', ['timer']), rest = S(restE);
   const local = serve ? serve.replace(' ', 'T').slice(0, 16) : '';
   put('plancard', `<h3>Plan a cook</h3>
-    <textarea id="plantext" placeholder="e.g. 8 lb pork butt, ready by 6pm, I'll wrap at the stall" style="font-family:'Instrument Sans';font-size:14px"></textarea>
+    <textarea id="plantext" placeholder="e.g. 8 lb pork butt, ready by 6pm, I'll wrap at the stall" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:14px"></textarea>
     <div class="btns"><button class="btn pri" onclick="act.plan()">Plan with AI</button></div>
     <div class="row" style="margin-top:10px"><span>Serve by</span><input type="datetime-local" value="${esc(local)}" onchange="act.serve(this.value)"></div>
     <div class="row"><span>Light the grill by</span><span class="r">${start && start !== 'unknown' ? clock(start) + ' (' + (Date.parse(start) < Date.now() ? 'now' : esc(until(start) || '')) + ')' : '--'}</span></div>
@@ -466,14 +472,16 @@ function renderFuel() {
   const lvl = num(E('Charcoal level', ['sensor'])), hrs = num(E('Charcoal hours left', ['sensor']));
   const empty = val(E('Charcoal empty at', ['sensor'])), rateE = E('Charcoal burn rate', ['sensor']), rate = num(rateE);
   const left = num(E('Charcoal left', ['sensor'])), typeS = S(E('Charcoal type', ['select']));
+  const basis = val(E('Charcoal estimate basis', ['sensor']));
   const modes = [['start', 'Started at'], ['check', 'It\'s at'], ['refill', 'Topped up to'], ['add', 'Added'], ['end', 'Finished with']];
   const fr = fuelMode === 'add' ? [[25, '¼'], [50, '½'], [75, '¾']] : fuelMode === 'end'
     ? [[0, 'Empty'], [12.5, '⅛'], [25, '¼'], [50, '½'], [75, '¾']] : [[25, '¼'], [50, '½'], [75, '¾'], [100, 'Full']];
   put('fuelcard', `<h3>Charcoal ${typeS ? `<select onchange="act.fuelType(this.value)">${(typeS.attributes.options || []).map(o => `<option ${typeS.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>` : ''}</h3>
-    ${lvl != null ? `<div class="eta"><span class="t">${fmt(lvl)}%</span><span class="muted small">${left != null ? fmt(left, 1) + ' ' + esc(unitOf(E('Charcoal left', ['sensor']))) + ' · ' : ''}${hrs != null ? '~' + fmt(hrs, 1) + ' h left' : ''}</span></div>
+    ${lvl != null ? `<div class="eta"><span class="t">${fmt(lvl)}%</span><span class="muted small">${left != null ? fmt(left, 1) + ' ' + esc(unitOf(E('Charcoal left', ['sensor']))) + ' · ' : ''}${hrs != null ? '~' + fmt(hrs, 1) + ' h left' : ''}</span>${isExp(basis) ? EXP(basis) : ''}</div>
       <div class="gauge"><i class="${lvl < 25 ? 'low' : ''}" style="width:${Math.max(0, Math.min(100, lvl))}%"></i></div>
       <div class="row"><span>Runs out</span><span class="r">${esc(empty || '--')}</span></div>
-      <div class="row"><span>Burning</span><span class="r">${rate != null ? fmt(rate, 2) + ' ' + esc(unitOf(rateE)) : '--'}</span></div>`
+      <div class="row"><span>Burning</span><span class="r">${rate != null ? fmt(rate, 2) + ' ' + esc(unitOf(rateE)) : '--'}</span></div>
+      ${basis ? `<div class="small muted" style="margin-top:4px">${esc(basis)}</div>` : ''}`
       : '<p class="small muted" style="margin:4px 0">Tell it how full the hopper is when you light it; it estimates the burn from there and learns your grill.</p>'}
     <div class="seg" style="margin-top:8px;flex-wrap:wrap">${modes.map(([k, l]) => `<button aria-pressed="${fuelMode === k}" onclick="act.fuelMode('${k}')">${l}</button>`).join('')}</div>
     <div class="fracs">${fr.map(([v, l]) => `<button class="btn" onclick="act.fuel(${v})">${l}</button>`).join('')}</div>`);
@@ -530,7 +538,7 @@ function renderJournal(force) {
       ${(e.photos || []).length ? `<div class="thumbs">${e.photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
       <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" onclick="act.rate('${esc(e.id)}', ${n})" aria-label="${n} stars">★</button>`).join('')}</span>
         <button class="btn" onclick="act.compare('${esc(e.id)}')">Compare</button></div>
-      <textarea id="jn-${esc(e.id)}" placeholder="Notes: bark, tenderness, what you'd change…" style="font-family:'Instrument Sans';font-size:13.5px">${esc(e.notes || '')}</textarea>
+      <textarea id="jn-${esc(e.id)}" placeholder="Notes: bark, tenderness, what you'd change…" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:13.5px">${esc(e.notes || '')}</textarea>
       <div class="btns" style="margin-top:6px"><button class="btn" onclick="act.note('${esc(e.id)}')">Save notes</button></div></div>`;
   }).join('') + (list.length > shown.length ? `<div class="btns"><button class="btn" onclick="act.jall()">Show all ${list.length}</button></div>` : '')
     : '<div class="empty">No cooks yet. Each finished cook is added here automatically; rate it and add notes so the AI can learn from it.</div>';

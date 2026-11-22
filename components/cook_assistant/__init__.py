@@ -174,6 +174,9 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional("fuel_burn_rate"): sensor.sensor_schema(accuracy_decimals=2, icon="mdi:fire", state_class=STATE_CLASS_MEASUREMENT),
         cv.Optional("fuel_empty_at"): text_sensor.text_sensor_schema(icon="mdi:clock-alert-outline"),
+        cv.Optional("fuel_basis"): text_sensor.text_sensor_schema(
+            icon="mdi:information-outline", entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+        ),
         cv.Optional("fuel_type"): select.select_schema(CASelect, icon="mdi:fire-circle").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("slice_at"): number.number_schema(CANumber, icon="mdi:knife", device_class=DEVICE_CLASS_TEMPERATURE).extend(cv.COMPONENT_SCHEMA),
         cv.Optional("ambient_temperature"): _ref(sensor.Sensor),
@@ -263,6 +266,8 @@ async def to_code(config):
         cg.add(var.set_fuel_rate_sensor(await sensor.new_sensor(c)))
     if "fuel_empty_at" in config:
         cg.add(var.set_fuel_empty_text_sensor(await text_sensor.new_text_sensor(config["fuel_empty_at"])))
+    if "fuel_basis" in config:
+        cg.add(var.set_fuel_basis_text_sensor(await text_sensor.new_text_sensor(config["fuel_basis"])))
     if "fuel_type" in config:
         s = await select.new_select(config["fuel_type"], options=["Briquettes", "Lump"])
         await cg.register_component(s, config["fuel_type"])
@@ -307,7 +312,8 @@ async def to_code(config):
         if "target_number" in p:
             c = dict(p["target_number"])
             c.setdefault("unit_of_measurement", tunit)
-            lo, hi, st = (100, 220, 1) if fahrenheit else (38, 105, 0.5)
+            # The grill's own probe-target range, so a target set on its panel is always taken as is.
+            lo, hi, st = (50, 350, 1) if fahrenheit else (10, 176, 0.5)
             n = await number.new_number(c, min_value=lo, max_value=hi, step=st)
             await cg.register_component(n, c)
             cg.add(n.set_initial(203 if fahrenheit else 95))

@@ -73,8 +73,8 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     body = await r.json()
     assert [i["name"] for i in body["items"]] == ["Pork butt", "Chicken thighs"]
     assert len(seen["attachments"]) == 2
-    assert seen["attachments"][0]["media_content_id"].startswith("media-source://media_source/local/smoker/")
-    assert (tmp_path / "media" / "smoker").is_dir()
+    assert seen["attachments"][0]["media_content_id"].startswith("media-source://media_source/local/smoker_scans/")
+    assert (tmp_path / "media" / "smoker_scans").is_dir()
     photo = body["draft"]["photos"][0]
     r = await client.get(f"/api/smoker/photo/{photo}")
     assert r.status == 200

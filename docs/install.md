@@ -3,11 +3,11 @@
 ## 1. Flash the ESP32-S3
 
 **Browser (easiest):** open the [web installer](https://legal-copy7045.github.io/gravity-controller/) in Chrome or
-Edge, plug the board in with a USB-C *data* cable (on a two-port board, the port labelled **USB**), click
+Edge, plug the board in with a USB-C *data* cable (on a two-port board, the chip's own port: labelled **USB** or **OTG**, not **COM**/**UART**; flashing works on either, but the Wi-Fi step only on that one), click
 **Install**, then enter your Wi-Fi details when asked. Not asked? Join the **Smoker setup** hotspot with your phone
 and choose your network there.
 
-**Or from the ESPHome dashboard** (lets you change the YAML): create a device and paste
+**Or from the ESPHome dashboard** (ESPHome 2026.11 or newer; lets you change the YAML): create a device and paste
 
 ```yaml
 substitutions:
@@ -19,7 +19,7 @@ packages:
   smoker: github://Legal-Copy7045/gravity-controller/firmware/core.yaml@main
 external_components:
   - source: github://Legal-Copy7045/gravity-controller@main
-    components: [gravity980, cook_assistant]
+    components: [gravity980, cook_assistant, govee_h5198]
     refresh: 1d
 wifi:
   ssid: !secret wifi_ssid
@@ -38,6 +38,11 @@ dashboard (pull the latest and install).
 
 1. A *Discovered* notification for **Smoker** appears: **Add** (Home Assistant sets up the encryption key). Leave
    *Allow the device to perform Home Assistant actions* **off** (it only sends events, which don't need it).
+   No notification? Discovery needs Home Assistant on the same network as the board (Nabu Casa doesn't help here):
+   Settings → Devices & services → *Add integration* → **ESPHome** → host `gravity980.local` or the board's IP
+   (from your router). Erasing the board when reflashing clears the key; Home Assistant then asks to reconfigure.
+   Home Assistant may also offer a **Govee** Bluetooth device (the H5198, seen through the smoker's Bluetooth
+   proxy): you can ignore it; the controller reads the H5198 itself.
 2. Device page → **Grill IP address**: the grill's IP (give it a DHCP reservation on your router). Find it in your
    router's client list, or in the device log, which prints `Grill reports Wi-Fi status …, IP a.b.c.d` when it
    connects over Bluetooth. Without it the bridge uses Bluetooth only (read-only).
@@ -58,9 +63,9 @@ homeassistant:
   packages: !include_dir_named packages
 ```
 
-Edit the lines marked **EDIT** in the package: your phone's `notify.mobile_app_…` action (once) and your
-`ai_task` entity (three places, all `ai_task.google_ai_task` by default: a search-and-replace does it). Restart Home
-Assistant.
+Edit the lines marked **EDIT** in the package: your phone's `notify.mobile_app_…` action (once), your `ai_task`
+entity (three places, all `ai_task.google_ai_task` by default) and, if yours is different, your weather entity (all
+`weather.forecast_home`). Search-and-replace does each. Restart Home Assistant.
 
 ## 4. Dashboard
 

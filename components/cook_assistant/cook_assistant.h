@@ -37,6 +37,11 @@ class CookAssistant;
 
 // ---- small entity helpers that call back into the assistant ----
 
+// How much history before an estimate stops being "Experimental".
+static const int ETA_TRUSTED_COOKS = 3;     // similar past cooks for finish-time predictions
+static const int PULL_TRUSTED_RESTS = 2;    // measured rests for the pull-at temperature
+static const float FUEL_TRUSTED_KG = 3.0f;  // charcoal burned in calibrated stretches (about one cook)
+
 class CANumber : public number::Number, public Component {
  public:
   void setup() override;
@@ -115,6 +120,8 @@ struct FoodProbe {
   size_t active{0};
   CANumber *target_number{nullptr};  // the slot's target (synced to the source's own target when it has one)
   float last_source_target{NAN};     // to notice target changes made on the source (grill panel)
+  float pushed_target{NAN};          // a target sent to the source, not yet reported back (source units)
+  uint32_t push_ms{0};
   CASelect *profile{nullptr};
   CANumber *weight{nullptr};
   CASwitch *wrapped{nullptr};
@@ -168,6 +175,7 @@ class CookAssistant : public Component {
   void set_fuel_left_sensor(sensor::Sensor *s) { this->fuel_left_ = s; }
   void set_fuel_hours_sensor(sensor::Sensor *s) { this->fuel_hours_ = s; }
   void set_fuel_rate_sensor(sensor::Sensor *s) { this->fuel_rate_ = s; }
+  void set_fuel_basis_text_sensor(text_sensor::TextSensor *s) { this->fuel_basis_ = s; }
   void set_fuel_empty_text_sensor(text_sensor::TextSensor *t) { this->fuel_empty_ = t; }
   void set_fuel_type_select(CASelect *s) { this->fuel_type_ = s; }
   void set_hopper_capacity_kg(float kg) { this->fuel_.set_capacity_kg(kg); }
@@ -284,6 +292,8 @@ class CookAssistant : public Component {
   sensor::Sensor *fuel_left_{nullptr};
   sensor::Sensor *fuel_hours_{nullptr};
   sensor::Sensor *fuel_rate_{nullptr};
+  text_sensor::TextSensor *fuel_basis_{nullptr};
+  bool fuel_learned_() const { return this->fuel_.k_weight(this->fuel_.fuel()) >= FUEL_TRUSTED_KG; }
   text_sensor::TextSensor *fuel_empty_{nullptr};
   CASelect *fuel_type_{nullptr};
   CANumber *slice_{nullptr};
@@ -297,7 +307,10 @@ class CookAssistant : public Component {
   float slice_c_() const;
   ESPPreferenceObject fuel_pref_;
   void tick_fuel_(bool minute = false);
-  bool same_in_source_(const ProbeSource &src, number::Number *n, float c) const;
+  bool sync_owner_(const FoodProbe *p, const ProbeSource &src) const;
+  float slot_in_source_(const FoodProbe *p, const ProbeSource &src) const;
+  void push_target_(FoodProbe *p, const ProbeSource &src, float v);
+  void sync_tick_(FoodProbe *p, const ProbeSource &src);
 #ifdef USE_TIME
   time::RealTimeClock *time_{nullptr};
 #endif

@@ -78,6 +78,11 @@ STATES = dict([
     st("select.smoker_food_3_probe", "Home Assistant", "Smoker Food 3 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
     st("input_text.smoker_external_probe_3_entity", "sensor.example_probe", "Smoker external probe 3 entity"),
     st("binary_sensor.smoker_h5198_connected", "off", "Smoker H5198 connected"),
+    st("sensor.smoker_food_3_estimate_basis", "Experimental (learning: 0 of 3 similar cooks). Poultry, 0 similar past cooks, "
+       "grill factor 1.00; pull-at experimental (0 of 2 rests measured)", "Smoker Food 3 estimate basis"),
+    st("sensor.smoker_food_3_pull_at", 170, "Smoker Food 3 pull at", **F),
+    st("sensor.smoker_charcoal_estimate_basis", "Experimental: default burn rate for briquettes (learned from 0.0 of 3 kg).",
+       "Smoker Charcoal estimate basis"),
     st("sensor.smoker_program_state", "Running", "Smoker Program state"),
     st("sensor.smoker_program_status", "Step 1/3, pit 250°F, until food1 158/165°F (held 0/30 min)", "Smoker Program status"),
     st("sensor.smoker_program_error", "", "Smoker Program error"),
@@ -194,6 +199,14 @@ def main():
                     failures.append(f"{scheme}/{name}: scanned item missing")
                 if "Pork shoulder" not in checks["journal"] or "11.6 h" not in checks["journal"]:
                     failures.append(f"{scheme}/{name}: journal entry missing: {checks['journal'][:120]!r}")
+                # Experimental labels: on Food 3 (no history yet: ETA + pull-at), not on Food 1 (3 similar cooks).
+                cards = fr.evaluate("""() => [...document.querySelectorAll('#probes .probe')].map(c =>
+                    [c.querySelector('h3').innerText, c.querySelectorAll('.chip.exp').length])""")
+                exp = {t.split()[0] + " " + t.split()[1]: n for t, n in cards}
+                if exp.get("Food 1") != 0 or exp.get("Food 3") != 2:
+                    failures.append(f"{scheme}/{name}: experimental chips per card {exp}")
+                if "Experimental" not in checks["fuel"] or "Experimental" not in checks["recs"]:
+                    failures.append(f"{scheme}/{name}: experimental label missing: fuel {checks['fuel'][:200]!r} recs {checks['recs'][:120]!r}")
                 src = checks["sources"]
                 if src.count("<select") != 3 or "sensor.example_probe" not in src or "H5198 probe 4" not in src:
                     failures.append(f"{scheme}/{name}: probe sources: {src[:160]!r}")

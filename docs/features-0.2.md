@@ -1,6 +1,6 @@
 # Fuel gauge, forecast, rest coach, cook journal and voice
 
-## Charcoal fuel gauge (no hopper sensor)
+## Charcoal fuel gauge (no hopper sensor) · Experimental until learned
 
 Tell it what you see; it estimates the burn in between and learns your grill.
 
@@ -20,13 +20,13 @@ before can't teach it anything, but the estimate carries on from ½; "Added ¼" 
 You get **Charcoal level / left / hours left / empty at / burn rate**, a "running low" alert under 1.5 h, and a
 "won't last" alert when the hopper should run out before the food is done.
 
-## Forecast-aware finish times
+## Forecast-aware finish times · Experimental
 
 Every 30 minutes Home Assistant sends the hourly forecast to the controller (`esphome.gravity980_set_forecast`).
 Hours that will be colder than now are expected to cost some pit temperature (0.15 °C of pit per °C colder outside),
 so an overnight brisket's finish time accounts for the 3 a.m. low.
 
-## Pull temperature and rest coach
+## Pull temperature and rest coach · Experimental until learned
 
 - Each probe shows **Pull at**: the target minus the carryover the meat is expected to coast up after you pull it
   (learned from your past cooks of that protein and weight; defaults by protein until then). You get a "time to pull"
@@ -74,3 +74,22 @@ Bluetooth by the controller (*H5198 probe 1-4*), or any temperature entity in Ho
 entity named in helper *Smoker external probe N entity*). Every slot gets predictions, stall detection, the rest
 coach and voice, and works in cook programs (`food4 >= 165`). Changing a slot's source mid-cook restarts that slot's
 estimate (the learned history is kept). Setup: [install.md §5](install.md).
+
+## What's experimental
+
+Some numbers can't be trusted until the controller has seen your grill, your charcoal and your cooks. Those are
+marked **Experimental** on the dashboard (a purple chip), in the alerts and in the entities' "estimate basis" text.
+The label goes away on its own once there's enough history:
+
+| Estimate | Experimental until | Where it says so |
+|---|---|---|
+| Finish time, time remaining, stall length (per food) | 3 similar past cooks (same kind of meat, similar weight and pit) | *Food N estimate basis*, the probe card |
+| Pull-at temperature and rest/slice time | 2 measured rests for that kind of meat | *Food N estimate basis*, the probe card, the "time to pull" alert |
+| Charcoal level, hours left, empty time, low-fuel alerts | about 3 kg of charcoal burned in stretches you logged (start/level and finish) — roughly one cook | *Charcoal estimate basis*, the charcoal card, the alerts |
+| Forecast adjustment | always, for now (the cold-weather effect is a fixed guess, not learned) | "weather-adjusted (experimental)" |
+| AI estimate, AI recommendations, AI review | always (a language model's opinion, not measurements) | the AI card and recommendations |
+| H5198 readings | until the H5198's data format is confirmed on a real unit | *Probe sources* |
+
+Not experimental: temperatures, targets, pit control, cook programs, done/almost-done/stall/probe/lid/connection
+alerts, and the cook journal.
+

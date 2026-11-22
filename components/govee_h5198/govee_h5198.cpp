@@ -19,10 +19,6 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
   for (const auto &md : device.get_manufacturer_datas()) {
     if (!(md.uuid == ble_device_base::ESPBTUUID::from_uint16(h5198::COMPANY_ID)))
       continue;
-    if (this->address_ == 0) {
-      this->address_ = device.address_uint64();
-      ESP_LOGI(TAG, "Found a Govee H5198 (RSSI %d); using it", device.get_rssi());
-    }
     const auto &d = md.data;
     if (this->log_raw_) {
       char hex[3 * 32 + 1] = {0};
@@ -33,7 +29,12 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
     }
     auto r = h5198::decode(d.data(), d.size());
     if (r.first_probe < 0)
-      return true;
+      return this->address_ != 0;  // not a probe packet (other Govee devices share the company id)
+    if (this->address_ == 0) {
+      // Lock onto the first device that sends real probe packets.
+      this->address_ = device.address_uint64();
+      ESP_LOGI(TAG, "Found a Govee H5198 (RSSI %d); using it", device.get_rssi());
+    }
     const uint32_t now = millis();
     this->last_packet_ = now;
     for (int k = 0; k < 2; k++) {

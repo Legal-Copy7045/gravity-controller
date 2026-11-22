@@ -726,6 +726,7 @@ static void test_forecast_and_rest() {
   CHECK(hist.set_rest(seq, 5.0f, 0.4f));
   auto pri2 = hist.priors(pork, 3.6f, 107.0f, false);
   CHECK(pri2.carryover_c > pri.carryover_c);
+  CHECK(pri2.rests == 1 && pri.rests == 0);
 }
 
 static void test_sources_and_upgrade() {
@@ -762,7 +763,7 @@ static void test_sources_and_upgrade() {
   for (int m = 0; m <= 180; m++)
     g.update(m / 60.0, 110, 15, 0.5f);  // 3 h cooking
   for (int m = 181; m <= 60 * 15; m += 10)
-    g.update(m / 60.0, 15, 15, 0);  // cold overnight
+    g.update(m / 60.0, 25, 15, 0);  // overnight: off, a little warmer than outside (sun, the house wall)
   g.level(15.0, 0.75f);  // "started at 3/4" next morning, after an unreported top-up
   CHECK(g.k(cook::FuelGauge::BRIQUETTES) == k0);
   CHECK(!g.take_k_updated());
