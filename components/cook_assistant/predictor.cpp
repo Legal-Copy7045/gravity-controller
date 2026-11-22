@@ -80,6 +80,7 @@ void Predictor::reset() {
   rest_pull_c_ = rest_peak_c_ = rest_cool_k_ = NAN;
   rest_result_pending_ = rest_result_taken_ = false;
   rest_has_record_ = false;
+  rest_saved_ = false;
   ev_stall_start_ = ev_stall_end_ = ev_done_ = false;
   pit_sum_ = 0;
   pit_n_ = 0;
@@ -97,6 +98,7 @@ void Predictor::set_wrapped(bool w) {
 
 void Predictor::add_sample(double now_h, float food_c, float pit_c, float pit_setpoint_c) {
   last_setpoint_ = pit_setpoint_c;
+  clock_h_ = now_h;
   if (std::isnan(food_c)) {
     // Probe unplugged: a gap of more than a few minutes resets the cook.
     if (phase_ != Phase::NO_PROBE && bucket_start_h_ >= 0 && now_h - bucket_start_h_ > 5.0 / 60.0) {
@@ -145,7 +147,7 @@ void Predictor::set_pulled(double now_h, bool pulled) {
       done_from_cook_ = true;
     }
     commit_candidate_();  // the cook is over
-    rest_has_record_ = completed_taken_;
+    rest_has_record_ = completed_taken_ && !rest_saved_;  // pulled again after a finished rest: don't overwrite
     phase_ = Phase::RESTING;
     rest_start_min_ = minutes_;
     rest_pull_c_ = last_food_;
@@ -187,6 +189,8 @@ bool Predictor::take_rest_result(float &carryover_c, float &cool_k) {
     return false;
   rest_result_pending_ = false;
   rest_result_taken_ = true;
+  if (rest_has_record_)
+    rest_saved_ = true;
   carryover_c = rest_peak_c_ - rest_pull_c_;
   cool_k = rest_cool_k_;
   return true;
@@ -232,7 +236,7 @@ float Predictor::forecast_offset_(float minutes) const {
   if (forecast_.empty())
     return 0;
   // The forecast's minutes count from when it arrived; a forecast older than 3 h isn't trusted.
-  float age = float(minutes_ - forecast_at_min_);
+  float age = forecast_at_h_ < 0 || clock_h_ < 0 ? -1.0f : float((clock_h_ - forecast_at_h_) * 60.0);
   if (age < 0 || age > 180)
     return 0;
   // Relative to the forecast for *now*: the fitted k and pit deficit already reflect today's conditions, so only

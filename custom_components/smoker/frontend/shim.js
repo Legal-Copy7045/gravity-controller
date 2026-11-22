@@ -59,7 +59,7 @@
     // The Smoker integration's own API (journal, next-cook draft, package photos), with the user's login.
     api: function (method, path, body) {
       var h = getHass(); if (!h || !h.fetchWithAuth) return Promise.reject(new Error('Home Assistant is not connected'));
-      if (!/^\/api\/smoker\/(journal(\/[0-9a-f]{6,16})?|draft|identify|photo\/[0-9-]+\.(jpg|png))$/.test(path) ||
+      if (!/^\/api\/smoker\/(journal(\/[0-9a-f]{6,16})?|draft|identify|photo\/[0-9a-f-]+\.(jpg|png))$/.test(path) ||
           ['GET', 'POST', 'DELETE'].indexOf(method) < 0) return Promise.reject(new Error('not allowed: ' + method + ' ' + path));
       var opt = { method: method };
       if (body instanceof FormData) opt.body = body;

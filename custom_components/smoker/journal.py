@@ -192,7 +192,7 @@ class Journal:
         self.data["draft"]["items"] = keep
         self._save()
 
-    async def apply_item_to_probe(self, item: dict) -> None:
+    async def apply_item_to_probe(self, item: dict, context=None) -> None:
         """Set the probe's protein and weight on the controller from a draft item."""
         probe = item.get("probe")
         if not probe:
@@ -201,7 +201,7 @@ class Journal:
         sel, num = f"select.smoker_{slug}_protein", f"number.smoker_{slug}_weight"
         if self.hass.states.get(sel):
             await self.hass.services.async_call("select", "select_option", {"entity_id": sel, "option": item["profile"]},
-                                                blocking=True)
+                                                blocking=True, context=context)
         if item.get("weight_lb") and self.hass.states.get(num):
             st = self.hass.states.get(num)
             w = item["weight_lb"] if (st.attributes.get("unit_of_measurement") or "lb") == "lb" else item["weight_lb"] * 0.4536
@@ -211,7 +211,7 @@ class Journal:
             if isinstance(lo, (int, float)):
                 w = max(w, lo)
             await self.hass.services.async_call("number", "set_value", {"entity_id": num, "value": round(w, 1)},
-                                                blocking=True)
+                                                blocking=True, context=context)
 
     # ---- photos + AI ----
     async def identify(self, images: list[tuple[str, bytes]], ai_entity: str | None) -> list[dict]:
@@ -225,9 +225,19 @@ class Journal:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         saved, attachments = [], []
 
+        keep = set(self.data["draft"].get("photos", []))
+        for e in self.data["entries"]:
+            keep.update(e.get("photos", []))
+
         def write():
             media_root.mkdir(parents=True, exist_ok=True)
             self.photo_dir.mkdir(parents=True, exist_ok=True)
+            # Tidy up: photos no draft or journal entry uses any more (older than 2 days, so a scan in progress stays).
+            old = time.time() - 2 * 86400
+            for folder in (media_root, self.photo_dir):
+                for f in folder.glob("*.*"):
+                    if f.suffix in (".jpg", ".png") and f.name not in keep and f.stat().st_mtime < old:
+                        f.unlink(missing_ok=True)
             for n, (ctype, body) in enumerate(images[:MAX_PHOTOS]):
                 ext = ".png" if "png" in ctype else ".jpg"
                 name = f"{stamp}-{uuid.uuid4().hex[:6]}-{n}{ext}"
@@ -311,7 +321,7 @@ class DraftView(HomeAssistantView):
         for i in j.data["draft"]["items"]:
             if i.get("probe") and old.get(i["id"]) != i["probe"]:
                 try:
-                    await j.apply_item_to_probe(i)  # newly assigned: set the probe's protein and weight
+                    await j.apply_item_to_probe(i, self.context(request))  # newly assigned: set the probe's protein and weight
                 except Exception as err:  # noqa: BLE001 - one bad item mustn't stop the rest
                     _LOGGER.warning("Couldn't set %s from %s: %s", i["probe"], i.get("name"), err)
                     problems.append(f"{i.get('name') or 'item'}: {err}")
@@ -326,7 +336,10 @@ class IdentifyView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         j = _journal(request)
         images: list[tuple[str, bytes]] = []
-        reader = await request.multipart()
+        try:
+            reader = await request.multipart()
+        except (AssertionError, ValueError, KeyError):
+            return self.json_message("send the photos as multipart/form-data", 400)
         async for part in reader:
             if part.name != "photo" or len(images) >= MAX_PHOTOS:
                 continue

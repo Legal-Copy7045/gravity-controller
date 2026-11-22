@@ -83,9 +83,11 @@ class Predictor {
   /// Hourly outdoor forecast as (minutes from now, °C). Colder hours ahead widen the pit's shortfall
   /// (forecast_beta °C of pit deficit per °C colder, applied to the forecast part of the simulation).
   /// Outdoor forecast: (minutes from now, °C) pairs, ascending. Ages with the predictor's clock.
-  void set_ambient_forecast(const std::vector<std::pair<float, float>> &f) {
+  void set_ambient_forecast(const std::vector<std::pair<float, float>> &f, double now_h = -1) {
     forecast_ = f;
-    forecast_at_min_ = minutes_;
+    if (now_h >= 0)
+      clock_h_ = now_h;
+    forecast_at_h_ = clock_h_;  // ages on the wall clock (the time passed to add_sample), not the probe's history
   }
   float forecast_beta{0.15f};
 
@@ -142,6 +144,11 @@ class Predictor {
   float k_data(bool post) const;
 
   void reset();
+  /// End this cook (keeping a finish that is still pending) and start afresh, e.g. a different thermometer.
+  void end_cook() {
+    commit_candidate_();
+    reset();
+  }
 
   // Tunables (°C, °C/h, minutes)
   float stall_band_low{57.0f};
@@ -179,7 +186,8 @@ class Predictor {
   Priors priors_{};
   float weight_kg_{NAN};
   std::vector<std::pair<float, float>> forecast_;
-  double forecast_at_min_{0};
+  double forecast_at_h_{-1};
+  double clock_h_{-1};  // last add_sample time
   double rest_start_min_{-1};
   float rest_pull_c_{NAN};
   float rest_peak_c_{NAN};
@@ -188,6 +196,7 @@ class Predictor {
   bool rest_result_pending_{false};
   bool rest_result_taken_{false};
   bool rest_has_record_{false};
+  bool rest_saved_{false};  // this cook's record already has its rest result
   Environment env_{};
   double env_sum_[3]{0, 0, 0};
   int env_n_[3]{0, 0, 0};

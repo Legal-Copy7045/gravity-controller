@@ -79,7 +79,10 @@ class FuelGauge {
   bool stretch_open_{false};
   float stretch_start_kg_{0};
   float stretch_added_kg_{0};
-  float stretch_model_kg_{0};  // model burn with k = 1 (so actual = k_true · this)
+  float stretch_model_kg_{0};
+  double stretch_unknown_h_{0};  // time in the stretch with the pit temperature unknown
+  float last_good_rate_{NAN};
+  double last_pit_h_{-1};  // model burn with k = 1 (so actual = k_true · this)
   float last_ratio_{NAN};
   bool k_updated_{false};
 };

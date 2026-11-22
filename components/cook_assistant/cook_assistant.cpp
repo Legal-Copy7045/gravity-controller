@@ -438,14 +438,28 @@ void CookAssistant::tick_second_() {
       const auto &src = p->sources[p->active];
       if (src.temperature != nullptr && src.temperature->has_state() && !std::isnan(src.temperature->state))
         t = src.fahrenheit ? (src.temperature->state - 32.0f) * 5.0f / 9.0f : src.temperature->state;
-      // A target changed on the source itself (e.g. on the grill's panel) becomes the slot's target.
-      if (src.target != nullptr && src.target->has_state() && !std::isnan(src.target->state) &&
-          src.target->state != p->last_source_target) {
-        p->last_source_target = src.target->state;
-        float c = src.fahrenheit ? (src.target->state - 32.0f) * 5.0f / 9.0f : src.target->state;
-        if (p->target_number != nullptr && (!p->target_number->has_state() ||
-                                            std::fabs(this->to_c_(p->target_number->state) - c) > 0.3f))
-          p->target_number->publish_state(std::round(this->from_c_(c) * 2.0f) / 2.0f);
+      // Keep the slot's target and the source's own target (e.g. the grill's probe target) in step:
+      //  * first reading after boot, a source switch or a reconnect: the slot wins (push it to the source);
+      //  * a later change on the source itself (the grill's panel): the source wins (saved as the slot target).
+      if (src.target != nullptr) {
+        float st = src.target->has_state() ? src.target->state : NAN;
+        if (std::isnan(st)) {
+          p->last_source_target = NAN;  // link down / no target: the next reading is a "first" one
+        } else if (std::isnan(p->last_source_target)) {
+          p->last_source_target = st;
+          if (p->target_number != nullptr && p->target_number->has_state() && !std::isnan(p->target_number->state))
+            this->sync_target_(p, p->target_number->state);
+        } else if (st != p->last_source_target) {
+          p->last_source_target = st;
+          float c = src.fahrenheit ? (st - 32.0f) * 5.0f / 9.0f : st;
+          if (p->target_number != nullptr && !this->same_in_source_(src, p->target_number, c)) {
+            float v = std::round(this->from_c_(c) * 2.0f) / 2.0f;
+            v = std::max(p->target_number->traits.get_min_value(), std::min(p->target_number->traits.get_max_value(), v));
+            auto call = p->target_number->make_call();
+            call.set_value(v);
+            call.perform();  // saved, and synced back (a no-op: it matches)
+          }
+        }
       }
     }
     if (p->reading != nullptr) {
@@ -1221,7 +1235,7 @@ void CookAssistant::set_forecast(const std::vector<float> &minutes, const std::v
     f.push_back({minutes[i], c});
   }
   for (auto *p : this->probes_)
-    p->predictor.set_ambient_forecast(f);
+    p->predictor.set_ambient_forecast(f, this->now_min_() / 60.0);
   ESP_LOGD(TAG, "Forecast: %u points", (unsigned) f.size());
 }
 
@@ -1231,11 +1245,20 @@ void CookAssistant::select_source_(FoodProbe *p, size_t idx) {
   if (idx != p->active) {
     ESP_LOGI(TAG, "%s now reads %s", p->name.c_str(), p->sources[idx].name.c_str());
     // A different thermometer: its history isn't this one's. Start the slot afresh (learned history is kept).
-    p->predictor.reset();
+    p->predictor.end_cook();  // keeps a finish that is still waiting to be committed
     p->pull_notified = false;
   }
   p->active = idx;
   p->last_source_target = NAN;  // pick up the new source's own target, if it has one
+}
+
+bool CookAssistant::same_in_source_(const ProbeSource &src, number::Number *n, float c) const {
+  // Equal once both are rounded to the source's whole degrees (°C slot targets round-trip through °F and back).
+  if (!n->has_state() || std::isnan(n->state))
+    return false;
+  float slot_c = this->to_c_(n->state);
+  auto in_src = [&](float x) { return std::round(src.fahrenheit ? x * 9.0f / 5.0f + 32.0f : x); };
+  return in_src(slot_c) == in_src(c);
 }
 
 void CookAssistant::sync_target_(FoodProbe *p, float value) {
@@ -1244,11 +1267,13 @@ void CookAssistant::sync_target_(FoodProbe *p, float value) {
   auto &src = p->sources[p->active];
   if (src.sync == nullptr)
     return;
-  // The slot's target is in the controller's unit; the source's in its own.
+  // The slot's target is in the controller's unit; the source's in its own (whole degrees).
   float c = this->to_c_(value);
   float v = src.fahrenheit ? c * 9.0f / 5.0f + 32.0f : c;
-  if (src.sync->has_state() && std::fabs(src.sync->state - v) < 0.5f)
+  if (src.sync->has_state() && std::round(src.sync->state) == std::round(v))
     return;
+  if (src.target != nullptr && src.target->has_state() && std::round(src.target->state) == std::round(v))
+    return;  // the source already reports it
   auto call = src.sync->make_call();
   call.set_value(std::round(v));
   call.perform();

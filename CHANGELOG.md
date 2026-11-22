@@ -23,6 +23,12 @@ directly (below). Cook programs use `food3`…`food6` instead of `govee1`…`gov
 - **Fix:** the "pulled" switch always shows whether a rest is running; the "time to pull" alert doesn't repeat after
   a restart; the fuel gauge doesn't learn from stretches that span hours with the grill cold; "running low" and
   "won't last" alerts no longer replace each other; forecast adjustments age with the forecast.
+- **Fix:** a slot's target is no longer overwritten by the grill's old probe target at boot or reconnect (the slot's
+  target is pushed to the grill instead; changes made on the grill's panel still come through, and are saved).
+- **Fix:** grill link drop-outs: the fuel gauge keeps burning at the last rate for 15 minutes and doesn't learn from a
+  longer gap; switching a slot's source just after a finish keeps the cook; marking "pulled" twice doesn't
+  overwrite the measured rest.
+- Food targets, slice-at and pull-at are temperature entities, so Home Assistant shows them in its own unit.
 
 ### Home Assistant
 - Cook journal (Smoker integration): every finished cook with ratings, notes and curve comparison.
@@ -35,7 +41,11 @@ directly (below). Cook programs use `food3`…`food6` instead of `govee1`…`gov
 - **Fix:** voice no longer takes over "the grill is off", asks which probe when it's ambiguous, answers the stall
   question for the food you name, uses the pit's own range (°C too), and understands "half a hopper".
 - **Fix:** photo uploads are size-limited while reading; scanned item ids are checked (they ended up in the page);
-  bad weights and ratings return a message instead of an error; photo names can't collide.
+  bad weights and ratings return a message instead of an error; photo names can't collide; unused photos are
+  tidied up.
+- **Fix:** the finished-cook summary no longer fails for cooks without a stall (poultry, sausage, fish) or without a
+  pit average, so the rest timer and the AI review run; package photo thumbnails load; the AI plan isn't refreshed
+  every time the controller reconnects; notification buttons use the pit's own range and unit.
 
 ## [0.1.1] - 2026-11-22
 

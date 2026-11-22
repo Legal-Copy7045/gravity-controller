@@ -103,7 +103,7 @@ jobs:
           python-version: "3.13"
       - name: Install Home Assistant and Playwright
         run: |
-          pip install "homeassistant==2026.2.3" "home-assistant-frontend==20260128.6" "colorlog==6.10.1" playwright
+          pip install "homeassistant==2026.2.3" "home-assistant-frontend==20260128.6" "colorlog==6.10.1" "hassil==3.5.0" "home-assistant-intents==2026.1.28" playwright
           python -m playwright install --with-deps chromium
       - name: Check the HA package and integration load
         run: python3 tests/ha_check.py

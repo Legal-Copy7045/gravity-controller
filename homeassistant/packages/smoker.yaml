@@ -500,14 +500,16 @@ automation:
                 target: {entity_id: number.smoker_pit_target}
                 data:
                   value: >
-                    {% set v = states('number.smoker_pit_target') | float(225) + (25 if a.endswith('PLUS_25') else -25) %}
-                    {{ [200, [700, v] | min] | max }}
+                    {% set n = 'number.smoker_pit_target' %}
+                    {% set c = (state_attr(n, 'unit_of_measurement') or '°F') == '°C' %}
+                    {% set v = states(n) | float(107 if c else 225) + ((14 if c else 25) if a.endswith('PLUS_25') else -(14 if c else 25)) %}
+                    {{ [state_attr(n, 'min') | float(93 if c else 200), [state_attr(n, 'max') | float(371 if c else 700), v] | min] | max }}
           - conditions: "{{ a == 'SMOKER_PIT_HOLD' }}"
             sequence:
               - action: esphome.gravity980_stop_program
               - action: number.set_value
                 target: {entity_id: number.smoker_pit_target}
-                data: {value: 200}
+                data: {value: "{{ state_attr('number.smoker_pit_target', 'min') | float(200) }}"}   # lowest the grill holds
           - conditions: "{{ a.startswith('SMOKER_FOOD_PLUS_5_') }}"
             sequence:
               - variables:
@@ -516,7 +518,10 @@ automation:
                   n: "number.smoker_{{ key }}_target"
               - action: number.set_value
                 target: {entity_id: "{{ n }}"}
-                data: {value: "{{ [states(n) | float(203) + 5, 350] | min }}"}
+                data:
+                  value: >
+                    {% set c = (state_attr(n, 'unit_of_measurement') or '°F') == '°C' %}
+                    {{ [states(n) | float(95 if c else 203) + (3 if c else 5), state_attr(n, 'max') | float(105 if c else 220)] | min }}
           - conditions: "{{ a.startswith('SMOKER_PULLED_') }}"
             sequence:
               - action: switch.turn_on
@@ -563,7 +568,12 @@ automation:
         entity_id: input_boolean.smoker_ai_advisor
         state: "on"
       - condition: template
-        value_template: "{{ trigger.to_state.state not in ['unknown', 'unavailable'] }}"
+        # A real edit, not the controller (re)connecting, HA starting, or an attribute change.
+        value_template: >
+          {{ trigger.from_state is not none and trigger.to_state is not none
+             and trigger.from_state.state not in ['unknown', 'unavailable']
+             and trigger.to_state.state not in ['unknown', 'unavailable']
+             and trigger.from_state.state != trigger.to_state.state }}
     actions:
       - delay: "00:02:00"   # let a burst of edits settle
       - action: script.smoker_ai_advise
@@ -802,11 +812,14 @@ automation:
       - variables:
           s: "{{ trigger.event.data.summary | from_json }}"
       - action: logbook.log
+        continue_on_error: true
         data:
           name: Smoker
           message: >
-            {{ s.name }} ({{ s.profile }}{{ ', %.1f kg' % s.weight_kg if s.weight_kg else '' }}) done in
-            {{ '%.1f' % s.total_h }} h, stall {{ '%.1f' % s.stall_h }} h at a {{ '%.0f' % (s.pit_c * 9 / 5 + 32) }}°F pit.
+            {{ s.name }} ({{ s.profile }}{{ ', %.1f kg' % s.weight_kg if s.weight_kg is number else '' }}) done
+            {{- (' in %.1f h' % s.total_h) if s.total_h is number else '' }}
+            {{- (', stall %.1f h' % s.stall_h) if s.stall_h is number and s.stall_h > 0 else '' }}
+            {{- (' at a %.0f°F pit' % (s.pit_c * 9 / 5 + 32)) if s.pit_c is number else '' }}.
             The controller has now learned from {{ s.history_count }} cooks.
           entity_id: sensor.smoker_cooks_learned
       - action: input_number.set_value

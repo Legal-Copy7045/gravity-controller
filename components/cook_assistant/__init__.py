@@ -101,7 +101,7 @@ PROBE_SCHEMA = cv.All(cv.Schema(
         cv.Optional("sources"): cv.All(cv.ensure_list(SOURCE_SCHEMA), cv.Length(min=1, max=12)),
         cv.Optional("source"): select.select_schema(CASelect, icon="mdi:thermometer-lines").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("default_source"): cv.string,
-        cv.Optional("target_number"): number.number_schema(CANumber, icon="mdi:target").extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("target_number"): number.number_schema(CANumber, icon="mdi:target", device_class=DEVICE_CLASS_TEMPERATURE).extend(cv.COMPONENT_SCHEMA),
         cv.Optional("profile"): select.select_schema(CASelect, icon="mdi:food-steak").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("weight"): number.number_schema(CANumber, icon="mdi:weight").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("wrapped"): switch.switch_schema(CASwitch, icon="mdi:package-variant-closed").extend(
@@ -130,7 +130,7 @@ PROBE_SCHEMA = cv.All(cv.Schema(
         cv.Optional("probe_warning"): binary_sensor.binary_sensor_schema(device_class=DEVICE_CLASS_PROBLEM),
         # rest coach
         cv.Optional("pulled"): switch.switch_schema(CASwitch, icon="mdi:silverware-fork").extend(cv.COMPONENT_SCHEMA),
-        cv.Optional("pull_at"): sensor.sensor_schema(accuracy_decimals=0, icon="mdi:thermometer-chevron-down"),
+        cv.Optional("pull_at"): sensor.sensor_schema(accuracy_decimals=0, icon="mdi:thermometer-chevron-down", device_class=DEVICE_CLASS_TEMPERATURE),
         cv.Optional("rest_ready"): _min_sensor("mdi:timer-sand-paused"),
     }
 ), _probe_sources)
@@ -175,7 +175,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("fuel_burn_rate"): sensor.sensor_schema(accuracy_decimals=2, icon="mdi:fire", state_class=STATE_CLASS_MEASUREMENT),
         cv.Optional("fuel_empty_at"): text_sensor.text_sensor_schema(icon="mdi:clock-alert-outline"),
         cv.Optional("fuel_type"): select.select_schema(CASelect, icon="mdi:fire-circle").extend(cv.COMPONENT_SCHEMA),
-        cv.Optional("slice_at"): number.number_schema(CANumber, icon="mdi:knife").extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("slice_at"): number.number_schema(CANumber, icon="mdi:knife", device_class=DEVICE_CLASS_TEMPERATURE).extend(cv.COMPONENT_SCHEMA),
         cv.Optional("ambient_temperature"): _ref(sensor.Sensor),
         cv.Optional("ambient_humidity"): _ref(sensor.Sensor),
         cv.Optional("wind_speed"): _ref(sensor.Sensor),

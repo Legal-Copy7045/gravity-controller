@@ -270,7 +270,8 @@ function probeState(p) {
     hi: num(E(p.label + ' time remaining (late)', ['sensor'])),
     total: num(E(p.label + ' estimated total cook time', ['sensor'])),
     stallRem: num(E(p.label + ' stall remaining', ['sensor'])),
-    rate: num(E(p.label + ' rate', ['sensor'])),
+    rate: num(E(p.label + ' rate', ['sensor'])), rateU: unitOf(E(p.label + ' rate', ['sensor'])),
+    weightU: unitOf(E(p.label + ' weight', ['number'])),
     finish: val(E(p.label + ' finish time', ['sensor'])),
     source: val(E(p.label + ' probe', ['select'])),
     stall: val(E(p.label + ' stall', ['binary_sensor'])) === 'on',
@@ -309,10 +310,10 @@ function renderKpis() {
   const add = (l, v, u, n) => k.push(`<div class="kpi"><span class="l">${esc(l)}</span><span class="v">${v}${u ? `<small>${esc(u)}</small>` : ''}</span><span class="n">${n || '&nbsp;'}</span></div>`);
   const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
   add('Pit', fmt(pit), TU(), tgt != null ? 'target ' + fmt(tgt) + esc(TU()) : 'no target');
-  PROBES.slice(0, 2).forEach(p => { const s = probeState(p); if (s.t != null || p.key === 'food1') add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) : esc(s.phase || '')); });
+  PROBES.filter(p => p.key === 'food1' || probeState(p).t != null).slice(0, 3).forEach(p => { const s = probeState(p); add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) : esc(s.phase || '')); });
   const el = num(E('Cook elapsed', ['sensor']));
   add('Cook time', el != null ? minsTxt(el) : '--', '', val(E('Cook active', ['binary_sensor'])) === 'on' ? 'in progress' : 'idle');
-  const w = Object.keys(H().all()).find(id => id.startsWith('weather.'));
+  const all = H().all(), w = all['weather.forecast_home'] ? 'weather.forecast_home' : Object.keys(all).find(id => id.startsWith('weather.'));
   const wx = w ? S(w) : null;
   if (wx) add('Outside', fmt(wx.attributes.temperature), wx.attributes.temperature_unit || '', `${esc(wx.state)} · ${fmt(wx.attributes.humidity)}% · wind ${fmt(wx.attributes.wind_speed)}`);
   put('kpis', k.join(''));
@@ -410,12 +411,12 @@ function renderProbes() {
         <span class="muted small">${s.rem != null ? 'in ' + minsTxt(s.rem) : esc(s.phase || 'no estimate yet')}</span></div>
       ${rangeBar(s, i === 0 ? aiLeft : null)}
       ${s.stall && s.stallRem != null ? `<div class="row"><span>Stall left</span><span class="r">~${minsTxt(s.stallRem)}</span></div>` : ''}
-      <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(TU()) + '/h' : '--'}</span></div>
+      <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(s.rateU || TU() + '/h') : '--'}</span></div>
       <div class="row"><span>Whole cook</span><span class="r">${s.total != null ? minsTxt(s.total) : '--'}</span></div>
       <div class="row"><span>Target</span><span class="step"><button class="btn" onclick="act.target('${p.key}',-1)">−</button>
         <button class="btn" onclick="act.target('${p.key}',1)">+</button></span></div>
       <div class="row"><span>Protein</span><select onchange="act.profile('${p.key}',this.value)">${profOpts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
-      <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${isF() ? 'lb' : 'kg'}</span></div>
+      <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${esc(s.weightU || (isF() ? 'lb' : 'kg'))}</span></div>
       <div class="row"><span>Wrapped</span><button class="tg ${wrapped ? 'on' : ''}" onclick="act.wrap('${p.key}')" aria-label="wrapped"></button></div>
       ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span></span></div>` : ''}
       ${s.pulledE ? `<div class="row"><span>Off the grill, resting</span><button class="tg ${s.isPulled ? 'on' : ''}" onclick="act.pulled('${p.key}')" aria-label="pulled"></button></div>` : ''}

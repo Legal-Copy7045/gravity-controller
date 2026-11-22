@@ -693,6 +693,29 @@ static void test_forecast_and_rest() {
   NEAR(k, 0.4f, 0.08f);
   float left = r.rest_minutes_to(65.0f, 21.0f);
   CHECK(!std::isnan(left) && left > 0);
+  // Toggling "pulled" off and on again doesn't reopen the stored rest result.
+  r.set_pulled(t, false);
+  r.set_pulled(t, true);
+  CHECK(!r.rest_has_record());
+  // A finish pending commit survives a source switch (end_cook), then the slot starts afresh.
+  {
+    cook::Predictor q;
+    q.set_profile(pork);
+    q.set_target(70.0f);
+    q.set_priors(pri);
+    double tq = 0;
+    float cq = 30;
+    for (int i = 0; i < 137; i++, tq += 1.0 / 60) {  // done at ~134: still within the 5-min commit window
+      cq = std::min(71.0f, cq + 0.3f);
+      q.add_sample(tq, cq, 107.0f, 107.0f);
+    }
+    CHECK(q.phase() == cook::Phase::DONE);
+    cook::CookRecord qr;
+    CHECK(!q.take_completed(qr));  // not committed yet
+    q.end_cook();
+    CHECK(q.take_completed(qr));
+    CHECK(q.phase() == cook::Phase::NO_PROBE);
+  }
   // History learns carryover for the next similar cook.
   cook::CookRecord rec;
   rec.profile = uint8_t(pork);
@@ -743,6 +766,34 @@ static void test_sources_and_upgrade() {
   g.level(15.0, 0.75f);  // "started at 3/4" next morning, after an unreported top-up
   CHECK(g.k(cook::FuelGauge::BRIQUETTES) == k0);
   CHECK(!g.take_k_updated());
+
+  // Fuel: a 2 h grill-link dropout mid-cook must not teach a higher burn rate.
+  {
+    cook::FuelGauge f;
+    float k0 = f.k(cook::FuelGauge::BRIQUETTES);
+    f.level(0, 1.0f);
+    for (int m = 1; m <= 360; m++)
+      f.update(m / 60.0, (m > 120 && m <= 240) ? NAN : 110.0f, 15, 0.5f);
+    float est = f.level_fraction();
+    f.level(6.0, est - 0.15f);  // real fire burned more while unseen
+    CHECK(f.k(cook::FuelGauge::BRIQUETTES) == k0);
+    // A short dropout is bridged by the last rate: the gauge keeps falling.
+    cook::FuelGauge g2;
+    g2.level(0, 1.0f);
+    for (int m = 1; m <= 60; m++)
+      g2.update(m / 60.0, 110.0f, 15, 0.5f);
+    float before = g2.level_fraction();
+    for (int m = 61; m <= 70; m++)
+      g2.update(m / 60.0, NAN, 15, 0.5f);
+    CHECK(g2.level_fraction() < before);
+    // ...but not for hours with the grill off.
+    for (int m = 71; m <= 600; m += 5)
+      g2.update(m / 60.0, NAN, 15, 0.5f);
+    float off = g2.level_fraction();
+    for (int m = 605; m <= 900; m += 5)
+      g2.update(m / 60.0, NAN, 15, 0.5f);
+    CHECK(g2.level_fraction() == off);
+  }
 
   // 0.1.x records are the first 48 bytes of today's.
   CHECK(offsetof(cook::CookRecord, carryover_c) == 48);

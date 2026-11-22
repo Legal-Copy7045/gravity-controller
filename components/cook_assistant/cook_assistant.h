@@ -297,6 +297,7 @@ class CookAssistant : public Component {
   float slice_c_() const;
   ESPPreferenceObject fuel_pref_;
   void tick_fuel_(bool minute = false);
+  bool same_in_source_(const ProbeSource &src, number::Number *n, float c) const;
 #ifdef USE_TIME
   time::RealTimeClock *time_{nullptr};
 #endif

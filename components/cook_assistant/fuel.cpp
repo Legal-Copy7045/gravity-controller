@@ -20,6 +20,8 @@ void FuelGauge::clear() {
   stretch_open_ = false;
   rate_ = NAN;
   last_burn_h_ = -1;
+  last_good_rate_ = NAN;
+  last_pit_h_ = -1;
 }
 
 void FuelGauge::level(double now_h, float fraction) {
@@ -35,6 +37,7 @@ void FuelGauge::level(double now_h, float fraction) {
   stretch_start_kg_ = kg;
   stretch_added_kg_ = 0;
   stretch_model_kg_ = 0;
+  stretch_unknown_h_ = 0;
 }
 
 void FuelGauge::refill_to(double now_h, float fraction) {
@@ -47,6 +50,7 @@ void FuelGauge::refill_to(double now_h, float fraction) {
   stretch_start_kg_ = kg;
   stretch_added_kg_ = 0;
   stretch_model_kg_ = 0;
+  stretch_unknown_h_ = 0;
 }
 
 void FuelGauge::add(double now_h, float fraction) {
@@ -73,6 +77,10 @@ void FuelGauge::calibrate_(float observed_kg) {
     stretch_open_ = false;
     return;  // too little burn to learn from (or a refill reported as a check)
   }
+  if (stretch_unknown_h_ > 10.0 / 60.0) {
+    stretch_open_ = false;
+    return;  // the pit wasn't known for part of it: the model burn is a guess
+  }
   float k_obs = burned / stretch_model_kg_;
   float k_pred = k_[fuel_];
   last_ratio_ = k_obs / k_pred;
@@ -87,7 +95,16 @@ void FuelGauge::calibrate_(float observed_kg) {
 }
 
 void FuelGauge::update(double now_h, float pit_c, float ambient_c, float fan_fraction) {
-  rate_ = model_rate(pit_c, ambient_c, fan_fraction);
+  // Pit unknown (grill link down): the fire keeps burning, so keep the last rate for the gauge, but don't learn
+  // from a stretch with more than 10 minutes of guessing in it.
+  bool pit_known = !std::isnan(pit_c);
+  // (Only for 15 minutes: after that the grill is more likely off than burning unseen.)
+  bool hold = !pit_known && !std::isnan(last_good_rate_) && last_pit_h_ >= 0 && now_h - last_pit_h_ <= 0.25;
+  rate_ = pit_known ? model_rate(pit_c, ambient_c, fan_fraction) : (hold ? last_good_rate_ : 0.0f);
+  if (pit_known) {
+    last_good_rate_ = rate_;
+    last_pit_h_ = now_h;
+  }
   if (!known_) {
     last_h_ = now_h;
     return;
@@ -98,6 +115,8 @@ void FuelGauge::update(double now_h, float pit_c, float ambient_c, float fan_fra
   }
   double dt = std::min(1.0, now_h - last_h_);  // ignore gaps > 1 h (controller off)
   last_h_ = now_h;
+  if (!pit_known && !hold && known_)
+    stretch_unknown_h_ += dt;  // short dropouts are covered by the held rate; longer ones make the stretch a guess
   float burn = rate_ * float(dt);
   if (burn > 0)
     last_burn_h_ = now_h;
