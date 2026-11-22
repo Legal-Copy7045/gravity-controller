@@ -19,6 +19,20 @@ api:
     - action: resume_program
       then:
         - lambda: id(smoker).resume_program();
+    - action: fuel_level
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_level(percent);
+    - action: fuel_refilled
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_refilled(percent);
+    - action: set_forecast
+      variables:
+        minutes: float[]
+        temps: float[]
+      then:
+        - lambda: id(smoker).set_forecast(minutes, temps);
 external_components:
   - source:
       type: local
@@ -38,6 +52,7 @@ binary_sensor:
   - platform: gravity980
     connected: {id: grill_connected, name: Grill connected}
     door: {id: lid_open, name: Lid}
+    fan: {id: grill_fan, name: Fan}
 number:
   - platform: gravity980
     pit_target: {id: pit_setpoint, name: Pit target}
@@ -48,6 +63,11 @@ cook_assistant:
   pit_setpoint: pit_target_reported
   lid: lid_open
   link: grill_connected
+  fan: grill_fan
+  fuel_level: {name: Charcoal level}
+  fuel_hours_left: {name: Charcoal hours left}
+  fuel_empty_at: {name: Charcoal empty at}
+  slice_at: {name: Slice at}
   on_set_pit:
     - lambda: id(smoker).pit_write_result(id(grill).request_target(esphome::gravity980::PROBE_PIT, x));
   on_notify:
@@ -65,6 +85,9 @@ cook_assistant:
       estimated_total: {name: Food 1 estimated total}
       phase: {name: Food 1 phase}
       rate: {name: Food 1 rate}
+      pulled: {name: Food 1 pulled}
+      pull_at: {name: Food 1 pull at}
+      rest_ready: {name: Food 1 rest ready in}
   program_status: {name: Program status}
   program_state: {name: Program state}
   program_error: {name: Program error}

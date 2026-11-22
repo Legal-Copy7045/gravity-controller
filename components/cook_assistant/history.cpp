@@ -15,11 +15,22 @@ void CookHistory::clear() {
   next_seq_ = 1;
 }
 
-void CookHistory::add(CookRecord r) {
+uint32_t CookHistory::add(CookRecord r) {
   r.seq = next_seq_++;
   if (records_.size() >= CAPACITY)
     records_.erase(records_.begin());  // oldest first
   records_.push_back(r);
+  return r.seq;
+}
+
+bool CookHistory::set_rest(uint32_t seq, float carryover_c, float cool_k) {
+  for (auto &r : records_)
+    if (r.seq == seq) {
+      r.carryover_c = carryover_c;
+      r.rest_cool_k = cool_k;
+      return true;
+    }
+  return false;
 }
 
 void CookHistory::load(const CookRecord *data, size_t n) {
@@ -91,9 +102,15 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
     p.k *= std::max(0.9f, 1.0f - 0.002f * env.wind_kmh);
   p.pit_c = pit;
   p.stall_onset_c = pr.stall_onset_c;
+  // Rest defaults: big cuts coast more and cool slower.
+  static const float CARRY[] = {2.5f, 3.0f, 3.0f, 1.0f, 3.0f, 2.5f, 0.5f, 1.0f};
+  p.carryover_c = profile < int(sizeof(CARRY) / sizeof(CARRY[0])) ? CARRY[profile] : 2.5f;
+  p.carryover_c *= std::max(0.5f, std::min(1.6f, std::pow(W / ref_weight(profile), 0.33f)));
+  p.rest_cool_k = 0.35f * std::pow(ref_weight(profile) / W, 2.0f / 3.0f);
 
   // Similar cooks.
   double sw = 0, sk = 0, sstall = 0, swstall = 0, sratio = 0, swratio = 0, sonset = 0, swonset = 0;
+  double scarry = 0, swcarry = 0, scool = 0, swcool = 0;
   int similar = 0;
   for (const auto &r : records_) {
     if (r.profile != profile)
@@ -126,6 +143,14 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
       sstall += sim * r.stall_h * std::pow(W / rw, 1.0f / 3.0f) * std::pow(rpit / pit, 1.5f);
       swstall += sim;
     }
+    if (!std::isnan(r.carryover_c)) {
+      scarry += sim * r.carryover_c * std::pow(W / rw, 0.33f);
+      swcarry += sim;
+    }
+    if (!std::isnan(r.rest_cool_k) && r.rest_cool_k > 0) {
+      scool += sim * std::log(r.rest_cool_k * std::pow(rw / W, 2.0f / 3.0f));
+      swcool += sim;
+    }
     if (!std::isnan(r.stall_onset_c) && (r.flags & 2)) {
       sonset += sim * r.stall_onset_c;
       swonset += sim;
@@ -141,6 +166,10 @@ Priors CookHistory::priors(int profile, float weight_kg, float pit_c, bool wrapp
     p.k_post_ratio = float(std::max(0.7, std::min(2.5, (p.k_post_ratio + sratio) / (1.0 + swratio))));
   if (swstall > 0)
     p.stall_h = float((p.stall_h + sstall) / (1.0 + swstall));
+  if (swcarry > 0)
+    p.carryover_c = float((p.carryover_c + scarry) / (1.0 + swcarry));
+  if (swcool > 0)
+    p.rest_cool_k = float(std::exp((std::log(p.rest_cool_k) + scool) / (1.0 + swcool)));
   if (swonset > 0)
     p.stall_onset_c = float((p.stall_onset_c + sonset) / (1.0 + swonset));
   p.confidence = float(sw);

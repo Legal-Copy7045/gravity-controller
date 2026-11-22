@@ -26,6 +26,10 @@ struct StateBlob {
   float pit_c;
   uint32_t saved_at_s;  // uptime at save (for sanity only)
 };
+struct FuelBlob {
+  float k[cook::FuelGauge::FUEL_COUNT];
+  float w[cook::FuelGauge::FUEL_COUNT];
+};
 struct HistoryBlob {
   cook::CookRecord r[cook::CookHistory::CAPACITY];
 };
@@ -279,6 +283,27 @@ void CookAssistant::setup() {
       p->predictor.set_wrapped(true);
     this->refresh_priors_(p, true);
   }
+  for (size_t i = 0; i < this->probes_.size(); i++) {
+    auto *p = this->probes_[i];
+    if (p->pulled != nullptr) {
+      p->pulled->set_on_change([this, i](bool on) { this->set_pulled(i, on); });
+      if (p->pulled->state)
+        p->pulled->publish_state(false);  // a reboot ends a rest: start fresh
+    }
+  }
+  {
+    FuelBlob fb{};
+    this->fuel_pref_ = global_preferences->make_preference<FuelBlob>(0x5C0C0500, true);
+    if (this->fuel_pref_.load(&fb))
+      for (int f = 0; f < cook::FuelGauge::FUEL_COUNT; f++)
+        this->fuel_.set_k(cook::FuelGauge::Fuel(f), fb.k[f], fb.w[f]);
+  }
+  if (this->fuel_type_ != nullptr) {
+    this->fuel_type_->set_on_change([this](size_t idx) { this->fuel_.set_fuel(cook::FuelGauge::Fuel(idx)); });
+    auto idx = this->fuel_type_->active_index();
+    if (idx.has_value())
+      this->fuel_.set_fuel(cook::FuelGauge::Fuel(*idx));
+  }
   if (this->program_text_ != nullptr)
     this->program_text_->set_on_change([this](const std::string &t) { this->load_program(t); });
   if (this->preset_select_ != nullptr)
@@ -436,9 +461,38 @@ void CookAssistant::tick_second_() {
     if (p->stall != nullptr)
       p->stall->publish_state(p->predictor.phase() == cook::Phase::STALL);
 
+    // Rest coach.
+    float pull = p->predictor.pull_at();
+    if (!std::isnan(t) && !std::isnan(pull) && !p->predictor.pulled() && t >= pull && !p->pull_notified &&
+        p->predictor.phase() != cook::Phase::WAITING) {
+      p->pull_notified = true;
+      this->notify(p->name + ": time to pull", p->name + " is " + this->fmt_temp_(t) + ". Pull it now and it should coast to about " +
+                       this->fmt_temp_(target) + " while it rests.",
+                   1, "pull_" + p->key);
+    } else if (!std::isnan(t) && !std::isnan(pull) && t < pull - 5.0f) {
+      p->pull_notified = false;
+    }
+    if (p->predictor.pulled()) {
+      float slice = this->slice_c_();
+      float left = p->predictor.rest_minutes_to(slice, 21.0f);
+      if (!p->rest_notified && !std::isnan(left) && left <= 0.5f && !std::isnan(t) && t <= slice + 0.5f) {
+        p->rest_notified = true;
+        this->notify(p->name + " rested", p->name + " is down to " + this->fmt_temp_(t) + ": ready to slice.", 1,
+                     "rest_" + p->key);
+      }
+      float carry, coolk;
+      if (p->predictor.take_rest_result(carry, coolk) && p->last_record_seq != 0) {
+        if (this->history_.set_rest(p->last_record_seq, carry, coolk))
+          this->save_history_();
+        ESP_LOGI(TAG, "%s: carryover %.1f°C, rest cooling %.2f/h saved", p->name.c_str(), carry, coolk);
+      }
+    } else {
+      p->rest_notified = false;
+    }
+
     cook::CookRecord rec;
     if (p->predictor.take_completed(rec)) {
-      this->history_.add(rec);
+      p->last_record_seq = this->history_.add(rec);
       this->save_history_();
       ESP_LOGI(TAG, "%s: cook recorded (k=%.3f, stall %.1fh, total %.1fh)", p->name.c_str(), rec.k_pre, rec.stall_h,
                rec.total_h);
@@ -595,6 +649,17 @@ void CookAssistant::tick_minute_() {
         p->finish_time->publish_state(ft);
     }
   }
+  for (auto *p : this->probes_) {
+    if (p->pull_at != nullptr) {
+      float v = p->predictor.pull_at();
+      p->pull_at->publish_state(std::isnan(v) ? NAN : std::round(this->from_c_(v)));
+    }
+    if (p->rest_ready != nullptr) {
+      float m = p->predictor.rest_minutes_to(this->slice_c_(), 21.0f);
+      p->rest_ready->publish_state(std::isnan(m) ? NAN : std::round(m));
+    }
+  }
+  this->tick_fuel_();
   if (this->cook_elapsed_ != nullptr)
     this->cook_elapsed_->publish_state(this->cook_active_ ? std::round(now - this->cook_start_min_) : NAN);
 }
@@ -944,6 +1009,11 @@ std::string CookAssistant::state_json() {
   float sp = this->pit_setpoint_c_();
   json_num(s, "pit_target", std::isnan(sp) ? NAN : this->from_c_(sp), "%.0f");
   s += ",\"cook_minutes\":" + std::to_string(this->cook_active_ ? int(this->now_min_() - this->cook_start_min_) : 0);
+  s += ",";
+  json_num(s, "fuel_percent", this->fuel_.known() ? this->fuel_.level_fraction() * 100.0f : NAN, "%.0f");
+  s += ",";
+  json_num(s, "fuel_hours_left", this->fuel_.hours_left(), "%.1f");
+  s += ",\"fuel\":" + json_str(this->fuel_.fuel() == cook::FuelGauge::LUMP ? "lump" : "briquettes");
   s += ",\"program\":\"" + std::string(this->runner_.state_name()) + "\",\"probes\":[";
   for (size_t i = 0; i < this->probes_.size(); i++) {
     auto *p = this->probes_[i];
@@ -975,6 +1045,144 @@ std::string CookAssistant::state_json() {
   return s;
 }
 
+float CookAssistant::slice_c_() const {
+  if (this->slice_ != nullptr && this->slice_->has_state() && !std::isnan(this->slice_->state))
+    return this->to_c_(this->slice_->state);
+  return 65.5f;  // 150 °F
+}
+
+// ------------------------------------------------------------ fuel gauge
+
+void CookAssistant::save_fuel_() {
+  FuelBlob fb{};
+  for (int f = 0; f < cook::FuelGauge::FUEL_COUNT; f++) {
+    fb.k[f] = this->fuel_.k(cook::FuelGauge::Fuel(f));
+    fb.w[f] = this->fuel_.k_weight(cook::FuelGauge::Fuel(f));
+  }
+  this->fuel_pref_.save(&fb);
+  global_preferences->sync();
+}
+
+void CookAssistant::fuel_level(float percent) {
+  this->fuel_.level(this->now_min_() / 60.0, percent / 100.0f);
+  this->fuel_low_notified_ = this->fuel_short_notified_ = false;
+  if (this->fuel_.take_k_updated()) {
+    ESP_LOGI(TAG, "Fuel burn rate re-learned (actual/predicted %.2f)", this->fuel_.last_ratio());
+    this->save_fuel_();
+  }
+  this->tick_fuel_();
+}
+void CookAssistant::fuel_refilled(float percent) {
+  this->fuel_.refill_to(this->now_min_() / 60.0, percent / 100.0f);
+  this->fuel_low_notified_ = this->fuel_short_notified_ = false;
+  this->tick_fuel_();
+}
+void CookAssistant::fuel_added(float percent) {
+  this->fuel_.add(this->now_min_() / 60.0, percent / 100.0f);
+  this->fuel_low_notified_ = this->fuel_short_notified_ = false;
+  this->tick_fuel_();
+}
+void CookAssistant::fuel_end(float percent) {
+  this->fuel_.end(this->now_min_() / 60.0, percent / 100.0f);
+  if (this->fuel_.take_k_updated()) {
+    ESP_LOGI(TAG, "Fuel burn rate re-learned at the end of the cook (actual/predicted %.2f)", this->fuel_.last_ratio());
+    this->save_fuel_();
+  }
+  this->tick_fuel_();
+}
+
+void CookAssistant::tick_fuel_() {
+  // Fan duty over the last 10 minutes (bridge: the stock controller's fan-on bit).
+  if (this->fan_ != nullptr && this->fan_->has_state()) {
+    this->fan_hist_.push_back(this->fan_->state ? 1 : 0);
+    if (this->fan_hist_.size() > 10)
+      this->fan_hist_.erase(this->fan_hist_.begin());
+  }
+  float fan = NAN;
+  if (!this->fan_hist_.empty()) {
+    int on = 0;
+    for (auto v : this->fan_hist_)
+      on += v;
+    fan = float(on) / this->fan_hist_.size();
+  }
+  this->fuel_.update(this->now_min_() / 60.0, this->pit_c_(), this->environment_().ambient_c, fan);
+  bool known = this->fuel_.known();
+  float lvl = this->fuel_.level_fraction(), hrs = this->fuel_.hours_left(), kg = this->fuel_.kg_left();
+  ESP_LOGD(TAG, "Fuel: pit %.1f°C, fan %.2f, rate %.3f kg/h, level %.2f, %.1f h left", this->pit_c_(), fan,
+           this->fuel_.rate_kg_h(), lvl, hrs);
+  if (this->fuel_level_ != nullptr)
+    this->fuel_level_->publish_state(known ? std::round(lvl * 100.0f) : NAN);
+  if (this->fuel_left_ != nullptr)
+    this->fuel_left_->publish_state(known ? std::round((this->fahrenheit_ ? kg * 2.2046f : kg) * 10.0f) / 10.0f : NAN);
+  if (this->fuel_hours_ != nullptr)
+    this->fuel_hours_->publish_state(known && !std::isnan(hrs) ? std::round(hrs * 10.0f) / 10.0f : NAN);
+  if (this->fuel_rate_ != nullptr) {
+    float r = this->fuel_.rate_kg_h();
+    this->fuel_rate_->publish_state(std::isnan(r) ? NAN : std::round((this->fahrenheit_ ? r * 2.2046f : r) * 100.0f) / 100.0f);
+  }
+  std::string empty = "--";
+#ifdef USE_TIME
+  if (known && !std::isnan(hrs) && this->time_ != nullptr) {
+    auto now = this->time_->now();
+    if (now.is_valid()) {
+      auto e = ESPTime::from_epoch_local(now.timestamp + time_t(hrs * 3600.0f));
+      char b[16];
+      std::snprintf(b, sizeof(b), "%02d:%02d", e.hour, e.minute);
+      empty = b;
+    }
+  }
+#endif
+  if (empty == "--" && known && !std::isnan(hrs))
+    empty = "in " + this->fmt_minutes_(hrs * 60.0f);
+  if (this->fuel_empty_ != nullptr && (!this->fuel_empty_->has_state() || this->fuel_empty_->state != empty))
+    this->fuel_empty_->publish_state(empty);
+  if (!known || std::isnan(hrs) || !this->cook_active_)
+    return;
+  // Alerts: running low, or won't last to the predicted finish.
+  if (hrs < 1.5f && !this->fuel_low_notified_) {
+    this->fuel_low_notified_ = true;
+    this->notify("Charcoal running low", "About " + this->fmt_minutes_(hrs * 60.0f) + " of charcoal left (" +
+                                            std::to_string(int(std::round(lvl * 100))) + "% of the hopper). Top it up.",
+                 hrs < 0.75f ? 2 : 1, "fuel");
+  }
+  float finish = NAN;
+  for (auto *p : this->probes_)
+    if (p->remaining != nullptr && p->remaining->has_state() && !std::isnan(p->remaining->state))
+      finish = std::isnan(finish) ? p->remaining->state : std::max(finish, p->remaining->state);
+  if (!std::isnan(finish) && finish > hrs * 60.0f + 20.0f && !this->fuel_short_notified_) {
+    this->fuel_short_notified_ = true;
+    this->notify("Charcoal won't last", "The hopper should run out " + this->fmt_minutes_(finish - hrs * 60.0f) +
+                                            " before the food is done. Top it up within " + this->fmt_minutes_(hrs * 60.0f * 0.7f) + ".",
+                 1, "fuel");
+  }
+}
+
+// ------------------------------------------------------------ forecast, rest
+
+void CookAssistant::set_forecast(const std::vector<float> &minutes, const std::vector<float> &temps) {
+  std::vector<std::pair<float, float>> f;
+  for (size_t i = 0; i < minutes.size() && i < temps.size(); i++) {
+    if (std::isnan(minutes[i]) || std::isnan(temps[i]))
+      continue;
+    float c = this->ambient_fahrenheit_ ? (temps[i] - 32.0f) * 5.0f / 9.0f : temps[i];
+    f.push_back({minutes[i], c});
+  }
+  for (auto *p : this->probes_)
+    p->predictor.set_ambient_forecast(f);
+  ESP_LOGD(TAG, "Forecast: %u points", (unsigned) f.size());
+}
+
+void CookAssistant::set_pulled(size_t probe, bool pulled) {
+  if (probe >= this->probes_.size())
+    return;
+  auto *p = this->probes_[probe];
+  p->predictor.set_pulled(this->now_min_() / 60.0, pulled);
+  if (pulled)
+    p->rest_notified = false;
+  if (p->pulled != nullptr && p->pulled->state != pulled)
+    p->pulled->publish_state(pulled);
+}
+
 std::string CookAssistant::history_json() {
   std::string s = "[";
   bool first = true;
@@ -994,6 +1202,8 @@ std::string CookAssistant::history_json() {
     json_num(s, "stall_h", r.stall_h);
     s += ",";
     json_num(s, "total_h", r.total_h);
+    s += ",";
+    json_num(s, "carryover_c", r.carryover_c, "%.1f");
     s += "}";
   }
   return s + "]";

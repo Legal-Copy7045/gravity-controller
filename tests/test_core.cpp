@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "../components/cook_assistant/fuel.h"
 #include "../components/cook_assistant/history.h"
 #include "../components/cook_assistant/predictor.h"
 #include "../components/cook_assistant/program.h"
@@ -577,10 +578,130 @@ static void test_regressions() {
   }
 }
 
+// ---------------------------------------------------------------- fuel gauge, forecast, rest
+
+static void test_fuel() {
+  std::printf("fuel\n");
+  // A "true" grill that burns 30 % faster than the default k; learn it from start/top-up/end readings.
+  cook::FuelGauge g;
+  const float cap = g.capacity_kg();
+  float true_k = g.k(cook::FuelGauge::BRIQUETTES) * 1.3f;
+  for (int cookn = 0; cookn < 3; cookn++) {
+    double t = 0;
+    float truth = 0.75f * cap;  // started 3/4 full
+    g.level(t, 0.75f);
+    bool topped = false;
+    for (int m = 0; m < 6 * 60; m++, t += 1.0 / 60) {
+      float pit = 107, amb = 5, fan = 0.35f;
+      truth -= true_k * (pit - amb) * (0.3f + 0.7f * fan) / 60.0f;
+      g.update(t, pit, amb, fan);
+      if (!topped && m == 3 * 60) {
+        // "Added a quarter of a hopper" (exact amount): stays calibratable.
+        truth += 0.25f * cap;
+        g.add(t, 0.25f);
+        topped = true;
+      }
+    }
+    float remaining = truth / cap;
+    float est = g.level_fraction();
+    std::printf("  cook %d: estimated %.0f%% vs actual %.0f%% before the end reading (k %.4f, true %.4f)\n", cookn + 1,
+                100 * est, 100 * remaining, g.k(cook::FuelGauge::BRIQUETTES), true_k);
+    if (cookn == 2)
+      CHECK(std::fabs(est - remaining) < 0.05f);
+    g.end(t, remaining);
+  }
+  NEAR(g.k(cook::FuelGauge::BRIQUETTES), true_k, true_k * 0.12f);
+  // "Topped back up to 1/2" (amount unknown): no calibration from that stretch, estimate continues from 1/2.
+  cook::FuelGauge h;
+  h.level(0, 0.75f);
+  for (int m = 1; m <= 120; m++)
+    h.update(m / 60.0, 120, 10, 0.5f);
+  float before = h.level_fraction();
+  h.refill_to(2.0, 0.5f);
+  NEAR(h.level_fraction(), 0.5f, 1e-4);
+  CHECK(before < 0.75f && before > 0.4f);
+  CHECK(!h.take_k_updated());
+  // Hours left and lump vs briquettes are separate.
+  h.update(2.5, 120, 10, 0.5f);
+  CHECK(h.hours_left() > 1.0f && h.hours_left() < 20.0f);
+  h.set_fuel(cook::FuelGauge::LUMP);
+  CHECK(h.model_rate(120, 10, 0.5f) != 0);
+}
+
+static void test_forecast_and_rest() {
+  std::printf("forecast and rest\n");
+  int pork = cook::profile_index("Pork shoulder");
+  cook::CookHistory hist;
+  auto pri = hist.priors(pork, 3.6f, 107.0f, false);
+  // Same cook state; a forecast 15 °C colder later should push the finish out.
+  auto setup = [&](cook::Predictor &p) {
+    p.set_profile(pork);
+    p.set_target(93.0f);
+    p.set_priors(pri);
+    cook::Environment e;
+    e.ambient_c = 10;
+    p.set_environment(e);
+    double t = 0;
+    float core = 20;
+    for (int i = 0; i < 180; i++, t += 1.0 / 60) {
+      core += 0.18f;
+      p.add_sample(t, core, 107.0f, 107.0f);
+    }
+  };
+  cook::Predictor a, b;
+  setup(a);
+  setup(b);
+  b.set_ambient_forecast({{0, 10}, {120, 0}, {240, -5}, {720, -5}});
+  auto pa = a.predict({}, 107.0f), pb = b.predict({}, 107.0f);
+  std::printf("  ETA %.0f min (steady) vs %.0f min (colder forecast)\n", pa.minutes, pb.minutes);
+  CHECK(pa.valid && pb.valid && pb.minutes > pa.minutes);
+
+  // Rest coach: pull, carryover peak, then cooling towards room temperature.
+  cook::Predictor r;
+  r.set_profile(pork);
+  r.set_target(93.0f);
+  r.set_priors(pri);
+  NEAR(r.pull_at(), 93.0f - pri.carryover_c, 0.01f);
+  double t = 0;
+  float core = 60;
+  for (int i = 0; i < 240; i++, t += 1.0 / 60) {
+    core = std::min(91.0f, core + 0.2f);
+    r.add_sample(t, core, 107.0f, 107.0f);
+  }
+  r.set_pulled(t, true);
+  CHECK(r.phase() == cook::Phase::RESTING);
+  float rest_before = r.rest_minutes_to(65.0f, 21.0f);
+  // coast up 2.5 °C over 15 min, then Newton cooling with k = 0.4/h
+  float peak = core + 2.5f;
+  for (int i = 0; i < 90; i++, t += 1.0 / 60) {
+    float T = i < 15 ? core + 2.5f * i / 15.0f : 21.0f + (peak - 21.0f) * std::exp(-0.4f * (i - 15) / 60.0f);
+    r.add_sample(t, T, 30.0f, NAN);
+  }
+  float carry = 0, k = 0;
+  CHECK(r.take_rest_result(carry, k));
+  std::printf("  carryover %.1f C, cooling k %.2f/h, rest-to-65C estimate before: %.0f min\n", carry, k, rest_before);
+  NEAR(carry, 2.5f, 0.4f);
+  NEAR(k, 0.4f, 0.08f);
+  float left = r.rest_minutes_to(65.0f, 21.0f);
+  CHECK(!std::isnan(left) && left > 0);
+  // History learns carryover for the next similar cook.
+  cook::CookRecord rec;
+  rec.profile = uint8_t(pork);
+  rec.weight_kg = 3.6f;
+  rec.pit_c = 107;
+  rec.k_pre = 0.2f;
+  uint32_t seq = hist.add(rec);
+  CHECK(hist.set_rest(seq, 5.0f, 0.4f));
+  auto pri2 = hist.priors(pork, 3.6f, 107.0f, false);
+  CHECK(pri2.carryover_c > pri.carryover_c);
+}
+
 int main() {
   test_protocol();
   test_program();
   test_regressions();
+  test_fuel();
+  test_forecast_and_rest();
   test_predictor();
   if (failures) {
     std::printf("\n%d check(s) FAILED\n", failures);

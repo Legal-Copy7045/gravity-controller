@@ -40,6 +40,8 @@ const char *phase_name(Phase p) {
       return "Finishing";
     case Phase::DONE:
       return "Done";
+    case Phase::RESTING:
+      return "Resting";
   }
   return "?";
 }
@@ -74,6 +76,9 @@ void Predictor::reset() {
   stall_end_min_ = -1;
   cook_start_min_ = -1;
   stall_onset_temp_ = NAN;
+  rest_start_min_ = rest_peak_min_ = -1;
+  rest_pull_c_ = rest_peak_c_ = rest_cool_k_ = NAN;
+  rest_result_pending_ = rest_result_taken_ = false;
   ev_stall_start_ = ev_stall_end_ = ev_done_ = false;
   pit_sum_ = 0;
   pit_n_ = 0;
@@ -124,6 +129,96 @@ void Predictor::add_sample(double now_h, float food_c, float pit_c, float pit_se
   }
 }
 
+void Predictor::set_pulled(double now_h, bool pulled) {
+  if (pulled && phase_ != Phase::RESTING && phase_ != Phase::NO_PROBE && !std::isnan(last_food_)) {
+    commit_candidate_();  // the cook is over
+    phase_ = Phase::RESTING;
+    rest_start_min_ = minutes_;
+    rest_pull_c_ = last_food_;
+    rest_peak_c_ = last_food_;
+    rest_peak_min_ = minutes_;
+    rest_cool_k_ = NAN;
+    rest_result_pending_ = rest_result_taken_ = false;
+  } else if (!pulled && phase_ == Phase::RESTING) {
+    phase_ = Phase::DONE;
+  }
+  (void) now_h;
+}
+
+float Predictor::pull_at() const {
+  if (std::isnan(target_c_))
+    return NAN;
+  return target_c_ - std::max(0.0f, priors_.carryover_c);
+}
+
+void Predictor::update_rest_() {
+  float t = last_food_;
+  if (t > rest_peak_c_) {
+    rest_peak_c_ = t;
+    rest_peak_min_ = minutes_;
+  }
+  // Cooling coefficient from the last 20 min once we're well past the peak: ln(T - room) slope.
+  const float room = 21.0f;
+  if (minutes_ - rest_peak_min_ >= 15 && hist_.size() >= 20) {
+    float a = hist_[hist_.size() - 20].food - room, b = t - room;
+    if (a > 2.0f && b > 1.0f && b < a)
+      rest_cool_k_ = float(std::log(a / b) / (19.0 / 60.0));
+  }
+  if (!rest_result_taken_ && !rest_result_pending_ && !std::isnan(rest_cool_k_) && minutes_ - rest_peak_min_ >= 20)
+    rest_result_pending_ = true;
+}
+
+bool Predictor::take_rest_result(float &carryover_c, float &cool_k) {
+  if (!rest_result_pending_)
+    return false;
+  rest_result_pending_ = false;
+  rest_result_taken_ = true;
+  carryover_c = rest_peak_c_ - rest_pull_c_;
+  cool_k = rest_cool_k_;
+  return true;
+}
+
+float Predictor::rest_minutes_to(float slice_c, float room_c) const {
+  if (phase_ != Phase::RESTING || std::isnan(last_food_) || std::isnan(slice_c))
+    return NAN;
+  float room = std::isnan(room_c) ? 21.0f : room_c;
+  float k = !std::isnan(rest_cool_k_) ? rest_cool_k_ : priors_.rest_cool_k;
+  float peak_left = 0;
+  float from = last_food_;
+  if (minutes_ - rest_peak_min_ < 15) {
+    // Still coasting up: expect the peak first.
+    float expected_peak = rest_pull_c_ + priors_.carryover_c;
+    if (expected_peak > from) {
+      peak_left = 20.0f;
+      from = expected_peak;
+    }
+  }
+  if (from <= slice_c)
+    return 0;
+  if (slice_c <= room + 0.5f || k <= 0)
+    return NAN;
+  return peak_left + 60.0f * std::log((from - room) / (slice_c - room)) / k;
+}
+
+float Predictor::forecast_offset_(float minutes) const {
+  if (forecast_.empty() || std::isnan(env_.ambient_c))
+    return 0;
+  // Interpolate the forecast at `minutes`.
+  float amb = forecast_.back().second;
+  for (size_t i = 0; i + 1 < forecast_.size(); i++) {
+    if (minutes <= forecast_[i + 1].first) {
+      float t0 = forecast_[i].first, t1 = forecast_[i + 1].first;
+      float f = t1 > t0 ? std::max(0.0f, std::min(1.0f, (minutes - t0) / (t1 - t0))) : 0;
+      amb = forecast_[i].second + f * (forecast_[i + 1].second - forecast_[i].second);
+      break;
+    }
+  }
+  if (minutes < forecast_.front().first)
+    amb = forecast_.front().second;
+  // Only a colder future costs pit temperature (a warmer one doesn't make the controller overshoot).
+  return forecast_beta * std::max(0.0f, env_.ambient_c - amb);
+}
+
 void Predictor::process_minute_(float food, float pit) {
   // Probe sanity: a jump of > 8 °C in a minute towards the pit temperature
   // while the food was below 90 °C usually means it slipped out of the meat.
@@ -138,6 +233,11 @@ void Predictor::process_minute_(float food, float pit) {
     hist_.erase(hist_.begin());
   hist_.push_back({food, pit});
   minutes_ += 1;
+  if (phase_ == Phase::RESTING) {
+    last_food_ = food;
+    update_rest_();
+    return;  // no cook-time fitting while resting
+  }
   if (!std::isnan(pit) && phase_ != Phase::WAITING && phase_ != Phase::NO_PROBE && phase_ != Phase::DONE) {
     pit_sum_ += pit;
     pit_n_++;
@@ -492,7 +592,7 @@ float Predictor::simulate_(float start_t, Phase start_phase, const std::vector<P
       continue;
     }
     float k = (ph == Phase::FINISHING) ? kpost : kpre;
-    T += k * (pit - T) * dt;
+    T += k * (pit - forecast_offset_(float(m)) - T) * dt;
   }
   return NAN;
 }
@@ -507,7 +607,7 @@ Prediction Predictor::predict(const std::vector<PlanSegment> &plan, float pit_se
     r.reason = "no target";
     return r;
   }
-  if (phase_ == Phase::DONE) {
+  if (phase_ == Phase::DONE || phase_ == Phase::RESTING) {
     r.valid = true;
     r.minutes = r.minutes_low = r.minutes_high = 0;
     return r;

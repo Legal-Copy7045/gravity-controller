@@ -31,6 +31,7 @@ class Grill:
     def __init__(self, args):
         self.args = args
         self.pit_f = 70.0
+        self.pit_c = (70.0 - 32) * 5 / 9
         self.targets = {0: 225, 2: 203, 3: NO_TARGET}
         self.food = [dict(core=40.0, surf=40.0, moist=1.0, present=True), dict(core=0, surf=0, moist=0, present=False)]
         self.door = False
@@ -42,11 +43,11 @@ class Grill:
     def step(self, dt_h):
         with self.lock:
             sp = self.targets[0] if self.targets[0] != NO_TARGET else 70
-            pit_c = (self.pit_f - 32) * 5 / 9
-            sp_c = (sp - 32) * 5 / 9
-            # Pit: first-order approach to setpoint, slow wobble, cold bias.
-            pit_c += (sp_c - pit_c) * min(1.0, dt_h * 2.0) + self.args.pit_bias * dt_h * 2.0
-            self.pit_f = pit_c * 9 / 5 + 32 + 3 * math.sin(self.sim_h * 3)
+            sp_c = (sp - 32) * 5 / 9 + self.args.pit_bias
+            # Pit: first-order approach to setpoint (+ steady bias); the displayed value adds a slow wobble.
+            self.pit_c += (sp_c - self.pit_c) * min(1.0, dt_h * 2.0)
+            self.pit_f = self.pit_c * 9 / 5 + 32 + 3 * math.sin(self.sim_h * 3)
+            pit_c = self.pit_c
             for f in self.food:
                 if not f["present"]:
                     continue

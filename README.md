@@ -19,6 +19,11 @@ Bluetooth, and adds:
   a review after each cook.
 - **Bluetooth proxy**: the closest radio to the grill, for wireless thermometers (e.g. Govee H5198, whose probes can
   feed the predictor and cook programs).
+- **Charcoal fuel gauge** from what you tell it (started ¾ full, topped up to ½, finished with ⅛), learning your
+  grill's burn rate; low-fuel and "won't last to the finish" alerts.
+- **Forecast-aware** finish times, a **pull-temperature and rest coach** (learned carryover and cooling), a
+  **cook journal** with ratings, notes and curve comparison, **package photos read by AI** to set what's being cooked,
+  and **voice** through Assist. See [docs/features-0.2.md](docs/features-0.2.md).
 - **Dashboard**: a phone-friendly Home Assistant sidebar page, with AI recommendations (prep, lighting time, wrap point, weather effects).
 - **Updates over the air** from GitHub Pages; **browser installer** for the first flash.
 

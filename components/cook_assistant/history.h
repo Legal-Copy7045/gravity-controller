@@ -37,8 +37,10 @@ struct CookRecord {
   float total_h{NAN};
   float stall_onset_c{NAN};
   float ambient_c{NAN};  // outdoor temperature
+  float carryover_c{NAN};   // rise after pulling (filled in after the rest)
+  float rest_cool_k{NAN};   // cooling coefficient during the rest, 1/h (towards room temperature)
 };
-static_assert(sizeof(CookRecord) == 48, "CookRecord layout is persisted; keep it stable");
+static_assert(sizeof(CookRecord) == 56, "CookRecord layout is persisted; keep it stable");
 
 struct Environment {
   float ambient_c{NAN};
@@ -47,6 +49,8 @@ struct Environment {
 };
 
 struct Priors {
+  float carryover_c{2.5f};   // expected rise after pulling
+  float rest_cool_k{0.3f};   // expected cooling coefficient in the rest, 1/h
   float k{0.15f};            // warming coefficient, 1/h
   float k_post_ratio{1.15f}; // k_post / k_pre
   float stall_h{2.5f};       // stall duration at `pit_c`
@@ -61,7 +65,10 @@ class CookHistory {
   static constexpr size_t CAPACITY = 40;
 
   CookHistory();
-  void add(CookRecord r);
+  /// Adds a record; returns its sequence id.
+  uint32_t add(CookRecord r);
+  /// Fill in the rest results of a stored record (after the meat has rested).
+  bool set_rest(uint32_t seq, float carryover_c, float cool_k);
   const std::vector<CookRecord> &records() const { return records_; }
   size_t count() const;
   void clear();

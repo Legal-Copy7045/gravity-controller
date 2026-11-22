@@ -30,7 +30,7 @@
 
 namespace cook {
 
-enum class Phase : uint8_t { NO_PROBE, WAITING, WARMING, STALL, FINISHING, DONE };
+enum class Phase : uint8_t { NO_PROBE, WAITING, WARMING, STALL, FINISHING, DONE, RESTING };
 const char *phase_name(Phase p);
 
 struct Profile {
@@ -80,6 +80,22 @@ class Predictor {
   void set_weight(float kg) { weight_kg_ = kg; }
   /// Outdoor conditions (stored with the cook record; used by CookHistory::priors).
   void set_environment(const Environment &e) { env_ = e; }
+  /// Hourly outdoor forecast as (minutes from now, °C). Colder hours ahead widen the pit's shortfall
+  /// (forecast_beta °C of pit deficit per °C colder, applied to the forecast part of the simulation).
+  void set_ambient_forecast(const std::vector<std::pair<float, float>> &f) { forecast_ = f; }
+  float forecast_beta{0.15f};
+
+  // ---- rest coach ----
+  /// The meat came off the grill (probe still in it). Starts tracking carryover and cooling.
+  void set_pulled(double now_h, bool pulled);
+  bool pulled() const { return phase_ == Phase::RESTING; }
+  /// Recommended pull temperature (target minus the expected carryover), NAN without a target.
+  float pull_at() const;
+  float carryover_so_far() const { return std::isnan(rest_peak_c_) ? NAN : rest_peak_c_ - rest_pull_c_; }
+  /// Minutes until the resting meat cools to `slice_c` (room temperature `room_c`), NAN if unknown.
+  float rest_minutes_to(float slice_c, float room_c) const;
+  /// Rest results once the peak has passed and cooling is measurable (once per rest).
+  bool take_rest_result(float &carryover_c, float &cool_k);
   const Environment &environment() const { return env_; }
   /// Average (setpoint - measured pit) over the last 30 min, °C. Positive = running cold.
   float pit_deficit() const;
@@ -144,6 +160,8 @@ class Predictor {
   float pit_average_(int minutes) const;
   float simulate_(float start_t, Phase start_phase, const std::vector<PlanSegment> &plan, float pit_now,
                   float k_scale, float stall_scale, float *stall_start_in) const;
+  float forecast_offset_(float minutes) const;
+  void update_rest_();
   float stall_left_h_(float stall_scale) const;
   double cook_minutes_() const;
   void commit_candidate_();
@@ -152,6 +170,14 @@ class Predictor {
   float target_c_{NAN};
   Priors priors_{};
   float weight_kg_{NAN};
+  std::vector<std::pair<float, float>> forecast_;
+  double rest_start_min_{-1};
+  float rest_pull_c_{NAN};
+  float rest_peak_c_{NAN};
+  double rest_peak_min_{-1};
+  float rest_cool_k_{NAN};
+  bool rest_result_pending_{false};
+  bool rest_result_taken_{false};
   Environment env_{};
   double env_sum_[3]{0, 0, 0};
   int env_n_[3]{0, 0, 0};

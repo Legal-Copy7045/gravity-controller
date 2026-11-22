@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0] - 2026-11-22
+
+Five new features ([docs/features-0.2.md](docs/features-0.2.md)).
+
+### Firmware
+- Charcoal fuel gauge: start level, checks, top-ups (to a level, or an amount added) and the end level; burn rate
+  learned per fuel type; level, hours left, empty time, low-fuel and "won't last" alerts.
+- Forecast-aware predictions: the hourly forecast from Home Assistant adjusts the expected pit temperature ahead.
+- Rest coach: recommended pull temperature from learned carryover, "pulled" switch per probe, ready-to-slice time and
+  alert; carryover and cooling are saved with each cook.
+
+### Home Assistant
+- Cook journal (Smoker integration): every finished cook with ratings, notes and curve comparison.
+- "What's cooking": photos of package barcodes/labels read by the AI; assign items to probes to set protein and
+  weight.
+- Voice: ask for finish times, pit temperature, charcoal; set the pit; log the hopper; start presets; mark pulled.
+- AI advisor and planner use journal ratings/notes and scanned packages; forecast sent to the controller.
+
 ## [0.1.1] - 2026-11-22
 
 Fixes from the third test-and-review round.

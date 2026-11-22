@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.1.1"
+  project_version: "0.2.0"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -72,6 +72,30 @@ api:
         value: float
       then:
         - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, value);
+    # Fuel gauge: levels in % of a full hopper.
+    - action: fuel_level          # "I looked: it's at N %" (no fuel added since the last entry)
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_level(percent);
+    - action: fuel_refilled       # "topped up, now at N %"
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_refilled(percent);
+    - action: fuel_added          # "added N % of a hopper"
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_added(percent);
+    - action: fuel_end            # "cook over, N % left"
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_end(percent);
+    # Hourly outdoor forecast from Home Assistant (minutes from now, temperature in the weather unit).
+    - action: set_forecast
+      variables:
+        minutes: float[]
+        temps: float[]
+      then:
+        - lambda: id(smoker).set_forecast(minutes, temps);
     # Context for the HA AI advisor: fires esphome.smoker_context with live state + cook history.
     - action: request_context
       then:
@@ -241,6 +265,7 @@ binary_sensor:
       id: lid_open
       name: Lid
     fan:
+      id: grill_fan
       name: Fan
     fan_turbo:
       name: Fan turbo
@@ -294,6 +319,22 @@ cook_assistant:
   pit_setpoint: pit_target_reported
   lid: lid_open
   link: grill_connected
+  fan: grill_fan
+  hopper_capacity: 7.26   # kg; Gravity 980 hopper = 16 lb
+  fuel_level:
+    name: Charcoal level
+  fuel_left:
+    name: Charcoal left
+  fuel_hours_left:
+    name: Charcoal hours left
+  fuel_burn_rate:
+    name: Charcoal burn rate
+  fuel_empty_at:
+    name: Charcoal empty at
+  fuel_type:
+    name: Charcoal type
+  slice_at:
+    name: Slice at
   ambient_temperature: outdoor_temp
   ambient_humidity: outdoor_humidity
   wind_speed: outdoor_wind
@@ -371,6 +412,12 @@ cook_assistant:
         name: Food 1 stall
       probe_warning:
         name: Food 1 probe warning
+      pulled:
+        name: Food 1 pulled
+      pull_at:
+        name: Food 1 pull at
+      rest_ready:
+        name: Food 1 rest ready in
     - key: food2
       name: Food 2
       temperature: food2_temp
@@ -403,6 +450,12 @@ cook_assistant:
         name: Food 2 stall
       probe_warning:
         name: Food 2 probe warning
+      pulled:
+        name: Food 2 pulled
+      pull_at:
+        name: Food 2 pull at
+      rest_ready:
+        name: Food 2 rest ready in
     - key: govee1
       name: Govee 1
       temperature: govee1_temp
@@ -432,6 +485,12 @@ cook_assistant:
         name: Govee 1 stall
       probe_warning:
         name: Govee 1 probe warning
+      pulled:
+        name: Govee 1 pulled
+      pull_at:
+        name: Govee 1 pull at
+      rest_ready:
+        name: Govee 1 rest ready in
     - key: govee2
       name: Govee 2
       temperature: govee2_temp
@@ -461,6 +520,12 @@ cook_assistant:
         name: Govee 2 stall
       probe_warning:
         name: Govee 2 probe warning
+      pulled:
+        name: Govee 2 pulled
+      pull_at:
+        name: Govee 2 pull at
+      rest_ready:
+        name: Govee 2 rest ready in
     - key: govee3
       name: Govee 3
       temperature: govee3_temp
@@ -490,6 +555,12 @@ cook_assistant:
         name: Govee 3 stall
       probe_warning:
         name: Govee 3 probe warning
+      pulled:
+        name: Govee 3 pulled
+      pull_at:
+        name: Govee 3 pull at
+      rest_ready:
+        name: Govee 3 rest ready in
     - key: govee4
       name: Govee 4
       temperature: govee4_temp
@@ -519,6 +590,12 @@ cook_assistant:
         name: Govee 4 stall
       probe_warning:
         name: Govee 4 probe warning
+      pulled:
+        name: Govee 4 pulled
+      pull_at:
+        name: Govee 4 pull at
+      rest_ready:
+        name: Govee 4 rest ready in
   cook_active:
     name: Cook active
   cook_elapsed:

@@ -7,3 +7,4 @@ secrets.yaml
 tests/screens/
 tests/e2e-*.log
 tests/e2e-scen-*.log
+.pytest_cache/

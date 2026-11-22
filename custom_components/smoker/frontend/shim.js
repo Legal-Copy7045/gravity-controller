@@ -17,7 +17,8 @@
   var NOPRESS = /clear_cook_history|factory|safe_mode/;   // buttons the page may not press
   // Whole-integration actions: the controller's ESPHome actions and the package's scripts.
   var SVC = { esphome: ['gravity980_load_program', 'gravity980_start_program', 'gravity980_pause_program', 'gravity980_resume_program',
-                        'gravity980_skip_step', 'gravity980_stop_program', 'gravity980_set_pit_target'],
+                        'gravity980_skip_step', 'gravity980_stop_program', 'gravity980_set_pit_target',
+                        'gravity980_fuel_level', 'gravity980_fuel_refilled', 'gravity980_fuel_added', 'gravity980_fuel_end'],
               script: ['smoker_plan_cook', 'smoker_ai_advise'] };
   var idxFor = null, idx = {};
   function nameIndex(h) {
@@ -55,6 +56,21 @@
     },
     subscribe: function (cb) { subs.push(cb); return function () { subs = subs.filter(function (x) { return x !== cb; }); }; },
     all: function () { var h = getHass(); return (h && h.states) || {}; },
+    // The Smoker integration's own API (journal, next-cook draft, package photos), with the user's login.
+    api: function (method, path, body) {
+      var h = getHass(); if (!h || !h.fetchWithAuth) return Promise.reject(new Error('Home Assistant is not connected'));
+      if (!/^\/api\/smoker\/(journal(\/[0-9a-f]{6,16})?|draft|identify|photo\/[0-9-]+\.(jpg|png))$/.test(path) ||
+          ['GET', 'POST', 'DELETE'].indexOf(method) < 0) return Promise.reject(new Error('not allowed: ' + method + ' ' + path));
+      var opt = { method: method };
+      if (body instanceof FormData) opt.body = body;
+      else if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers = { 'Content-Type': 'application/json' }; }
+      return h.fetchWithAuth(path, opt).then(function (r) {
+        if (!r.ok) return r.json().then(function (j) { throw new Error((j && j.message) || ('HTTP ' + r.status)); },
+                                        function () { throw new Error('HTTP ' + r.status); });
+        var ct = r.headers.get('Content-Type') || '';
+        return ct.indexOf('application/json') >= 0 ? r.json() : r.blob();
+      });
+    },
     // history and logbook, read-only
     ws: function (msg) {
       var h = getHass(); if (!h || !h.callWS) return Promise.reject(new Error('Home Assistant is not connected'));

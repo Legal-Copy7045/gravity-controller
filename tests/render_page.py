@@ -99,6 +99,15 @@ STATES = dict([
        items=[{"when": "now", "title": "Wrap in butcher paper", "detail": "Bark is set; wrapping cuts the stall by ~1 h."},
               {"when": "at 195°F", "title": "Start probing for tenderness", "detail": "Probe should slide in like butter."},
               {"when": "18:00", "title": "Top up the hopper", "detail": "Wind picks up after 5 pm; expect higher fuel use."}]),
+    st("sensor.smoker_charcoal_level", 62, "Smoker Charcoal level", unit_of_measurement="%"),
+    st("sensor.smoker_charcoal_left", 9.9, "Smoker Charcoal left", unit_of_measurement="lb"),
+    st("sensor.smoker_charcoal_hours_left", 6.4, "Smoker Charcoal hours left", unit_of_measurement="h"),
+    st("sensor.smoker_charcoal_burn_rate", 1.55, "Smoker Charcoal burn rate", unit_of_measurement="lb/h"),
+    st("sensor.smoker_charcoal_empty_at", "17:10", "Smoker Charcoal empty at"),
+    st("select.smoker_charcoal_type", "Briquettes", "Smoker Charcoal type", options=["Briquettes", "Lump"]),
+    st("number.smoker_slice_at", 150, "Smoker Slice at", **F),
+    st("sensor.smoker_food_1_pull_at", 199, "Smoker Food 1 pull at", **F),
+    st("switch.smoker_food_1_pulled", "off", "Smoker Food 1 pulled"),
     st("weather.forecast_example", "partlycloudy", "Example", temperature=44, humidity=74, wind_speed=6, temperature_unit="°F"),
 ])
 
@@ -114,7 +123,16 @@ function hist(ids, start) {
     out[id] = L; });
   return out;
 }
+const JOURNAL = {
+  entries: [{ id: 'abc123def456', started: Date.now() / 1000 - 86400 * 3 - 12 * 3600, ended: Date.now() / 1000 - 86400 * 3,
+    probe: 'food1', probe_name: 'Food 1', profile: 'Pork shoulder', weight_kg: 3.8, wrapped: true, pit_c: 121, stall_h: 3.1,
+    total_h: 11.6, ambient_c: 4, items: [{ name: 'Bone-in pork shoulder', weight_lb: 8.4 }], photos: [], notes: 'Great bark', rating: 4 }],
+  draft: { items: [{ id: 'aa11bb22', name: 'Beef brisket (packer)', profile: 'Brisket', weight_lb: 14.2, barcode: '', notes: 'prime', probe: null }], photos: [] },
+};
 window.__smHass = {
+  fetchWithAuth: (path, opt) => { window.calls.push(['api', path, opt && opt.method]);
+    const body = path === '/api/smoker/journal' ? JOURNAL : path === '/api/smoker/draft' ? JOURNAL.draft : {};
+    return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })); },
   states: STATES,
   callService: (d, s, data) => { window.calls.push([d, s, data]); return Promise.resolve(); },
   callWS: (m) => { window.calls.push(['ws', m.type, m]); return Promise.resolve(m.type.startsWith('history') ? hist(m.entity_ids) : {}); },
@@ -152,6 +170,9 @@ def main():
                     "program": fr.inner_text("#progcard"),
                     "chart": fr.inner_html("#chart")[:40],
                     "recs": fr.inner_text("#recs"),
+                    "fuel": fr.inner_text("#fuelcard"),
+                    "scan": fr.inner_text("#scancard"),
+                    "journal": fr.inner_text("#journal"),
                 }
                 if errors:
                     failures.append(f"{scheme}/{name}: JS errors {errors}")
@@ -161,6 +182,14 @@ def main():
                     failures.append(f"{scheme}/{name}: probe cards missing")
                 if "Food 2" in checks["probes"]:
                     failures.append(f"{scheme}/{name}: unplugged Food 2 should be hidden")
+                if "62%" not in checks["fuel"] or "Topped up to" not in checks["fuel"]:
+                    failures.append(f"{scheme}/{name}: charcoal card: {checks['fuel'][:120]!r}")
+                if "Beef brisket" not in checks["scan"]:
+                    failures.append(f"{scheme}/{name}: scanned item missing")
+                if "Pork shoulder" not in checks["journal"] or "11.6 h" not in checks["journal"]:
+                    failures.append(f"{scheme}/{name}: journal entry missing: {checks['journal'][:120]!r}")
+                if "Pull at" not in checks["probes"]:
+                    failures.append(f"{scheme}/{name}: pull-at row missing")
                 if "Wrap in butcher paper" not in checks["recs"]:
                     failures.append(f"{scheme}/{name}: recommendations missing")
                 if "<svg" not in checks["chart"]:
@@ -188,6 +217,19 @@ def main():
                         failures.append("program card did not re-render on state change")
                     if fr.input_value("#progtext") != "pit 300 until food1 >= 190":
                         failures.append("typed program text was lost on re-render")
+                    # Fuel: 'Topped up to' then '1/2' calls the refill action with 50 %.
+                    fr.click("#fuelcard .seg button:nth-child(3)")
+                    time.sleep(0.3)
+                    fr.click("#fuelcard .fracs button:nth-child(2)")
+                    time.sleep(0.3)
+                    calls = pg.evaluate("window.calls")
+                    if not any(c[0] == "ws" and c[2].get("service") == "gravity980_fuel_refilled"
+                               and c[2].get("service_data", {}).get("percent") == 50 for c in calls):
+                        failures.append(f"fuel refill action not called: {[c for c in calls if c[0]=='ws'][-3:]}")
+                    # The shim's journal API refuses other paths.
+                    r = fr.evaluate("window.hdHA.api('GET','/api/config').then(()=>'ok',e=>e.message)")
+                    if "not allowed" not in r:
+                        failures.append("shim api allowed /api/config")
                     r = fr.evaluate("window.hdHA.call('lock','unlock','lock.front_door').then(()=>'ok',e=>e.message)")
                     if "not allowed" not in r:
                         failures.append("shim allowed lock.unlock")

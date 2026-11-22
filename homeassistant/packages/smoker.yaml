@@ -257,6 +257,8 @@ script:
             name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"
             Current time: {{ now().strftime('%a %H:%M') }}. Outdoor: {{ state_attr('weather.forecast_home', 'temperature') }}°F,
             wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph.
+            Packages scanned for this cook (from photos): {{ state_attr('sensor.smoker_journal', 'draft_items') or 'none' }}.
+            Past cooks with notes and ratings: {{ state_attr('sensor.smoker_journal', 'recent') or [] }}.
             The cook: {{ req }}
           structure:
             program:
@@ -333,6 +335,10 @@ script:
             Hourly forecast: {{ forecast }}
             Serve-by time: {{ states('input_datetime.smoker_serve_time') }}. Now: {{ now().strftime('%a %H:%M') }}.
             Planned rest: {{ states('input_number.smoker_rest_minutes') }} min.
+            Scanned for the next cook: {{ state_attr('sensor.smoker_journal', 'draft_items') or 'nothing' }}.
+            The cook's own journal (recent cooks with the cook's notes and 1-5 ratings; learn from them, e.g. a low
+            rating with "dry" means cook lower or wrap earlier): {{ state_attr('sensor.smoker_journal', 'recent') or [] }}.
+            Fuel: the live state's fuel_percent / fuel_hours_left are the hopper estimate; flag a top-up if it won't last.
             Recommendations: 3 to 6 concrete, ordered instructions for what to do next, each on its own line as
             "WHEN | TITLE | DETAIL" (WHEN like "now", "18:30", "at 165°F", "when it stalls"). Before a cook: prep
             (trim, rub, bring-to-temperature), when to light the grill to make the serve time, fuel (fill the hopper; how
@@ -420,6 +426,10 @@ automation:
               [{"action": "SMOKER_PIT_PLUS_25", "title": "Pit +25°F (pauses program)"}, {"action": "SMOKER_PIT_MINUS_25", "title": "Pit −25°F (pauses program)"}]
             {% elif tag == 'program' and ('paused' in (trigger.event.data.title | lower) or 'restarted' in (trigger.event.data.title | lower)) %}
               [{"action": "SMOKER_RESUME_PROGRAM", "title": "Resume program"}]
+            {% elif tag.startswith('pull_') %}
+              [{"action": "SMOKER_PULLED_{{ tag[5:] | upper }}", "title": "Pulled it (start rest)"}]
+            {% elif tag == 'fuel' %}
+              [{"action": "URI", "title": "Log a top-up", "uri": "/smoker-dashboard"}]
             {% elif tag.startswith('stall_') and 'stall' == trigger.event.data.title.split(' ')[-1] %}
               [{"action": "SMOKER_WRAPPED_{{ tag[6:] | upper }}", "title": "I wrapped it"}]
             {% else %}[]{% endif %}
@@ -473,6 +483,11 @@ automation:
               - action: number.set_value
                 target: {entity_id: "{{ n }}"}
                 data: {value: "{{ [states(n) | float(203) + 5, 350] | min }}"}
+          - conditions: "{{ a.startswith('SMOKER_PULLED_') }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: "{% set k = a.split('_')[-1] | lower %}switch.smoker_{{ k[:-1] ~ '_' ~ k[-1:] }}_pulled"
           - conditions: "{{ a.startswith('SMOKER_WRAPPED_') }}"
             sequence:
               - action: switch.turn_on
@@ -518,6 +533,204 @@ automation:
     actions:
       - delay: "00:02:00"   # let a burst of edits settle
       - action: script.smoker_ai_advise
+
+  # Hourly forecast -> controller, so finish times account for a colder night ahead.
+  - id: smoker_forecast_feed
+    alias: Smoker - send the hourly forecast to the controller
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: state
+        entity_id: binary_sensor.smoker_cook_active
+        to: "on"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: template
+        value_template: "{{ states('binary_sensor.smoker_grill_connected') not in ['unavailable', 'unknown'] }}"
+    actions:
+      - action: weather.get_forecasts
+        target: {entity_id: weather.forecast_home}
+        data: {type: hourly}
+        response_variable: fc
+      - variables:
+          f: "{{ fc['weather.forecast_home'].forecast[:24] if fc and 'weather.forecast_home' in fc else [] }}"
+          minutes: >
+            {% set out = namespace(l=[]) %}
+            {% for h in f %}{% set out.l = out.l + [((as_timestamp(h.datetime) - as_timestamp(now())) / 60) | round(0)] %}{% endfor %}
+            {{ out.l }}
+          temps: "{{ f | map(attribute='temperature') | map('float', 0) | list }}"
+      - if: "{{ minutes | length > 1 }}"
+        then:
+          - action: esphome.gravity980_set_forecast
+            data:
+              minutes: "{{ minutes }}"
+              temps: "{{ temps }}"
+
+  # ---------------- Voice (Assist): ask or tell the smoker things ----------------
+  - id: smoker_voice_when_done
+    alias: Smoker voice - when is it done
+    triggers:
+      - trigger: conversation
+        command:
+          - "how long [until|till] [the] {food} [is] (done|ready)"
+          - "when will [the] {food} be (done|ready)"
+          - "when is [the] {food} (done|ready)"
+          - "how long [is] left on the smoker"
+    actions:
+      - variables:
+          probes: [food_1, food_2, govee_1, govee_2, govee_3, govee_4]
+          want: "{{ (trigger.slots.food | default('')) | lower }}"
+          lines: >
+            {% set out = namespace(l=[]) %}
+            {% for p in probes %}
+              {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
+              {% set rem = states('sensor.smoker_' ~ p ~ '_time_remaining') %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% set name = p | replace('_', ' ') %}
+              {% if is_number(t) and (not want or want in prot or want in name or want in ['meat', 'food', 'it', 'cook']) %}
+                {% if is_number(rem) %}
+                  {% set fin = (now() + timedelta(minutes=rem | float)).strftime('%-I:%M %p') %}
+                  {% set out.l = out.l + [name ~ (' (' ~ prot ~ ')' if prot not in ['auto', 'unknown'] else '') ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees and should be done around ' ~ fin] %}
+                {% else %}
+                  {% set out.l = out.l + [name ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees; ' ~ (states('sensor.smoker_' ~ p ~ '_phase') | lower)] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ out.l }}
+      - set_conversation_response: >
+          {{ lines | join('. ') ~ '.' if lines | length else "I don't see a food probe in the smoker right now." }}
+
+  - id: smoker_voice_temperature
+    alias: Smoker voice - pit temperature
+    triggers:
+      - trigger: conversation
+        command:
+          - "how hot is the smoker"
+          - "what('s| is) the smoker [temperature|temp|at]"
+          - "what('s| is) the pit [temperature|temp|at]"
+    actions:
+      - set_conversation_response: >
+          {% set t = states('sensor.smoker_pit_temperature') %}
+          {% if is_number(t) %}The pit is at {{ t | float | round(0) }} degrees{% if is_number(states('number.smoker_pit_target')) %}, aiming for {{ states('number.smoker_pit_target') | float | round(0) }}{% endif %}.{% else %}I can't reach the smoker right now.{% endif %}
+
+  - id: smoker_voice_set_temperature
+    alias: Smoker voice - set the pit
+    triggers:
+      - trigger: conversation
+        command:
+          - "set the (smoker|pit|grill) to {temp} [degrees]"
+          - "(raise|lower|change) the (smoker|pit) to {temp} [degrees]"
+    actions:
+      - variables:
+          v: "{{ (trigger.slots.temp | regex_replace('[^0-9.]', '')) | float(0) }}"
+      - if: "{{ 200 <= v <= 700 }}"
+        then:
+          - action: number.set_value
+            target: {entity_id: number.smoker_pit_target}
+            data: {value: "{{ v }}"}
+          - set_conversation_response: >
+              Setting the smoker to {{ v | round(0) }} degrees{% if states('sensor.smoker_program_state') == 'Running' %}. That pauses the cook program{% endif %}.
+        else:
+          - set_conversation_response: "The smoker can be set between 200 and 700 degrees."
+
+  - id: smoker_voice_fuel
+    alias: Smoker voice - charcoal
+    triggers:
+      - trigger: conversation
+        command:
+          - "how much (charcoal|fuel|coal) is left"
+          - "how long will the (charcoal|fuel|coal) last"
+          - "do I need (more|to add) (charcoal|fuel|coal)"
+    actions:
+      - set_conversation_response: >
+          {% set l = states('sensor.smoker_charcoal_level') %}{% set h = states('sensor.smoker_charcoal_hours_left') %}
+          {% if is_number(l) %}The hopper is about {{ l | float | round(0) }} percent full{% if is_number(h) %}, roughly {{ h | float | round(1) }} hours at this rate, empty around {{ states('sensor.smoker_charcoal_empty_at') }}{% endif %}.{% else %}Tell me how full the hopper is first, for example: the hopper is three quarters full.{% endif %}
+
+  - id: smoker_voice_fuel_tell
+    alias: Smoker voice - tell it the hopper level
+    triggers:
+      - trigger: conversation
+        command:
+          - "the hopper is {level} [full]"
+          - "I (filled|topped up|refilled) the hopper [to] {level} [full]"
+          - "I added {level} [of a] hopper"
+    actions:
+      - variables:
+          words: {"full": 100, "all the way": 100, "three quarters": 75, "3/4": 75, "half": 50, "1/2": 50,
+                  "a quarter": 25, "quarter": 25, "1/4": 25, "an eighth": 12.5, "empty": 0, "a third": 33, "two thirds": 67}
+          raw: "{{ trigger.slots.level | lower | trim }}"
+          pct: >
+            {% set n = raw | regex_replace('[^0-9.]', '') %}
+            {% if n and 'percent' in raw %}{{ n | float }}{% elif raw in words %}{{ words[raw] }}{% elif n %}{{ n | float }}{% else %}-1{% endif %}
+          kind: "{{ 'added' if trigger.sentence is search('added') else ('refilled' if trigger.sentence is search('filled|topped') else 'level') }}"
+      - if: "{{ pct | float(-1) < 0 or pct | float > 100 }}"
+        then:
+          - set_conversation_response: "I didn't catch how full. Say, for example, the hopper is half full."
+        else:
+          - action: "esphome.gravity980_fuel_{{ kind }}"
+            data: {percent: "{{ pct | float }}"}
+          - set_conversation_response: >
+              {% if kind == 'added' %}Got it, {{ pct | float | round(0) }} percent of a hopper added.{% else %}Got it, the hopper is at {{ pct | float | round(0) }} percent.{% endif %}
+
+  - id: smoker_voice_stall
+    alias: Smoker voice - stall
+    triggers:
+      - trigger: conversation
+        command:
+          - "is the stall over"
+          - "is [the] {food} [still] stalled"
+          - "is [the] {food} in the stall"
+    actions:
+      - set_conversation_response: >
+          {% set s = states('binary_sensor.smoker_food_1_stall') %}
+          {% if s == 'on' %}Yes, it's still in the stall{% set r = states('sensor.smoker_food_1_stall_remaining') %}{% if is_number(r) %}, about {{ (r | float / 60) | round(1) }} more hours expected{% endif %}. Wrapping will push it through faster.{% else %}No, it's not stalled; it's {{ states('sensor.smoker_food_1_phase') | lower }}.{% endif %}
+
+  - id: smoker_voice_pulled
+    alias: Smoker voice - pulled the meat
+    triggers:
+      - trigger: conversation
+        command:
+          - "I (pulled|took off|took out) the {food}"
+          - "the {food} is (off|resting)"
+    actions:
+      - variables:
+          want: "{{ trigger.slots.food | lower }}"
+          probe: >
+            {% set ns = namespace(p='food_1') %}
+            {% for p in ['food_1', 'food_2', 'govee_1', 'govee_2', 'govee_3', 'govee_4'] %}
+              {% if want in (states('select.smoker_' ~ p ~ '_protein') | lower) or want == p | replace('_', ' ') %}{% set ns.p = p %}{% endif %}
+            {% endfor %}{{ ns.p }}
+      - action: switch.turn_on
+        target: {entity_id: "switch.smoker_{{ probe }}_pulled"}
+      - set_conversation_response: >
+          Resting. I'll tell you when it's down to {{ states('number.smoker_slice_at') | float(150) | round(0) }} degrees and ready to slice.
+
+  - id: smoker_voice_start_program
+    alias: Smoker voice - start a program
+    triggers:
+      - trigger: conversation
+        command:
+          - "start [the] {preset} (program|cook)"
+          - "(cook|smoke) [a|the|some] {preset}"
+    actions:
+      - variables:
+          want: "{{ trigger.slots.preset | lower }}"
+          options: "{{ state_attr('select.smoker_program_preset', 'options') or [] }}"
+          match: >
+            {% set ns = namespace(m='') %}
+            {% for o in options %}{% if not ns.m and (want in o | lower or (o | lower).split(' ')[0] in want) and o != 'Custom' %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}
+      - if: "{{ match == '' }}"
+        then:
+          - set_conversation_response: "I don't have a program for {{ want }}. I can ask the AI to plan one: open the smoker dashboard."
+        else:
+          - action: select.select_option
+            target: {entity_id: select.smoker_program_preset}
+            data: {option: "{{ match }}"}
+          - delay: 2
+          - action: esphome.gravity980_start_program
+          - set_conversation_response: "Starting the {{ match }} program. Make sure the grill is lit and cooking on its panel."
 
   - id: smoker_cook_complete_summary
     alias: Smoker - learn and summarise finished cooks

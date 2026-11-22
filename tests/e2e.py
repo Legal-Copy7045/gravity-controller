@@ -49,7 +49,9 @@ async def main():
          "--speed", "120"],
         stdout=grill_log, stderr=subprocess.STDOUT)
     await asyncio.sleep(1)
-    dev = subprocess.Popen([PROGRAM], stdout=dev_log, stderr=subprocess.STDOUT)
+    import tempfile
+    env = dict(os.environ, ESPHOME_PREFDIR=tempfile.mkdtemp(prefix="smoker-e2e-prefs-"))  # fresh saved state
+    dev = subprocess.Popen([PROGRAM], stdout=dev_log, stderr=subprocess.STDOUT, env=env)
     states = {}
     names = {}
     try:
@@ -121,6 +123,20 @@ async def main():
         # Predictor produces an estimate once it has data (accelerated sim: ~2 sim-min per s).
         ok = await wait_for(lambda: isinstance(val("food_1_estimated_total"), float) and val("food_1_estimated_total") == val("food_1_estimated_total"), 70, "estimate")
         check(ok, f"estimated total published ({val('food_1_estimated_total')} min), phase {val('food_1_phase')!r}")
+
+        # Fuel gauge: started 3/4 full, later topped back up to 1/2.
+        await cli.execute_service(svc["fuel_level"], {"percent": 75.0})
+        check(await wait_for(lambda: val("charcoal_level") == 75.0, 5, "fuel 75"), f"charcoal level 75 % ({val('charcoal_level')})")
+        await cli.execute_service(svc["fuel_refilled"], {"percent": 50.0})
+        check(await wait_for(lambda: val("charcoal_level") == 50.0, 5, "fuel 50"), f"topped up to 50 % ({val('charcoal_level')})")
+        # Hours left once the pit is hotter than outside (updated every minute).
+        check(await wait_for(lambda: isinstance(val("charcoal_hours_left"), float) and val("charcoal_hours_left") > 0, 75, "hours"),
+              f"charcoal hours left estimated ({val('charcoal_hours_left')} h, empty at {val('charcoal_empty_at')!r})")
+        # Forecast is accepted (lists of floats over the API).
+        await cli.execute_service(svc["set_forecast"], {"minutes": [0.0, 60.0, 120.0], "temps": [50.0, 45.0, 40.0]})
+        await asyncio.sleep(1)
+        check(dev.poll() is None, "device still running after a forecast")
+        check(val("food_1_pull_at") is not None, f"pull-at recommendation published ({val('food_1_pull_at')})")
 
         # Grill disappears -> link lost and values unknown.
         grill.terminate()

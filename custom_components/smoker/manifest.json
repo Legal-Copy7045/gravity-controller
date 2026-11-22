@@ -4,12 +4,12 @@
   "codeowners": [],
   "config_flow": true,
   "dependencies": ["http"],
-  "after_dependencies": ["frontend", "panel_custom", "esphome"],
+  "after_dependencies": ["frontend", "panel_custom", "esphome", "ai_task", "media_source"],
   "documentation": "https://github.com/Legal-Copy7045/gravity-controller",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Legal-Copy7045/gravity-controller/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.1.1"
+  "version": "0.2.0"
 }

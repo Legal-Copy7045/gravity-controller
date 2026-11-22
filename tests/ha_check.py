@@ -24,6 +24,7 @@ http:
 frontend:
 logbook:
 history:
+conversation:
 """
 
 

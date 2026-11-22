@@ -25,6 +25,7 @@
 #include "esphome/components/time/real_time_clock.h"
 #endif
 
+#include "fuel.h"
 #include "history.h"
 #include "predictor.h"
 #include "program.h"
@@ -116,6 +117,12 @@ struct FoodProbe {
   text_sensor::TextSensor *estimate_info{nullptr};
   binary_sensor::BinarySensor *stall{nullptr};
   binary_sensor::BinarySensor *probe_warning{nullptr};
+  CASwitch *pulled{nullptr};            // the meat is off the grill, resting
+  sensor::Sensor *pull_at{nullptr};     // recommended pull temperature
+  sensor::Sensor *rest_ready{nullptr};  // minutes until it cools to the slice temperature
+  uint32_t last_record_seq{0};
+  bool pull_notified{false};
+  bool rest_notified{false};
 
   cook::Predictor predictor;
   bool approach_notified{false};
@@ -140,6 +147,16 @@ class CookAssistant : public Component {
   void set_pit_setpoint(sensor::Sensor *s) { this->pit_setpoint_ = s; }
   void set_lid(binary_sensor::BinarySensor *b) { this->lid_ = b; }
   void set_link(binary_sensor::BinarySensor *b) { this->link_ = b; }
+  void set_fan(binary_sensor::BinarySensor *b) { this->fan_ = b; }
+  // fuel gauge entities
+  void set_fuel_level_sensor(sensor::Sensor *s) { this->fuel_level_ = s; }
+  void set_fuel_left_sensor(sensor::Sensor *s) { this->fuel_left_ = s; }
+  void set_fuel_hours_sensor(sensor::Sensor *s) { this->fuel_hours_ = s; }
+  void set_fuel_rate_sensor(sensor::Sensor *s) { this->fuel_rate_ = s; }
+  void set_fuel_empty_text_sensor(text_sensor::TextSensor *t) { this->fuel_empty_ = t; }
+  void set_fuel_type_select(CASelect *s) { this->fuel_type_ = s; }
+  void set_hopper_capacity_kg(float kg) { this->fuel_.set_capacity_kg(kg); }
+  void set_slice_number(CANumber *n) { this->slice_ = n; }
   /// Outdoor conditions (e.g. from the HA weather entity). Temperature in the configured unit, wind in km/h (or mph if °F).
   void set_ambient_temperature(sensor::Sensor *s) { this->ambient_ = s; }
   void set_ambient_humidity(sensor::Sensor *s) { this->humidity_ = s; }
@@ -199,6 +216,16 @@ class CookAssistant : public Component {
   /// JSON with the cook history (for HA / AI context).
   std::string history_json();
 
+  // ---- fuel gauge (levels in percent of a full hopper) ----
+  void fuel_level(float percent);       // looked in: no fuel added since the last entry
+  void fuel_refilled(float percent);    // topped up; it's now at `percent`
+  void fuel_added(float percent);       // added this much (fraction of a full hopper)
+  void fuel_end(float percent);         // cook over: this much left
+  // ---- forecast from Home Assistant: minutes from now, outdoor temperature (ambient unit) ----
+  void set_forecast(const std::vector<float> &minutes, const std::vector<float> &temps);
+  // ---- rest coach ----
+  void set_pulled(size_t probe, bool pulled);
+
   std::vector<std::string> probe_keys() const;
   const std::vector<FoodProbe *> &probes() const { return this->probes_; }
   const std::vector<std::pair<std::string, std::string>> &presets() const { return this->presets_; }
@@ -237,6 +264,22 @@ class CookAssistant : public Component {
   sensor::Sensor *wind_{nullptr};
   bool ambient_fahrenheit_{true};
   float wind_to_kmh_{1.609344f};
+  binary_sensor::BinarySensor *fan_{nullptr};
+  sensor::Sensor *fuel_level_{nullptr};
+  sensor::Sensor *fuel_left_{nullptr};
+  sensor::Sensor *fuel_hours_{nullptr};
+  sensor::Sensor *fuel_rate_{nullptr};
+  text_sensor::TextSensor *fuel_empty_{nullptr};
+  CASelect *fuel_type_{nullptr};
+  CANumber *slice_{nullptr};
+  cook::FuelGauge fuel_;
+  std::vector<uint8_t> fan_hist_;  // fan on/off, one sample a minute (last 10)
+  bool fuel_low_notified_{false};
+  bool fuel_short_notified_{false};
+  void save_fuel_();
+  float slice_c_() const;
+  ESPPreferenceObject fuel_pref_;
+  void tick_fuel_();
 #ifdef USE_TIME
   time::RealTimeClock *time_{nullptr};
 #endif

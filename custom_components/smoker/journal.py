@@ -1,0 +1,361 @@
+"""Cook journal and "what's being cooked" from photos.
+
+* Every finished cook (the controller's `esphome.smoker_cook_complete` event) becomes a journal entry: protein,
+  weight, pit, stall, total time, weather, plus your notes and rating, and the items you scanned for it.
+* POST photos of the barcode/label of one or more packages to /api/smoker/identify: the AI (Home Assistant's
+  AI Task) reads them and returns the items (cut, protein profile, weight). They're kept as the "next cook" draft;
+  assigning an item to a probe sets that probe's protein and weight on the controller.
+* The page reads everything through authenticated views (/api/smoker/journal, /api/smoker/photo/<name>).
+* sensor.smoker_journal summarises recent entries (notes and ratings) so the AI advisor can learn from them.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+from aiohttp import web
+
+from homeassistant.components.http import HomeAssistantView
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.storage import Store
+
+_LOGGER = logging.getLogger(__name__)
+
+STORE_KEY = "smoker_journal"
+STORE_VERSION = 1
+MAX_ENTRIES = 200
+MAX_PHOTOS = 6
+MAX_PHOTO_BYTES = 8 * 1024 * 1024
+PROFILES = ["Auto", "Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"]
+DATA = "smoker_journal_data"
+
+IDENTIFY_INSTRUCTIONS = """You are looking at photos of meat or fish packages that are about to be cooked on a smoker
+(barcode stickers, butcher labels, packaging). Identify every distinct item.
+For each item give one line in exactly this format:
+NAME | PROFILE | WEIGHT_LB | BARCODE | NOTES
+- NAME: short description, e.g. "Bone-in pork shoulder (Boston butt)".
+- PROFILE: exactly one of: {profiles}. Use Auto if it fits none.
+- WEIGHT_LB: net weight in pounds as a number (convert kg or oz); empty if you can't read it.
+- BARCODE: the barcode digits if legible, else empty.
+- NOTES: anything useful for cooking (e.g. "enhanced with solution", "prime grade", "bone-in"), or empty.
+Read the printed label text (net weight, product name) rather than guessing from the barcode alone; store barcodes for
+weighed meat (starting with 2) encode price or weight, not the product. One line per item, nothing else."""
+
+
+def _entity_slug(key: str) -> str:
+    """food1 -> food_1, govee2 -> govee_2 (the ids HA builds from "Food 1", "Govee 2")."""
+    m = re.fullmatch(r"([a-z]+)(\d+)", key or "")
+    return f"{m.group(1)}_{m.group(2)}" if m else key
+
+
+def parse_items(text: str) -> list[dict[str, Any]]:
+    """Parse the AI's 'NAME | PROFILE | WEIGHT_LB | BARCODE | NOTES' lines."""
+    items = []
+    for line in (text or "").splitlines():
+        if "|" not in line:
+            continue
+        parts = [p.strip() for p in line.strip().strip("-* ").split("|")]
+        parts += [""] * (5 - len(parts))
+        name, profile, weight, barcode, notes = parts[:5]
+        if not name or name.upper() == "NAME":
+            continue
+        prof = next((p for p in PROFILES if p.lower() == profile.lower()), "Auto")
+        try:
+            w = float(re.sub(r"[^0-9.]", "", weight)) if weight else None
+        except ValueError:
+            w = None
+        items.append({"id": uuid.uuid4().hex[:8], "name": name[:120], "profile": prof,
+                      "weight_lb": round(w, 2) if w else None, "barcode": re.sub(r"\D", "", barcode)[:20],
+                      "notes": notes[:200], "probe": None})
+    return items[:12]
+
+
+class Journal:
+    """Persistent journal + next-cook draft."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+        self.unsub = None
+        self.store: Store = Store(hass, STORE_VERSION, STORE_KEY)
+        self.data: dict[str, Any] = {"entries": [], "draft": {"items": [], "photos": []}}
+        self.photo_dir = Path(hass.config.path(".storage", "smoker_photos"))
+
+    async def async_load(self) -> None:
+        stored = await self.store.async_load()
+        if isinstance(stored, dict):
+            self.data.update(stored)
+        self.data.setdefault("entries", [])
+        self.data.setdefault("draft", {"items": [], "photos": []})
+        self._publish()
+
+    def _save(self) -> None:
+        self.store.async_delay_save(lambda: self.data, 2)
+        self._publish()
+
+    @callback
+    def _publish(self) -> None:
+        """sensor.smoker_journal: count + compact recent entries for the AI advisor's prompt."""
+        recent = []
+        for e in self.data["entries"][-8:]:
+            recent.append({k: e.get(k) for k in ("ended", "profile", "weight_kg", "pit_c", "stall_h", "total_h",
+                                                  "carryover_c", "rating", "notes")})
+        self.hass.states.async_set("sensor.smoker_journal", len(self.data["entries"]),
+                                   {"friendly_name": "Smoker journal", "icon": "mdi:notebook", "recent": recent,
+                                    "draft_items": [i["name"] for i in self.data["draft"]["items"]]})
+
+    # ---- entries ----
+    @callback
+    def handle_cook_complete(self, event: Event) -> None:
+        try:
+            s = json.loads(event.data.get("summary") or "{}")
+        except (TypeError, ValueError):
+            _LOGGER.warning("Unreadable cook summary: %s", event.data.get("summary"))
+            return
+        now = time.time()
+        total_h = float(s.get("total_h") or 0)
+        probe = s.get("probe")
+        draft_items = self.data["draft"]["items"]
+        mine = [i for i in draft_items if i.get("probe") == probe]
+        if not mine and draft_items and all(not i.get("probe") for i in draft_items):
+            mine = list(draft_items)  # nothing assigned: the draft was for this cook
+        entry = {
+            "id": uuid.uuid4().hex[:12],
+            "started": now - total_h * 3600,
+            "ended": now,
+            "probe": probe,
+            "probe_name": s.get("name"),
+            "profile": s.get("profile"),
+            "weight_kg": s.get("weight_kg"),
+            "wrapped": s.get("wrapped"),
+            "pit_c": s.get("pit_c"),
+            "target_c": s.get("target_c"),
+            "stall_h": s.get("stall_h"),
+            "total_h": total_h,
+            "ambient_c": s.get("ambient_c"),
+            "items": mine,
+            "photos": list(self.data["draft"].get("photos", [])) if mine else [],
+            "notes": "",
+            "rating": None,
+        }
+        self.data["entries"].append(entry)
+        self.data["entries"] = self.data["entries"][-MAX_ENTRIES:]
+        # Used items leave the draft; photos go with the first entry that takes items.
+        ids = {i["id"] for i in mine}
+        self.data["draft"]["items"] = [i for i in draft_items if i["id"] not in ids]
+        if mine:
+            self.data["draft"]["photos"] = []
+        self._save()
+
+    def update_entry(self, entry_id: str, changes: dict[str, Any]) -> dict | None:
+        for e in self.data["entries"]:
+            if e["id"] == entry_id:
+                if "notes" in changes:
+                    e["notes"] = str(changes["notes"])[:2000]
+                if "rating" in changes:
+                    r = changes["rating"]
+                    e["rating"] = None if r in (None, "") else max(1, min(5, int(r)))
+                self._save()
+                return e
+        return None
+
+    def delete_entry(self, entry_id: str) -> bool:
+        n = len(self.data["entries"])
+        self.data["entries"] = [e for e in self.data["entries"] if e["id"] != entry_id]
+        if len(self.data["entries"]) != n:
+            self._save()
+            return True
+        return False
+
+    # ---- draft ----
+    def set_draft_items(self, items: list[dict]) -> None:
+        keep = []
+        for i in items[:12]:
+            prof = i.get("profile") if i.get("profile") in PROFILES else "Auto"
+            w = i.get("weight_lb")
+            keep.append({"id": str(i.get("id") or uuid.uuid4().hex[:8])[:12], "name": str(i.get("name", ""))[:120],
+                         "profile": prof, "weight_lb": float(w) if isinstance(w, (int, float)) and w > 0 else None,
+                         "barcode": re.sub(r"\D", "", str(i.get("barcode", "")))[:20], "notes": str(i.get("notes", ""))[:200],
+                         "probe": i.get("probe") if isinstance(i.get("probe"), str) else None})
+        self.data["draft"]["items"] = keep
+        self._save()
+
+    async def apply_item_to_probe(self, item: dict) -> None:
+        """Set the probe's protein and weight on the controller from a draft item."""
+        probe = item.get("probe")
+        if not probe:
+            return
+        slug = _entity_slug(probe)
+        sel, num = f"select.smoker_{slug}_protein", f"number.smoker_{slug}_weight"
+        if self.hass.states.get(sel):
+            await self.hass.services.async_call("select", "select_option", {"entity_id": sel, "option": item["profile"]},
+                                                blocking=True)
+        if item.get("weight_lb") and self.hass.states.get(num):
+            st = self.hass.states.get(num)
+            w = item["weight_lb"] if (st.attributes.get("unit_of_measurement") or "lb") == "lb" else item["weight_lb"] * 0.4536
+            await self.hass.services.async_call("number", "set_value", {"entity_id": num, "value": round(w, 1)},
+                                                blocking=True)
+
+    # ---- photos + AI ----
+    async def identify(self, images: list[tuple[str, bytes]], ai_entity: str | None) -> list[dict]:
+        if not images:
+            raise ValueError("no photos")
+        media_dirs = self.hass.config.media_dirs or {}
+        media_key = "local" if "local" in media_dirs else next(iter(media_dirs), None)
+        if media_key is None:
+            raise ValueError("Home Assistant has no media folder configured (needed to pass photos to the AI)")
+        media_root = Path(media_dirs[media_key]) / "smoker"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        saved, attachments = [], []
+
+        def write():
+            media_root.mkdir(parents=True, exist_ok=True)
+            self.photo_dir.mkdir(parents=True, exist_ok=True)
+            for n, (ctype, body) in enumerate(images[:MAX_PHOTOS]):
+                ext = ".png" if "png" in ctype else ".jpg"
+                name = f"{stamp}-{n}{ext}"
+                (media_root / name).write_bytes(body)
+                (self.photo_dir / name).write_bytes(body)
+                saved.append(name)
+
+        await self.hass.async_add_executor_job(write)
+        for name in saved:
+            attachments.append({"media_content_id": f"media-source://media_source/{media_key}/smoker/{name}",
+                                "media_content_type": "image/png" if name.endswith(".png") else "image/jpeg"})
+        data: dict[str, Any] = {
+            "task_name": "Smoker: identify what's being cooked",
+            "instructions": IDENTIFY_INSTRUCTIONS.format(profiles=", ".join(PROFILES)),
+            "attachments": attachments,
+        }
+        if ai_entity:
+            data["entity_id"] = ai_entity
+        resp = await self.hass.services.async_call("ai_task", "generate_data", data, blocking=True, return_response=True)
+        text = (resp or {}).get("data") if isinstance(resp, dict) else None
+        items = parse_items(text if isinstance(text, str) else json.dumps(text))
+        # Append to the draft (several scans before a cook add up).
+        self.data["draft"]["items"] = (self.data["draft"]["items"] + items)[-12:]
+        self.data["draft"]["photos"] = (self.data["draft"].get("photos", []) + saved)[-MAX_PHOTOS:]
+        self._save()
+        return items
+
+
+def _journal(request: web.Request) -> Journal:
+    return request.app["hass"].data[DATA]
+
+
+class JournalView(HomeAssistantView):
+    url = "/api/smoker/journal"
+    name = "api:smoker:journal"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        return self.json(_journal(request).data)
+
+
+class JournalEntryView(HomeAssistantView):
+    url = "/api/smoker/journal/{entry_id}"
+    name = "api:smoker:journal:entry"
+    requires_auth = True
+
+    async def post(self, request: web.Request, entry_id: str) -> web.Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            return self.json_message("invalid JSON", 400)
+        e = _journal(request).update_entry(entry_id, body if isinstance(body, dict) else {})
+        return self.json(e) if e else self.json_message("not found", 404)
+
+    async def delete(self, request: web.Request, entry_id: str) -> web.Response:
+        if not request["hass_user"].is_admin:
+            return self.json_message("admin only", 403)
+        return self.json({"deleted": _journal(request).delete_entry(entry_id)})
+
+
+class DraftView(HomeAssistantView):
+    url = "/api/smoker/draft"
+    name = "api:smoker:draft"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        j = _journal(request)
+        try:
+            body = await request.json()
+        except ValueError:
+            return self.json_message("invalid JSON", 400)
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            return self.json_message("items must be a list", 400)
+        old = {i["id"]: i.get("probe") for i in j.data["draft"]["items"]}
+        j.set_draft_items(items)
+        for i in j.data["draft"]["items"]:
+            if i.get("probe") and old.get(i["id"]) != i["probe"]:
+                await j.apply_item_to_probe(i)  # newly assigned: set the probe's protein and weight
+        return self.json(j.data["draft"])
+
+
+class IdentifyView(HomeAssistantView):
+    url = "/api/smoker/identify"
+    name = "api:smoker:identify"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        j = _journal(request)
+        images: list[tuple[str, bytes]] = []
+        reader = await request.multipart()
+        async for part in reader:
+            if part.name != "photo" or len(images) >= MAX_PHOTOS:
+                continue
+            ctype = part.headers.get("Content-Type", "image/jpeg")
+            if not ctype.startswith("image/"):
+                continue
+            body = await part.read(decode=False)
+            if len(body) > MAX_PHOTO_BYTES:
+                return self.json_message("photo too large (max 8 MB)", 413)
+            images.append((ctype, bytes(body)))
+        try:
+            items = await j.identify(images, request.query.get("ai_task") or None)
+        except Exception as err:  # noqa: BLE001 - report AI/config problems to the page
+            _LOGGER.warning("Identify failed: %s", err)
+            return self.json_message(f"Couldn't identify: {err}", 400)
+        return self.json({"items": items, "draft": j.data["draft"]})
+
+
+class PhotoView(HomeAssistantView):
+    url = "/api/smoker/photo/{name}"
+    name = "api:smoker:photo"
+    requires_auth = True
+
+    async def get(self, request: web.Request, name: str) -> web.StreamResponse:
+        if not re.fullmatch(r"[0-9-]+\.(jpg|png)", name):
+            return self.json_message("not found", 404)
+        path = _journal(request).photo_dir / name
+        if not await request.app["hass"].async_add_executor_job(path.is_file):
+            return self.json_message("not found", 404)
+        return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
+
+
+async def async_setup_journal(hass: HomeAssistant) -> Journal:
+    if DATA in hass.data:  # reloaded: views are still registered, listen again
+        j = hass.data[DATA]
+        if getattr(j, "unsub", None) is None:
+            j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
+        return j
+    j = Journal(hass)
+    await j.async_load()
+    hass.data[DATA] = j
+    for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView()):
+        hass.http.register_view(view)
+    j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
+    return j
+
+
+def async_unload_journal(hass: HomeAssistant) -> None:
+    j = hass.data.get(DATA)
+    if j and j.unsub:
+        j.unsub()
+        j.unsub = None

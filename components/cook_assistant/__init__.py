@@ -93,6 +93,10 @@ PROBE_SCHEMA = cv.Schema(
         ),
         cv.Optional("stall"): binary_sensor.binary_sensor_schema(icon="mdi:pause-octagon"),
         cv.Optional("probe_warning"): binary_sensor.binary_sensor_schema(device_class=DEVICE_CLASS_PROBLEM),
+        # rest coach
+        cv.Optional("pulled"): switch.switch_schema(CASwitch, icon="mdi:silverware-fork").extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("pull_at"): sensor.sensor_schema(accuracy_decimals=0, icon="mdi:thermometer-chevron-down"),
+        cv.Optional("rest_ready"): _min_sensor("mdi:timer-sand-paused"),
     }
 )
 
@@ -123,6 +127,20 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("pit_setpoint"): _ref(sensor.Sensor),
         cv.Optional("lid"): _ref(binary_sensor.BinarySensor),
         cv.Optional("link"): _ref(binary_sensor.BinarySensor),
+        cv.Optional("fan"): _ref(binary_sensor.BinarySensor),
+        # fuel gauge
+        cv.Optional("hopper_capacity", default=7.26): cv.positive_float,  # kg (Gravity 980: 16 lb)
+        cv.Optional("fuel_level"): sensor.sensor_schema(
+            unit_of_measurement="%", accuracy_decimals=0, icon="mdi:gauge", state_class=STATE_CLASS_MEASUREMENT
+        ),
+        cv.Optional("fuel_left"): sensor.sensor_schema(accuracy_decimals=1, icon="mdi:weight", state_class=STATE_CLASS_MEASUREMENT),
+        cv.Optional("fuel_hours_left"): sensor.sensor_schema(
+            unit_of_measurement="h", accuracy_decimals=1, icon="mdi:timer-sand", state_class=STATE_CLASS_MEASUREMENT
+        ),
+        cv.Optional("fuel_burn_rate"): sensor.sensor_schema(accuracy_decimals=2, icon="mdi:fire", state_class=STATE_CLASS_MEASUREMENT),
+        cv.Optional("fuel_empty_at"): text_sensor.text_sensor_schema(icon="mdi:clock-alert-outline"),
+        cv.Optional("fuel_type"): select.select_schema(CASelect, icon="mdi:fire-circle").extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("slice_at"): number.number_schema(CANumber, icon="mdi:knife").extend(cv.COMPONENT_SCHEMA),
         cv.Optional("ambient_temperature"): _ref(sensor.Sensor),
         cv.Optional("ambient_humidity"): _ref(sensor.Sensor),
         cv.Optional("wind_speed"): _ref(sensor.Sensor),
@@ -193,6 +211,35 @@ async def to_code(config):
     cg.add(var.set_ambient_fahrenheit(amb == "F"))
     cg.add(var.set_wind_to_kmh({"mph": 1.609344, "km/h": 1.0, "m/s": 3.6}[config["wind_speed_unit"]]))
     cg.add(var.set_pit_range(config["pit_min"], config["pit_max"]))
+    if "fan" in config:
+        cg.add(var.set_fan(await cg.get_variable(config["fan"])))
+    cg.add(var.set_hopper_capacity_kg(config["hopper_capacity"]))
+    if "fuel_level" in config:
+        cg.add(var.set_fuel_level_sensor(await sensor.new_sensor(config["fuel_level"])))
+    if "fuel_left" in config:
+        c = dict(config["fuel_left"])
+        c["unit_of_measurement"] = "lb" if fahrenheit else "kg"
+        cg.add(var.set_fuel_left_sensor(await sensor.new_sensor(c)))
+    if "fuel_hours_left" in config:
+        cg.add(var.set_fuel_hours_sensor(await sensor.new_sensor(config["fuel_hours_left"])))
+    if "fuel_burn_rate" in config:
+        c = dict(config["fuel_burn_rate"])
+        c["unit_of_measurement"] = "lb/h" if fahrenheit else "kg/h"
+        cg.add(var.set_fuel_rate_sensor(await sensor.new_sensor(c)))
+    if "fuel_empty_at" in config:
+        cg.add(var.set_fuel_empty_text_sensor(await text_sensor.new_text_sensor(config["fuel_empty_at"])))
+    if "fuel_type" in config:
+        s = await select.new_select(config["fuel_type"], options=["Briquettes", "Lump"])
+        await cg.register_component(s, config["fuel_type"])
+        cg.add(var.set_fuel_type_select(s))
+    if "slice_at" in config:
+        c = dict(config["slice_at"])
+        c.setdefault("unit_of_measurement", tunit)
+        lo, hi, st = (100, 200, 1) if fahrenheit else (38, 93, 0.5)
+        n = await number.new_number(c, min_value=lo, max_value=hi, step=st)
+        await cg.register_component(n, c)
+        cg.add(n.set_initial(150 if fahrenheit else 65.5))
+        cg.add(var.set_slice_number(n))
     if CONF_TIME_ID in config:
         cg.add(var.set_time(await cg.get_variable(config[CONF_TIME_ID])))
 
@@ -250,6 +297,18 @@ async def to_code(config):
             if key in p:
                 s = await binary_sensor.new_binary_sensor(p[key])
                 cg.add(cg.RawExpression(f"{pv}->{key} = {s}"))
+        if "pulled" in p:
+            s = await switch.new_switch(p["pulled"])
+            await cg.register_component(s, p["pulled"])
+            cg.add(cg.RawExpression(f"{pv}->pulled = {s}"))
+        if "pull_at" in p:
+            c = dict(p["pull_at"])
+            c["unit_of_measurement"] = tunit
+            s = await sensor.new_sensor(c)
+            cg.add(cg.RawExpression(f"{pv}->pull_at = {s}"))
+        if "rest_ready" in p:
+            s = await sensor.new_sensor(p["rest_ready"])
+            cg.add(cg.RawExpression(f"{pv}->rest_ready = {s}"))
         cg.add(var.add_probe(pv))
 
     for pr in config[CONF_PRESETS]:

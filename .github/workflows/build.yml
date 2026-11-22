@@ -118,9 +118,24 @@ jobs:
           name: dashboard-screenshots
           path: _screens/*.png
 
+  integration:
+    needs: versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install the Home Assistant test framework
+        run: pip install -r tests/requirements-integration.txt
+      - name: Integration tests (journal, photo identification, voice)
+        run: python -m pytest -q
+
   deploy:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
-    needs: [firmware, unit-tests, home-assistant]
+    needs: [firmware, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -134,7 +149,7 @@ jobs:
 
   release:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
-    needs: [firmware, unit-tests, home-assistant]
+    needs: [firmware, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
     permissions:
       contents: write
