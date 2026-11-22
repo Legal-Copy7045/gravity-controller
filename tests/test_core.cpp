@@ -504,6 +504,55 @@ static void test_regressions() {
     CHECK(!pr.take_completed(rec));
     CHECK(pr.phase() != cook::Phase::DONE);
   }
+  // Pause, resume, then a dropout: the pause isn't counted twice.
+  {
+    cook::Program pp;
+    std::string e2;
+    CHECK(cook::parse_program("pit 250 until food1 >= 165 for 30m; pit 275", {"pit", "food1"}, true, pp, e2));
+    cook::ProgramRunner rr;
+    rr.load(pp);
+    rr.start(0);
+    cook::RunnerInputs ii;
+    ii.temp_c = {120, 80};
+    ii.done = ii.stall_started = ii.stall_ended = {false, false};
+    for (int m = 0; m <= 20; m++)
+      rr.tick(m, ii);
+    rr.pause(20, "test");
+    rr.resume(80);
+    ii.temp_c[1] = NAN;
+    rr.tick(81, ii);
+    ii.temp_c[1] = 80;
+    bool adv = false;
+    double at = 0;
+    for (int m = 82; m < 200 && !adv; m++)
+      if (rr.tick(m, ii).step_changed) {
+        adv = true;
+        at = m;
+      }
+    CHECK(adv && at >= 90 && at <= 92);
+  }
+  // Target lowered 2 minutes after done while the food stays above it: still one record.
+  {
+    cook::Predictor pr;
+    pr.set_target(70.0f);
+    double t = 0;
+    float core = 20;
+    for (int i = 0; i < 400 && core < 72; i++, t += 1.0 / 60) {
+      core += 0.15f;
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    }
+    for (int i = 0; i < 2; i++, t += 1.0 / 60)
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    pr.set_target(69.0f);
+    int records = 0;
+    cook::CookRecord rec;
+    for (int i = 0; i < 12; i++, t += 1.0 / 60) {
+      pr.add_sample(t, core, 110.0f, 110.0f);
+      if (pr.take_completed(rec))
+        records++;
+    }
+    CHECK(records == 1);
+  }
   // Pulling the probe 2 minutes after done still records the cook (once), and unplugging too.
   for (int mode = 0; mode < 2; mode++) {
     cook::Predictor pr;

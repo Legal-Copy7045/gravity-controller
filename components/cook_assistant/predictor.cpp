@@ -301,7 +301,16 @@ void Predictor::update_phase_() {
   // unplugging the probe after the finish keeps it.
   if (cand_valid_) {
     if (!std::isnan(target_c_) && std::fabs(target_c_ - cand_target_c_) > 0.5f && minutes_ - cand_since_min_ < 5) {
-      cand_valid_ = false;
+      if (t >= target_c_) {
+        // Still done at the new target: the same finish, with the new target and a fresh window.
+        cand_.target_c = target_c_;
+        cand_target_c_ = target_c_;
+        cand_since_min_ = minutes_;
+      } else if (t >= cand_target_c_ - 3.0f) {
+        cand_valid_ = false;  // target stepped past food that is still at temperature: not finished
+      } else {
+        commit_candidate_();  // food already pulled/cooling: it was a real finish
+      }
     } else if (minutes_ - cand_since_min_ >= 5) {
       commit_candidate_();
     }

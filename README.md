@@ -19,7 +19,7 @@ Bluetooth, and adds:
   a review after each cook.
 - **Bluetooth proxy**: the closest radio to the grill, for wireless thermometers (e.g. Govee H5198, whose probes can
   feed the predictor and cook programs).
-- **Dashboard**: a Home Assistant sidebar page in the same style as the home dashboards.
+- **Dashboard**: a phone-friendly Home Assistant sidebar page, with AI recommendations (prep, lighting time, wrap point, weather effects).
 - **Updates over the air** from GitHub Pages; **browser installer** for the first flash.
 
 **Phase 2 (planned): replacement controller** driving the stock fan directly, with extra zone probes. See

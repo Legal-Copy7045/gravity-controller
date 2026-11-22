@@ -509,6 +509,7 @@ RunnerOutputs ProgramRunner::start(double now_min, size_t step) {
   if (!loaded() || step >= prog_.steps.size())
     return {};
   state_ = State::RUNNING;
+  last_tick_min_ = -1;
   pause_reason_.clear();
   return enter_step_(step, now_min);
 }
@@ -518,6 +519,7 @@ void ProgramRunner::pause(double now_min, const char *reason) {
     return;
   state_ = State::PAUSED;
   paused_at_min_ = now_min;
+  last_tick_min_ = -1;
   pause_reason_ = reason ? reason : "";
 }
 
@@ -534,6 +536,7 @@ RunnerOutputs ProgramRunner::resume(double now_min) {
         h += paused_for;
   }
   state_ = State::RUNNING;
+  last_tick_min_ = -1;
   pause_reason_.clear();
   // Re-assert this step's setpoint (it may have been overridden).
   if (!std::isnan(commanded_pit_)) {
@@ -559,6 +562,7 @@ RunnerOutputs ProgramRunner::skip(double now_min) {
 
 void ProgramRunner::stop() {
   state_ = State::IDLE;
+  last_tick_min_ = -1;
   commanded_pit_ = NAN;
   pause_reason_.clear();
 }
@@ -575,6 +579,7 @@ void ProgramRunner::restore(size_t step, double step_elapsed_min, double now_min
     commanded_pit_ = prog_.steps[i].pit_c;
   state_ = running ? State::RUNNING : State::PAUSED;
   paused_at_min_ = now_min;
+  last_tick_min_ = -1;
   if (!running)
     pause_reason_ = "restored after restart";
 }

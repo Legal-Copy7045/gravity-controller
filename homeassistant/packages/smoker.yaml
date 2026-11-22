@@ -8,7 +8,7 @@
 # Assumes the ESPHome device is named "gravity980" with friendly name "Smoker"
 # (entity ids sensor.smoker_*, actions esphome.gravity980_*).
 #
-# Edit the two lines marked EDIT below (your phone and AI task entity).
+# Edit the lines marked EDIT below: your phone (once) and your AI task entity (three times).
 
 # ------------------------------------------------------------------- helpers
 
@@ -36,6 +36,24 @@ input_number:
     icon: mdi:timer-sand
 
 input_text:
+  # Govee H5198 (or any thermometer in HA): the entity for each extra probe. The controller reads
+  # sensor.smoker_govee_probe_N, which follows whatever entity you put here (°F, like the rest of HA).
+  smoker_govee_probe_1_entity:
+    name: Smoker Govee probe 1 entity
+    max: 120
+    icon: mdi:thermometer-bluetooth
+  smoker_govee_probe_2_entity:
+    name: Smoker Govee probe 2 entity
+    max: 120
+    icon: mdi:thermometer-bluetooth
+  smoker_govee_probe_3_entity:
+    name: Smoker Govee probe 3 entity
+    max: 120
+    icon: mdi:thermometer-bluetooth
+  smoker_govee_probe_4_entity:
+    name: Smoker Govee probe 4 entity
+    max: 120
+    icon: mdi:thermometer-bluetooth
   smoker_ai_summary:
     name: Smoker AI summary
     max: 255
@@ -98,6 +116,42 @@ template:
           summary: "{{ trigger.event.data.summary }}"
           items: "{{ trigger.event.data['items'] }}"
   - sensor:
+      - name: Smoker Govee probe 1
+        unique_id: smoker_govee_probe_1
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set e = states('input_text.smoker_govee_probe_1_entity') %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {{ v | float if is_number(v) else none }}
+      - name: Smoker Govee probe 2
+        unique_id: smoker_govee_probe_2
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set e = states('input_text.smoker_govee_probe_2_entity') %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {{ v | float if is_number(v) else none }}
+      - name: Smoker Govee probe 3
+        unique_id: smoker_govee_probe_3
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set e = states('input_text.smoker_govee_probe_3_entity') %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {{ v | float if is_number(v) else none }}
+      - name: Smoker Govee probe 4
+        unique_id: smoker_govee_probe_4
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set e = states('input_text.smoker_govee_probe_4_entity') %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {{ v | float if is_number(v) else none }}
       - name: Smoker food 1 finish
         unique_id: smoker_food1_finish
         device_class: timestamp
@@ -191,8 +245,7 @@ script:
         response_variable: plan
         data:
           task_name: Smoker cook plan
-          # EDIT: your AI task entity.
-          entity_id: ai_task.google_ai_task
+          entity_id: ai_task.google_ai_task   # EDIT: your AI task entity
           instructions: |
             You plan cooks for a Char-Griller Gravity 980 charcoal smoker. Write a cook program in this exact language.
             The pit can be set from 200°F to 700°F only (so hold the meat warm at 200°F, never lower).
@@ -267,7 +320,7 @@ script:
         response_variable: advice
         data:
           task_name: Smoker advisor
-          entity_id: ai_task.google_ai_task
+          entity_id: ai_task.google_ai_task   # EDIT: your AI task entity
           instructions: |
             You are an experienced pitmaster coaching someone cooking on a Char-Griller Gravity 980 gravity-fed charcoal
             smoker (16 lb hopper, fan-controlled, holds 200-700°F). {{ 'A cook is in progress.' if cooking else 'No cook is running yet: plan the next one.' }}
@@ -499,7 +552,7 @@ automation:
             response_variable: review
             data:
               task_name: Smoker cook review
-              entity_id: ai_task.google_ai_task
+              entity_id: ai_task.google_ai_task   # EDIT: your AI task entity
               instructions: |
                 Write a friendly two-sentence review of this finished smoker cook with one tip for next time.
                 Cook (JSON): {{ trigger.event.data.summary }}. Weather now: {{ state_attr('weather.forecast_home', 'temperature') }}°F.

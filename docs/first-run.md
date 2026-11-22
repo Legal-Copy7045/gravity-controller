@@ -15,13 +15,18 @@ The bridge looks for a device advertising `Gravity980-…` and connects automati
 
 - Logs should show `Found grill 'Gravity980-XXXX'`, `BLE connected`, `BLE subscribed to status notifications`.
 - **Grill link** shows `bluetooth` and **Pit temperature** updates about once a second.
-- If nothing is found: run `python3 tools/ble_probe.py scan` on a laptop next to the grill and note the name and
-  address; set `name_prefix` or `mac_address` under `gravity980: bluetooth:` if it differs.
-- Unrecognised notifications are logged as `Unrecognised BLE notification: …` — copy those lines for me.
+- If nothing is found: run `pip install bleak` then `python3 tools/ble_probe.py scan` on a laptop next to the grill
+  and note the name and address; set `name_prefix` or `mac_address` under `gravity980: bluetooth:` if it differs
+  (ESPHome dashboard build).
+- Unrecognised notifications are logged as `Unrecognised BLE notification: …` — save those lines: they are what
+  the protocol work needs next.
 
 ## 2. Wi-Fi
 
-The stock controller's Wi-Fi is set up with the Char-Griller app (2.4 GHz only). Then:
+The stock controller's Wi-Fi is set up with the Char-Griller app (2.4 GHz only). **Turn Bridge enabled off first**
+(device page): the grill takes one connection at a time, and the bridge is holding it over Bluetooth. Turn it back
+on when the app is done. Find the grill's IP in the device log (`Grill reports Wi-Fi status …, IP …`) or your
+router. Then:
 
 ```bash
 nc <grill-ip> 3333 | xxd
@@ -53,6 +58,8 @@ while running, lid switch NC or NO.
 
 ## 5. A first cook
 
-Set **Food 1 protein** and **weight** before the probe goes in; flip **Food 1 wrapped** when you wrap. Everything is
+Set **Food 1 protein** and **weight** before the probe goes in, and give the probe a **target** (on the grill's
+panel; or, after starting the cook on the panel, **Food 1 target** on the dashboard). Without a target there's no
+finish time and the cook isn't saved to the history. Flip **Food 1 wrapped** when you wrap. Everything is
 logged; when the probe reaches its target the controller saves the cook to its history and the next cook's estimate
 starts from it.

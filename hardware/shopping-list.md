@@ -11,7 +11,7 @@ Prices are rough US street prices for budgeting.
 
 | Qty | Part | Notes | Have? | ~$ |
 |---|---|---|---|---|
-| 1 | **Lonely Binary ESP32-S3 N16R8** | The firmware is built for it | ✅ yours | 0 |
+| 1 | **Lonely Binary ESP32-S3 N16R8** | The firmware is built for it | ✅ owned | 0 |
 | 1 | Lonely Binary screwless terminal base | Optional, makes phase 2 wiring easier | ♻️ / ✅ | 0 |
 | 1 | USB-C charger (5 V, 1 A is plenty) + USB-C cable | Powers the bridge near the grill; a data cable for the first flash | ♻️ | 0 |
 | 1 | Small weatherproof box (IP65, ~100×68×50 mm) + cable gland | Keep the ESP32 out of rain and heat. Mount it away from the firebox; plastic so Bluetooth/Wi-Fi get out | | 8–15 |
@@ -78,7 +78,7 @@ leaving the ADS1115 channels for zones.
 
 | Part | Notes | Have? |
 |---|---|---|
-| Multimeter | Needed tomorrow (probe resistances, fan voltage, switch type) | ♻️ |
+| Multimeter | Needed for the measurement session (probe resistances, fan voltage, switch type) | ♻️ |
 | Soldering iron, strippers | | ♻️ |
 | USB logic analyser (Saleae clone, ~$12) or pocket scope | Optional: tells PWM from DC on the stock fan drive | |
 | IR thermometer | Optional: hopper, enclosure-location temperatures during a cook | |

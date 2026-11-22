@@ -13,12 +13,12 @@ substitutions:
   wind_speed_unit: "mph"           # mph, km/h or m/s
   ntfy_server: https://ntfy.sh
   update_manifest: https://legal-copy7045.github.io/gravity-controller/firmware/manifest.json
-  # Govee H5198 (via HA's Govee BLE integration, through this device's Bluetooth proxy).
-  # Set these to your Govee probe entities once HA has discovered the thermometer.
-  govee_probe_1: sensor.govee_h5198_probe_1_temperature
-  govee_probe_2: sensor.govee_h5198_probe_2_temperature
-  govee_probe_3: sensor.govee_h5198_probe_3_temperature
-  govee_probe_4: sensor.govee_h5198_probe_4_temperature
+  # Govee H5198 probes, via Home Assistant: the HA package maps your Govee entities onto these
+  # (Settings > Helpers > "Smoker Govee probe N entity"), so no firmware change is needed.
+  govee_probe_1: sensor.smoker_govee_probe_1
+  govee_probe_2: sensor.smoker_govee_probe_2
+  govee_probe_3: sensor.smoker_govee_probe_3
+  govee_probe_4: sensor.smoker_govee_probe_4
 
 esphome:
   name: ${name}
@@ -44,6 +44,8 @@ logger:
   level: DEBUG
 
 api:
+  # Home Assistant sets the encryption key when you add the device.
+  encryption: {}
   actions:
     - action: load_program
       variables:
@@ -101,12 +103,13 @@ wifi:
 
 captive_portal:
 improv_serial:
-esp32_improv:
+improv_ble:
   authorizer: none
 
 web_server:
   port: 80
   version: 3
+  ota: false   # firmware updates only through Home Assistant / ESPHome, not from the LAN web page
 
 time:
   - platform: homeassistant

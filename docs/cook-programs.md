@@ -29,6 +29,9 @@ hold 200 notify "Pork is done - rest it"
 Temperatures use the device unit (°F by default); add `F` or `C` to be explicit (`74C`). A step with no `until`
 (and not `hold`) completes immediately, so `notify "Spritz now"` can sit between steps.
 
+**Start the cook on the grill's panel first.** The stock controller ignores new targets while it's idle; the
+program keeps retrying every minute and tells you if the grill still hasn't taken its target after a few tries.
+
 **Manual changes:** if the pit target is changed outside the program (dashboard, phone, grill panel), the program
 **pauses**; resume it to go back to the program's target. After a controller restart, a running program is restored
 **paused** at the same step, and you get a notification.

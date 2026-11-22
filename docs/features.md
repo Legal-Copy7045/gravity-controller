@@ -66,7 +66,7 @@ Step 3  pit 160 °F (hold)   notify "Pork done – resting"
 | ID | Feature | Dep |
 |---|---|---|
 | U1 | HA mobile dashboard via the Companion app (Nabu Casa remote access): pit, probes, zones, program status, graphs | |
-| U2 | On-device web UI at `smoker.local` (works without HA, LAN only) | |
+| U2 | On-device web UI at `gravity980.local` (works without HA, LAN only) | |
 | U3 | On-device display: current pit temp (plus setpoint/probes if a larger OLED) | |
 | U4 | Knob or buttons on the device for the setpoint and alarm silence | U3 |
 | U5 | Device buzzer for alarms, with silence from the phone or a button | |

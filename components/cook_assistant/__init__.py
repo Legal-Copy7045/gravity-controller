@@ -130,8 +130,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("ambient_temperature_unit"): cv.one_of("F", "C", upper=True),
         cv.Optional("wind_speed_unit", default="mph"): cv.one_of("mph", "km/h", "m/s", lower=True),
         # The grill's accepted pit range (programs outside it are refused). Default: the stock controller, 200-700 °F.
-        cv.Optional("pit_min", default=93.3): cv.float_,
-        cv.Optional("pit_max", default=371.1): cv.float_,
+        cv.Optional("pit_min", default=93.333): cv.float_,
+        cv.Optional("pit_max", default=371.111): cv.float_,
         cv.Optional(CONF_TIME_ID): _time_schema(),
         cv.Required(CONF_PROBES): cv.All(cv.ensure_list(PROBE_SCHEMA), cv.Length(min=1, max=8)),
         cv.Optional(CONF_PRESETS, default=[]): cv.ensure_list(PRESET_SCHEMA),

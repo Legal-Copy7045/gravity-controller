@@ -523,8 +523,10 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     auto name = device.get_name();
     if (name.size() >= this->name_prefix_.size() &&
         strncmp(name.c_str(), this->name_prefix_.c_str(), this->name_prefix_.size()) == 0) {
-      ESP_LOGI(TAG, "Found grill '%s' at %s (RSSI %d)", name.c_str(), device.address_str().c_str(),
-               device.get_rssi());
+      uint64_t a = device.address_uint64();
+      ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
+               unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
+               unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
       this->set_address(device.address_uint64());
     }
   }

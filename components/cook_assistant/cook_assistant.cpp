@@ -30,36 +30,71 @@ struct HistoryBlob {
   cook::CookRecord r[cook::CookHistory::CAPACITY];
 };
 
-// Large blobs are stored as 240-byte chunks: some preference backends (e.g. the host platform used by the
-// end-to-end tests) cap a single entry at 255 bytes.
+// Large blobs are stored as 240-byte chunks (some preference backends, e.g. the host platform used by the
+// end-to-end tests, cap an entry at 255 bytes) plus a header chunk with magic, length and CRC, so a layout
+// change or a torn write is detected instead of loading garbage.
 static const size_t CHUNK = 240;
 struct Chunk {
   uint8_t d[CHUNK];
 };
-static bool chunked_save(uint32_t base, const void *data, size_t len) {
-  const uint8_t *p = static_cast<const uint8_t *>(data);
-  bool ok = true;
-  for (size_t off = 0, i = 0; off < len; off += CHUNK, i++) {
-    Chunk c{};
-    std::memcpy(c.d, p + off, std::min(CHUNK, len - off));
-    auto pref = global_preferences->make_preference<Chunk>(base + uint32_t(i), true);
-    ok = pref.save(&c) && ok;
+struct BlobHeader {
+  uint32_t magic;
+  uint32_t len;
+  uint32_t crc;
+};
+static uint32_t crc32_bytes(const uint8_t *p, size_t n) {
+  uint32_t c = 0xFFFFFFFF;
+  for (size_t i = 0; i < n; i++) {
+    c ^= p[i];
+    for (int k = 0; k < 8; k++)
+      c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
   }
-  return ok;
+  return ~c;
 }
-static bool chunked_load(uint32_t base, void *data, size_t len) {
-  uint8_t *p = static_cast<uint8_t *>(data);
-  for (size_t off = 0, i = 0; off < len; off += CHUNK, i++) {
-    Chunk c{};
-    auto pref = global_preferences->make_preference<Chunk>(base + uint32_t(i), true);
-    if (!pref.load(&c))
+class BlobStore {
+ public:
+  void init(uint32_t base, size_t len) {
+    len_ = len;
+    header_ = global_preferences->make_preference<BlobHeader>(base, true);
+    for (size_t off = 0, i = 1; off < len; off += CHUNK, i++)
+      chunks_.push_back(global_preferences->make_preference<Chunk>(base + uint32_t(i), true));
+  }
+  bool save(const void *data) {
+    const uint8_t *p = static_cast<const uint8_t *>(data);
+    bool ok = true;
+    for (size_t i = 0; i < chunks_.size(); i++) {
+      Chunk c{};
+      size_t off = i * CHUNK;
+      std::memcpy(c.d, p + off, std::min(CHUNK, len_ - off));
+      ok = chunks_[i].save(&c) && ok;
+    }
+    BlobHeader h{0x5C0CB10B, uint32_t(len_), crc32_bytes(p, len_)};
+    return header_.save(&h) && ok;
+  }
+  bool load(void *data) {
+    BlobHeader h{};
+    if (!header_.load(&h) || h.magic != 0x5C0CB10B || h.len != len_)
       return false;
-    std::memcpy(p + off, c.d, std::min(CHUNK, len - off));
+    uint8_t *p = static_cast<uint8_t *>(data);
+    for (size_t i = 0; i < chunks_.size(); i++) {
+      Chunk c{};
+      if (!chunks_[i].load(&c))
+        return false;
+      size_t off = i * CHUNK;
+      std::memcpy(p + off, c.d, std::min(CHUNK, len_ - off));
+    }
+    return crc32_bytes(p, len_) == h.crc;
   }
-  return true;
-}
-static const uint32_t HISTORY_KEY = 0x5C0C0100;  // + chunk index
-static const uint32_t PROGRAM_KEY = 0x5C0C0200;
+
+ protected:
+  size_t len_{0};
+  ESPPreferenceObject header_;
+  std::vector<ESPPreferenceObject> chunks_;
+};
+static BlobStore history_store, program_store;  // NOLINT
+
+static const uint32_t HISTORY_KEY = 0x5C0C0300;  // + chunk index
+static const uint32_t PROGRAM_KEY = 0x5C0C0400;
 
 // JSON helpers: escaped strings, NaN as null.
 static std::string json_str(const std::string &v) {
@@ -198,7 +233,9 @@ void CookAssistant::setup() {
   // History
   {
     auto *blob = new HistoryBlob();  // NOLINT: 1.9 kB, keep off the stack
-    if (chunked_load(HISTORY_KEY, blob, sizeof(HistoryBlob)))
+    history_store.init(HISTORY_KEY, sizeof(HistoryBlob));
+    program_store.init(PROGRAM_KEY, sizeof(ProgramBlob));
+    if (history_store.load(blob))
       this->history_.load(blob->r, cook::CookHistory::CAPACITY);
     delete blob;
   }
@@ -206,7 +243,7 @@ void CookAssistant::setup() {
   this->state_pref_ = global_preferences->make_preference<StateBlob>(fnv1_hash("cook_program_state_v1"));
   {
     auto *blob = new ProgramBlob();  // NOLINT
-    if (chunked_load(PROGRAM_KEY, blob, sizeof(ProgramBlob))) {
+    if (program_store.load(blob)) {
       blob->text[PROGRAM_MAX - 1] = 0;
       if (blob->text[0] != 0)
         this->load_program(blob->text, false);  // don't overwrite the saved run state before restoring it
@@ -707,7 +744,7 @@ void CookAssistant::set_pit_(float c) {
                               : NAN;
   this->last_commanded_c_ = c;
   // Round inside the grill's range (in °C a rounded value could land just outside it).
-  float lo = std::ceil(this->from_c_(this->pit_min_c_) - 0.01f), hi = std::floor(this->from_c_(this->pit_max_c_) + 0.01f);
+  float lo = std::ceil(this->from_c_(this->pit_min_c_) - 0.05f), hi = std::floor(this->from_c_(this->pit_max_c_) + 0.05f);
   float v = std::max(lo, std::min(hi, std::round(this->from_c_(c))));
   for (auto *t : this->set_pit_triggers_)
     t->trigger(v);
@@ -783,7 +820,7 @@ bool CookAssistant::load_program(const std::string &text, bool persist) {
   if (persist) {
     auto *blob = new ProgramBlob();  // NOLINT
     std::strncpy(blob->text, text.c_str(), PROGRAM_MAX - 1);
-    chunked_save(PROGRAM_KEY, blob, sizeof(ProgramBlob));
+    program_store.save(blob);
     delete blob;
   }
   ESP_LOGI(TAG, "Loaded program '%s' with %u steps", prog.name.c_str(), (unsigned) prog.steps.size());
@@ -883,7 +920,7 @@ void CookAssistant::set_wrapped(size_t probe, bool wrapped) {
 void CookAssistant::save_history_() {
   auto *blob = new HistoryBlob();  // NOLINT
   this->history_.save(blob->r, cook::CookHistory::CAPACITY);
-  chunked_save(HISTORY_KEY, blob, sizeof(HistoryBlob));
+  history_store.save(blob);
   delete blob;
   global_preferences->sync();
 }

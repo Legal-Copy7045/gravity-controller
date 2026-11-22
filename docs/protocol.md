@@ -1,7 +1,7 @@
 # Stock controller protocol (Gravity 980)
 
 Summary of what the bridge implements. Credit: [grzbiet/cg980app](https://github.com/grzbiet/cg980app) (MIT), from
-analysis of the official app and live testing. Items marked ⚠ are unverified on our grill — tomorrow's tests.
+analysis of the official app and live testing. Items marked ⚠ are unverified on a real grill yet (see first-run.md).
 
 ## Transports
 

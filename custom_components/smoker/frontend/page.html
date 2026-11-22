@@ -284,7 +284,9 @@ function renderPit() {
 
 function renderProgram() {
   const st = val(E('Program state', ['sensor'])) || 'Idle', status = val(E('Program status', ['sensor'])) || '';
-  const pt = $('progtext'); if (pt && pt.dataset.dirty && pt.value.trim() === (val(E('Program', ['text'])) || '').trim()) clean('progtext');
+  const pt = $('progtext'), srv = (val(E('Program', ['text'])) || '').trim();
+  // The entity holds at most 255 characters (longer programs end in "..."): compare the shown part.
+  if (pt && pt.dataset.dirty && (pt.value.trim() === srv || (srv.endsWith('...') && pt.value.trim().startsWith(srv.slice(0, -3))))) clean('progtext');
   const preset = S(E('Program preset', ['select'])), err = val(E('Program error', ['sensor']));
   const prog = val(E('Program', ['text'])) || '';
   const opts = preset ? (preset.attributes.options || []) : [];

@@ -289,8 +289,8 @@ class CookAssistant : public Component {
   float alert_sp_c_{NAN};
   std::vector<float> pit_hist_;
   double pit_hist_last_min_{-1e9};
-  float pit_min_c_{93.3f};   // 200 °F: the stock controller's minimum
-  float pit_max_c_{371.1f};  // 700 °F
+  float pit_min_c_{93.333f};   // 200 °F: the stock controller's minimum
+  float pit_max_c_{371.111f};  // 700 °F
   ESPPreferenceObject state_pref_;
 };
 
