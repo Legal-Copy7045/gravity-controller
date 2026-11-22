@@ -15,4 +15,6 @@ cream `#fff7ed`. Type: Bricolage Grotesque (headings), Instrument Sans (text), J
 home-dashboards project.
 
 The pages inline these files (the dashboard in `custom_components/smoker/frontend/page.html`, the controller's own page
-in `firmware/device-ui/ui.js`, the installer in `web/index.html`); update them there too when the artwork changes.
+in `firmware/device-ui/ui.js`, the installer in `web/index.html`): after changing anything here run
+`python3 tools/brand_sync.py` (CI fails if a page is out of date). Every icon is centred on its 24 × 24 box, and the
+mark's smoker is centred on its tile with the flame centred in the barrel; keep them that way.

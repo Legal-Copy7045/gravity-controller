@@ -32,6 +32,8 @@ jobs:
           persist-credentials: false
       - name: Check versions match
         run: python3 .github/scripts/check_versions.py
+      - name: Check the pages carry the current brand/ files
+        run: python3 tools/brand_sync.py --check
 
   unit-tests:
     runs-on: ubuntu-latest

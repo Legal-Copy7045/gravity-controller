@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.12] - 2026-11-22
+
+- **Branding, revisited:** the mark is redrawn on exact geometry (the smoker centred on its tile, the flame centred in
+  the barrel, no smoke wisp); every line icon is centred on its box; icons sit centred with their text in the section
+  bars and headings. `tools/brand_sync.py` keeps the pages in step with `brand/` (checked in CI).
+
 ## [0.2.11] - 2026-11-22
 
 - **Branding:** an original mark (a gravity smoker with an ember flame), favicon and app icons (`brand/`), and a set of
