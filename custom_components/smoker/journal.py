@@ -364,11 +364,24 @@ class IdentifyView(HomeAssistantView):
         return self.json({"items": items, "draft": j.data["draft"]})
 
 
-class GrillPhotoView(HomeAssistantView):
-    """Whether the user put a photo of their grill in Home Assistant's www folder (www/smoker/grill.png or .jpg).
+GRILL_PHOTO_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
-    The dashboard shows it, with the live readings pinned on it, instead of the drawing. It's served by Home
-    Assistant's own /local/ path; this only says whether it's there (so the page doesn't log a 404 when it isn't).
+
+def _uploaded_grill_photo(hass) -> Path | None:
+    for ext in ("jpg", "png", "webp"):
+        f = Path(hass.config.path(".storage", "smoker_photos", f"grill.{ext}"))
+        if f.is_file():
+            return f
+    return None
+
+
+class GrillPhotoView(HomeAssistantView):
+    """The user's own grill photo, shown (with the live readings pinned on it) instead of the drawing.
+
+    GET    -> {"url": ...}: a photo uploaded from the dashboard (Setup → Grill photo), or one saved by hand as
+              www/smoker/grill.(png|jpg|jpeg|webp); null if there's none.
+    POST   -> upload one (multipart field "photo", JPEG/PNG/WebP, max 8 MB); replaces the previous one.
+    DELETE -> remove the uploaded one (admin).
     """
 
     url = "/api/smoker/grill_photo"
@@ -379,6 +392,9 @@ class GrillPhotoView(HomeAssistantView):
         hass = request.app["hass"]
 
         def find():
+            up = _uploaded_grill_photo(hass)
+            if up is not None:
+                return f"{GrillPhotoImageView.url}?v={int(up.stat().st_mtime)}"
             for ext in ("png", "jpg", "jpeg", "webp"):
                 f = Path(hass.config.path("www", "smoker", f"grill.{ext}"))
                 if f.is_file():
@@ -386,6 +402,70 @@ class GrillPhotoView(HomeAssistantView):
             return None
 
         return self.json({"url": await hass.async_add_executor_job(find)})
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        try:
+            reader = await request.multipart()
+        except (AssertionError, ValueError, KeyError):
+            return self.json_message("send the photo as multipart/form-data", 400)
+        body, ctype = None, ""
+        async for part in reader:
+            if part.name != "photo":
+                continue
+            ctype = (part.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype not in GRILL_PHOTO_EXT:
+                return self.json_message("use a JPEG, PNG or WebP photo", 400)
+            buf = bytearray()
+            while chunk := await part.read_chunk(64 * 1024):
+                buf.extend(chunk)
+                if len(buf) > MAX_PHOTO_BYTES:
+                    return self.json_message("photo too large (max 8 MB)", 413)
+            body = bytes(buf)
+            break
+        if not body:
+            return self.json_message("no photo", 400)
+        ext = GRILL_PHOTO_EXT[ctype]
+
+        def save():
+            folder = Path(hass.config.path(".storage", "smoker_photos"))
+            folder.mkdir(parents=True, exist_ok=True)
+            for old in folder.glob("grill.*"):
+                old.unlink(missing_ok=True)
+            f = folder / f"grill.{ext}"
+            f.write_bytes(body)
+            return int(f.stat().st_mtime)
+
+        mtime = await hass.async_add_executor_job(save)
+        return self.json({"url": f"{GrillPhotoImageView.url}?v={mtime}"})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        if not request["hass_user"].is_admin:
+            return self.json_message("admin only", 403)
+        hass = request.app["hass"]
+
+        def remove():
+            up = _uploaded_grill_photo(hass)
+            if up is not None:
+                up.unlink(missing_ok=True)
+
+        await hass.async_add_executor_job(remove)
+        return self.json({"url": None})
+
+
+class GrillPhotoImageView(HomeAssistantView):
+    """The uploaded grill photo itself. Not behind a login so the smoker controller's own page (another address on
+    the network) can show it too; it's only ever the photo of the grill the user chose to upload."""
+
+    url = "/api/smoker/grill_photo/image"
+    name = "api:smoker:grill_photo_image"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.StreamResponse:
+        f = await request.app["hass"].async_add_executor_job(_uploaded_grill_photo, request.app["hass"])
+        if f is None:
+            return self.json_message("not found", 404)
+        return web.FileResponse(f, headers={"Cache-Control": "public, max-age=86400"})
 
 
 class PhotoView(HomeAssistantView):
@@ -411,7 +491,7 @@ async def async_setup_journal(hass: HomeAssistant) -> Journal:
     j = Journal(hass)
     await j.async_load()
     hass.data[DATA] = j
-    for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView(), GrillPhotoView()):
+    for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView(), GrillPhotoView(), GrillPhotoImageView()):
         hass.http.register_view(view)
     j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
     return j

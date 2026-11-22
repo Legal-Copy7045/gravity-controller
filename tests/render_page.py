@@ -409,6 +409,16 @@ def main():
                     failures.append(f"{scheme}/{name}: grill drawing missing live values: {[k for k in ('<svg', '251°', '62%', 'F1 ', 'F3 171°') if k not in g]}")
                 if "Grill connected" not in checks["topbar"] or "Wi-Fi" not in checks["topbar"]:
                     failures.append(f"{scheme}/{name}: status strip: {checks['topbar'][:160]!r}")
+                pc = fr.inner_text("#photocard")
+                if "Grill photo" not in pc or "Upload a photo" not in pc:
+                    failures.append(f"{scheme}/{name}: grill photo card: {pc[:120]!r}")
+                # Not connected: no "All good" beside "Grill not connected".
+                nc = fr.evaluate("""async () => {
+                    const st = window.parent.__smHass.states, k = 'binary_sensor.smoker_grill_connected', keep = st[k];
+                    st[k] = Object.assign({}, keep, {state: 'off'}); window.__smOnHass(); await new Promise(r => setTimeout(r, 400));
+                    const t = document.getElementById('topbar').innerText; st[k] = keep; window.__smOnHass(); return t; }""")
+                if "Grill not connected" not in nc or "All good" in nc:
+                    failures.append(f"{scheme}/{name}: not-connected strip: {nc!r}")
                 # Photo mode: the readings are pinned on the user's own photo (a tiny synthetic image here).
                 photo = fr.evaluate("""async () => {
                     const c = document.createElement('canvas'); c.width = 400; c.height = 292;

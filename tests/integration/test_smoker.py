@@ -140,6 +140,24 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     finally:
         pic.unlink(missing_ok=True)
 
+    # Uploading a grill photo from the dashboard: stored by the integration, served without a login (the controller's
+    # own page loads it from another address), replaced by the next upload, removed by an admin.
+    form = aiohttp.FormData()
+    form.add_field("photo", b"\xff\xd8\xff fake grill jpeg", filename="grill.jpg", content_type="image/jpeg")
+    r = await client.post("/api/smoker/grill_photo", data=form)
+    assert r.status == 200, await r.text()
+    url = (await r.json())["url"]
+    assert url.startswith("/api/smoker/grill_photo/image?v="), url
+    assert (await (await client.get("/api/smoker/grill_photo")).json())["url"] == url
+    img = await client.get("/api/smoker/grill_photo/image")
+    assert img.status == 200 and (await img.read()).startswith(b"\xff\xd8\xff")
+    bad = aiohttp.FormData()
+    bad.add_field("photo", b"<svg/>", filename="x.svg", content_type="image/svg+xml")
+    assert (await client.post("/api/smoker/grill_photo", data=bad)).status == 400  # only JPEG/PNG/WebP
+    assert (await client.delete("/api/smoker/grill_photo")).status == 200
+    assert (await (await client.get("/api/smoker/grill_photo")).json())["url"] is None
+    assert (await client.get("/api/smoker/grill_photo/image")).status == 404
+
     # A garbled summary is ignored.
     hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": "not json"})
     await hass.async_block_till_done()

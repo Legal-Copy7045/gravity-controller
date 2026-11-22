@@ -284,6 +284,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
       <section class="tc" id="controlcard"></section>
       <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
       <section class="tc"><h3>Controller</h3><div id="diag"></div></section>
+      <section class="tc" id="photocard"></section>
     </div>
   </div>
   <footer id="foot"></footer>
@@ -685,6 +686,22 @@ window.act = {
   source(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' probe', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast(p.label + ' reads ' + v)).catch(fail); },
   extEntity(n, v) { const e = byName('Smoker external probe ' + n + ' entity', ['input_text']); e && H().call('input_text', 'set_value', e, { value: (v || '').trim() }).then(() => toast(v ? 'Food ' + n + ' reads ' + v : 'Food ' + n + ': default thermometer')).catch(fail); },
   pressName(n) { press(n); toast(n.replace('Grill Wi-Fi: ', 'Grill Wi-Fi · ')); },
+  grillPhoto(input) {
+    const f = input.files && input.files[0]; if (!f) return;
+    if (f.size > 8 * 1024 * 1024) { input.value = ''; return toast('That photo is over 8 MB'); }
+    const fd = new FormData(); fd.append('photo', f, f.name);
+    toast('Uploading…');
+    api('POST', '/api/smoker/grill_photo', fd).then(r => {
+      grillPhoto = r.url; sendPhotoToController(r.url); toast('Photo saved'); render();
+    }).catch(fail).finally(() => { input.value = ''; });
+  },
+  grillPhotoRemove() {
+    api('DELETE', '/api/smoker/grill_photo').then(() => {
+      grillPhoto = null; photoAsked = false; toast('Photo removed');
+      const txt = E('Grill photo URL', ['text']); if (txt && val(txt)) H().call('text', 'set_value', txt, { value: '' }).catch(() => {});
+      render();
+    }).catch(fail);
+  },
   restart() {  // two taps: the first arms it for 3 s
     if (!restartArmed) { restartArmed = setTimeout(() => { restartArmed = 0; renderDiag(); }, 3000); renderDiag(); return; }
     clearTimeout(restartArmed); restartArmed = 0; press('Restart'); toast('Restarting the controller…'); renderDiag();
@@ -902,7 +919,7 @@ function findPhoto() {  // asked once Home Assistant is connected (see render)
     const tryOne = list => { if (!list.length) return; const img = new Image();
       img.onload = () => { grillPhoto = list[0]; rerender(); sendPhotoToController(list[0]); };
       img.onerror = () => tryOne(list.slice(1)); img.src = list[0]; };
-    tryOne(['/local/smoker/grill.png', '/local/smoker/grill.jpg', '/local/smoker/grill.webp']);
+    tryOne(['/api/smoker/grill_photo/image', '/local/smoker/grill.png', '/local/smoker/grill.jpg', '/local/smoker/grill.webp']);
   };
   if (!hasApi()) { viaImage(); return; }
   api('GET', '/api/smoker/grill_photo').then(r => {
@@ -911,6 +928,19 @@ function findPhoto() {  // asked once Home Assistant is connected (see render)
     sendPhotoToController(r.url);
   }).catch(viaImage);
 }
+// Setup → Grill photo: upload one (phone camera or library), see it, remove it.
+function renderPhotoCard() {
+  const can = hasApi();
+  put('photocard', `<h3>Grill photo</h3>
+    ${grillPhoto ? `<img src="${esc(grillPhoto)}" alt="Your grill" style="width:100%;border-radius:10px;border:1px solid var(--line);display:block;margin-bottom:8px">`
+      : '<p class="muted small" style="margin:0 0 8px">No photo yet: the page shows a drawing of the grill.</p>'}
+    <p class="muted small" style="margin:0 0 8px">A straight front-on photo works best: the readings are pinned where the controller, barrel, shelf, hopper and fan are on a Gravity 980.</p>
+    ${can ? `<div class="btns" style="margin-top:0"><label class="btn pri" style="display:inline-flex;align-items:center">${grillPhoto ? 'Replace photo' : 'Upload a photo'}
+        <input type="file" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="act.grillPhoto(this)"></label>
+        ${grillPhoto && /grill_photo\/image/.test(grillPhoto) ? '<button class="btn" onclick="act.grillPhotoRemove()">Remove</button>' : ''}</div>`
+      : '<p class="muted small" style="margin:0">Uploading needs the Smoker integration (HACS → Smoker); or save it as /config/www/smoker/grill.png.</p>'}`);
+}
+
 // The controller's own page can show the photo too: tell the controller where it is (its "Grill photo URL").
 function sendPhotoToController(url) {
   const txt = E('Grill photo URL', ['text']); if (!txt) return;
@@ -951,7 +981,7 @@ function renderTop() {
   const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
   const vic = !conn || via === 'none' ? 'off' : via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill';
   put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span><svg class="ic via"><use href="#i-${vic}"/></svg>${head}</span>
-    <span class="alerts">${a.join('') || '<span class="chip ok">All good</span>'}</span>`);
+    <span class="alerts">${a.join('') || (!conn || via === 'none' ? '' : '<span class="chip ok">All good</span>')}</span>`);
 }
 
 function renderKpis() {
@@ -1362,7 +1392,7 @@ function renderRange() {
 
 // ---------------------------------------------------------------- loop
 function render() {
-  findPhoto(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
+  findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
   loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }

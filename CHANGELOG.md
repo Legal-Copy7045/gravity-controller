@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.13] - 2026-11-22
+
+- **Upload your grill photo from the dashboard** (Setup → Grill photo; on a phone, camera or library): the integration
+  stores it and serves it to both dashboards and the controller's own page, which all pin the live readings on it.
+  No more saving files into Home Assistant's `www` folder (that still works). Replace or remove it there too.
+- **Fix:** "All good" no longer shows next to "Grill not connected".
+
 ## [0.2.12] - 2026-11-22
 
 - **Branding, revisited:** the mark is redrawn on exact geometry (the smoker centred on its tile, the flame centred in

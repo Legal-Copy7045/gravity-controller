@@ -83,8 +83,8 @@ appears in the sidebar.
 
 (Without HACS: copy `custom_components/smoker` to `/config/custom_components/smoker` and restart.)
 
-**Your grill's photo (optional):** save a front-on photo of the grill as `/config/www/smoker/grill.png` (or `.jpg`,
-`.webp`) in Home Assistant (e.g. through the File editor or Samba add-on). The dashboard then shows it at the top
+**Your grill's photo (optional):** on the dashboard, Setup → **Grill photo** → *Upload a photo* (a phone offers the
+camera or your library). Or save it by hand as `/config/www/smoker/grill.png` (or `.jpg`, `.webp`). The dashboard then shows it at the top
 with the live readings pinned on it (pit on the barrel, target and link on the controller, food on the front shelf,
 charcoal on the hopper, fan on the ash box); without it, a drawing of the grill is used. The pins are placed for a
 straight front view like the one in Char-Griller's product photos. Opening the dashboard also passes the photo's
