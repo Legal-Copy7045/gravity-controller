@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smoker dashboard",
+        "description": "Adds the Smoker page to the sidebar. It reads the ESPHome smoker controller's entities."
+      }
+    },
+    "abort": {"single_instance_allowed": "The Smoker dashboard is already set up."}
+  }
+}

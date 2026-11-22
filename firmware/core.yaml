@@ -10,6 +10,12 @@ substitutions:
   weather_entity: weather.forecast_home
   ntfy_server: https://ntfy.sh
   update_manifest: https://legal-copy7045.github.io/gravity-controller/firmware/manifest.json
+  # Govee H5198 (via HA's Govee BLE integration, through this device's Bluetooth proxy).
+  # Set these to your Govee probe entities once HA has discovered the thermometer.
+  govee_probe_1: sensor.govee_h5198_probe_1_temperature
+  govee_probe_2: sensor.govee_h5198_probe_2_temperature
+  govee_probe_3: sensor.govee_h5198_probe_3_temperature
+  govee_probe_4: sensor.govee_h5198_probe_4_temperature
 
 esphome:
   name: ${name}
@@ -103,9 +109,21 @@ time:
   - platform: homeassistant
     id: ha_time
 
+esp32_ble:
+  # 1 for the grill's own BLE link + 3 proxy slots (e.g. the Govee H5198) + 1 spare.
+  max_connections: 5
+
 esp32_ble_tracker:
   scan_parameters:
     active: true
+    interval: 320ms
+    window: 30ms
+
+# Home Assistant Bluetooth proxy: the smoker controller is the closest radio to
+# Bluetooth thermometers at the grill (Govee H5198, etc.).
+bluetooth_proxy:
+  active: true
+  connection_slots: 3
 
 # ----------------------------------------------------------------- grill link
 
@@ -176,6 +194,30 @@ sensor:
     entity_id: ${weather_entity}
     attribute: wind_speed
     internal: true
+  - platform: homeassistant
+    id: govee1_temp
+    entity_id: ${govee_probe_1}
+    internal: true
+    filters:
+      - filter_out: nan
+  - platform: homeassistant
+    id: govee2_temp
+    entity_id: ${govee_probe_2}
+    internal: true
+    filters:
+      - filter_out: nan
+  - platform: homeassistant
+    id: govee3_temp
+    entity_id: ${govee_probe_3}
+    internal: true
+    filters:
+      - filter_out: nan
+  - platform: homeassistant
+    id: govee4_temp
+    entity_id: ${govee_probe_4}
+    internal: true
+    filters:
+      - filter_out: nan
   - platform: wifi_signal
     name: Wi-Fi signal
     update_interval: 60s
@@ -342,6 +384,122 @@ cook_assistant:
         name: Food 2 stall
       probe_warning:
         name: Food 2 probe warning
+    - key: govee1
+      name: Govee 1
+      temperature: govee1_temp
+      target_number:
+        name: Govee 1 target
+      profile:
+        name: Govee 1 protein
+      weight:
+        name: Govee 1 weight
+      wrapped:
+        name: Govee 1 wrapped
+      time_remaining:
+        name: Govee 1 time remaining
+      time_remaining_low:
+        name: Govee 1 time remaining (early)
+      time_remaining_high:
+        name: Govee 1 time remaining (late)
+      estimated_total:
+        name: Govee 1 estimated total cook time
+      rate:
+        name: Govee 1 rate
+      finish_time:
+        name: Govee 1 finish time
+      phase:
+        name: Govee 1 phase
+      stall:
+        name: Govee 1 stall
+      probe_warning:
+        name: Govee 1 probe warning
+    - key: govee2
+      name: Govee 2
+      temperature: govee2_temp
+      target_number:
+        name: Govee 2 target
+      profile:
+        name: Govee 2 protein
+      weight:
+        name: Govee 2 weight
+      wrapped:
+        name: Govee 2 wrapped
+      time_remaining:
+        name: Govee 2 time remaining
+      time_remaining_low:
+        name: Govee 2 time remaining (early)
+      time_remaining_high:
+        name: Govee 2 time remaining (late)
+      estimated_total:
+        name: Govee 2 estimated total cook time
+      rate:
+        name: Govee 2 rate
+      finish_time:
+        name: Govee 2 finish time
+      phase:
+        name: Govee 2 phase
+      stall:
+        name: Govee 2 stall
+      probe_warning:
+        name: Govee 2 probe warning
+    - key: govee3
+      name: Govee 3
+      temperature: govee3_temp
+      target_number:
+        name: Govee 3 target
+      profile:
+        name: Govee 3 protein
+      weight:
+        name: Govee 3 weight
+      wrapped:
+        name: Govee 3 wrapped
+      time_remaining:
+        name: Govee 3 time remaining
+      time_remaining_low:
+        name: Govee 3 time remaining (early)
+      time_remaining_high:
+        name: Govee 3 time remaining (late)
+      estimated_total:
+        name: Govee 3 estimated total cook time
+      rate:
+        name: Govee 3 rate
+      finish_time:
+        name: Govee 3 finish time
+      phase:
+        name: Govee 3 phase
+      stall:
+        name: Govee 3 stall
+      probe_warning:
+        name: Govee 3 probe warning
+    - key: govee4
+      name: Govee 4
+      temperature: govee4_temp
+      target_number:
+        name: Govee 4 target
+      profile:
+        name: Govee 4 protein
+      weight:
+        name: Govee 4 weight
+      wrapped:
+        name: Govee 4 wrapped
+      time_remaining:
+        name: Govee 4 time remaining
+      time_remaining_low:
+        name: Govee 4 time remaining (early)
+      time_remaining_high:
+        name: Govee 4 time remaining (late)
+      estimated_total:
+        name: Govee 4 estimated total cook time
+      rate:
+        name: Govee 4 rate
+      finish_time:
+        name: Govee 4 finish time
+      phase:
+        name: Govee 4 phase
+      stall:
+        name: Govee 4 stall
+      probe_warning:
+        name: Govee 4 probe warning
   cook_active:
     name: Cook active
   cook_elapsed:

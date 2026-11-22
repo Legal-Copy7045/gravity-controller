@@ -4,3 +4,5 @@ __pycache__/
 tests/test_core
 secrets.yaml
 /build/
+tests/screens/
+tests/e2e-*.log

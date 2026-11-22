@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Smoker</title>
+<style>
+/* page-specific tokens (ember accent comes from style.css --page) */
+:root{--pit:#c2410c;--food1:#2b7fb8;--food2:#7c3aed;--g1:#0f9d76;--g2:#b5552a;--g3:#a16207;--g4:#be185d;--ai:#6d28d9}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--pit:#fb8a3c;--food1:#4aa8dd;--food2:#a78bfa;--g1:#34d399;--g2:#e58a5c;--g3:#facc15;--g4:#f472b6;--ai:#a78bfa}}
+:root[data-theme="dark"]{--pit:#fb8a3c;--food1:#4aa8dd;--food2:#a78bfa;--g1:#34d399;--g2:#e58a5c;--g3:#facc15;--g4:#f472b6;--ai:#a78bfa}
+.hero .big{font:600 clamp(44px,8vw,76px)/1 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.hero .big small{font:500 18px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:6px}
+.hero .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{font:600 11.5px "Instrument Sans",system-ui,sans-serif;padding:2px 9px;border-radius:999px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
+.chip.hot{background:color-mix(in srgb,var(--pit) 18%,transparent);color:var(--pit)}
+.chip.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.chip.warn{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.chip.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.statusline{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink-2)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;flex:none}
+.dot.on{background:var(--ok)}.dot.stale{background:var(--warn)}.dot.off{background:var(--bad)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kpi{background:var(--surface);padding:13px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi .l{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.kpi .v{font:500 26px/1.15 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .v small{font:500 13px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:3px}
+.kpi .n{font-size:12.5px;color:var(--ink-2)}
+@media (max-width:560px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.kpi .v{font-size:21px}}
+h2.sec{font:700 22px/1.2 "Bricolage Grotesque";padding-top:14px;border-top:2px solid var(--page);margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:14px;align-items:start}
+.tc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;position:relative;overflow:hidden}
+.tc.probe .edge{position:absolute;left:0;top:0;bottom:0;width:4px}
+.tc h3{margin:0 0 8px;font:700 16px "Bricolage Grotesque";display:flex;justify-content:space-between;gap:8px;align-items:center}
+.tc h3 small{font:500 12px "Instrument Sans";color:var(--muted)}
+.ptemp{font:600 38px/1.05 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums}
+.ptemp small{font:500 15px "Instrument Sans";color:var(--muted);margin-left:4px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:13.5px;align-items:center}
+.row .r{font:500 12.5px "JetBrains Mono",monospace;text-align:right}
+.btn{border:1px solid var(--line);background:var(--sunk);color:var(--ink);border-radius:8px;padding:7px 12px;font:600 13px "Instrument Sans",sans-serif;cursor:pointer;min-height:36px}
+.btn:hover{border-color:var(--page)}.btn.pri{background:var(--page);color:var(--on-page,#fff);border-color:var(--page)}
+.btn:disabled{opacity:.45;cursor:default}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.step{display:flex;align-items:center;gap:8px}
+.step .btn{min-width:44px;font-size:16px;padding:4px 10px}
+.step .val{font:600 22px "JetBrains Mono",monospace;min-width:84px;text-align:center}
+input,select,textarea{font:500 14px "Instrument Sans",sans-serif;color:var(--ink);background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-height:36px;box-sizing:border-box}
+textarea{width:100%;min-height:64px;resize:vertical;font-family:"JetBrains Mono",monospace;font-size:12.5px}
+input[type=number]{width:84px}
+.tg{width:40px;height:22px;border-radius:999px;background:var(--line);position:relative;border:0;cursor:pointer;flex:none}
+.tg::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:left .15s}
+.tg.on{background:var(--page)}.tg.on::after{left:21px}
+.eta{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.eta .t{font:600 22px "JetBrains Mono",monospace}
+.range{height:8px;border-radius:999px;background:var(--sunk);position:relative;margin:8px 0 2px}
+.range .band{position:absolute;top:0;bottom:0;border-radius:999px;background:color-mix(in srgb,var(--page) 35%,transparent)}
+.range .mid{position:absolute;top:-3px;bottom:-3px;width:3px;border-radius:2px;background:var(--page)}
+.range .ai{position:absolute;top:-4px;width:9px;height:9px;border-radius:50%;background:var(--ai);border:2px solid var(--surface);transform:translateX(-50%)}
+.muted{color:var(--muted)}.small{font-size:12.5px}
+.chart{height:280px;position:relative}
+.chart svg{width:100%;height:100%;display:block}
+.chart text{font:11px "JetBrains Mono",monospace;fill:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--surface);color:var(--ink-2);padding:5px 10px;font:600 12px "Instrument Sans";cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--page);color:var(--on-page,#fff)}
+details.fold{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque"}
+.err{color:var(--bad);font-size:12.5px;margin-top:6px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+.toast.show{opacity:.95}
+.empty{color:var(--muted);font-size:13.5px;padding:8px 0}
+footer{color:var(--muted);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <div class="eyebrow">Smoker · live</div>
+      <h1 id="title">Smoker</h1>
+      <div class="big" id="pitbig">--<small>°F pit</small></div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="art">
+      <span class="l">Status</span>
+      <span class="statusline"><span class="dot" id="ldot"></span><span id="lstatus">Connecting to Home Assistant…</span></span>
+      <span class="n small" id="gstatus"></span>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <h2 class="sec">Pit &amp; program</h2>
+  <div class="grid">
+    <section class="tc" id="pitcard"></section>
+    <section class="tc" id="progcard"></section>
+    <section class="tc" id="aicard"></section>
+  </div>
+
+  <h2 class="sec">Food</h2>
+  <div class="grid" id="probes"></div>
+
+  <h2 class="sec">Temperatures <span class="seg" id="range" style="float:right;margin-top:2px"></span></h2>
+  <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
+
+  <h2 class="sec">Plan</h2>
+  <div class="grid">
+    <section class="tc" id="plancard"></section>
+    <section class="tc" id="learncard"></section>
+  </div>
+
+  <details class="fold" data-k="diag"><summary>Controller &amp; connection</summary><div id="diag"></div></details>
+  <footer id="foot"></footer>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+/*COMMON*/
+
+// ---------------------------------------------------------------- entity discovery (by friendly name, not entity id)
+const DEV = 'Smoker';
+const PROBES = [
+  { key: 'food1', label: 'Food 1', color: 'var(--food1)' },
+  { key: 'food2', label: 'Food 2', color: 'var(--food2)' },
+  { key: 'govee1', label: 'Govee 1', color: 'var(--g1)' },
+  { key: 'govee2', label: 'Govee 2', color: 'var(--g2)' },
+  { key: 'govee3', label: 'Govee 3', color: 'var(--g3)' },
+  { key: 'govee4', label: 'Govee 4', color: 'var(--g4)' },
+];
+const cache = {};
+function E(name, doms) {
+  const k = name + '|' + (doms || []).join(',');
+  const hit = cache[k];
+  if (hit && S(hit)) return hit;
+  const eid = byName(DEV + ' ' + name, doms) || byName(name, doms);
+  if (eid) cache[k] = eid;
+  return eid;
+}
+const unitOf = eid => { const s = S(eid); return (s && s.attributes && s.attributes.unit_of_measurement) || ''; };
+const fmt = (v, d = 0) => v == null ? '--' : Number(v).toFixed(d);
+const TU = () => (unitOf(E('Pit temperature', ['sensor'])) || '°F');
+const isF = () => TU().indexOf('F') >= 0;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
+const fail = e => toast('⚠ ' + ((e && e.message) || e));
+const typing = () => { const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName); };
+function put(id, html) { const el = $(id); if (!el) return; if (el._h === html) return; if (typing() && el.contains(document.activeElement)) return; el._h = html; el.innerHTML = html; }
+const minsTxt = m => m == null ? '--' : m < 60 ? Math.round(m) + ' min' : Math.floor(m / 60) + 'h ' + String(Math.round(m % 60)).padStart(2, '0') + 'm';
+const atTxt = m => m == null ? '--' : clock(Date.now() + m * 60000);
+
+// ---------------------------------------------------------------- actions
+function setNum(eid, v) { return eid ? H().call('number', 'set_value', eid, { value: v }).catch(fail) : null; }
+function press(name) { const e = E(name, ['button']); return e ? H().call('button', 'press', e).catch(fail) : fail('missing ' + name); }
+function esph(svc, data) { return H().service('esphome', 'gravity980_' + svc, data || {}).catch(fail); }
+window.act = {
+  pit(delta) {
+    const e = E('Pit target', ['number']); const cur = num(e); if (cur == null) return fail('pit target unknown');
+    const step = isF() ? 5 : 2; setNum(e, cur + delta * step);
+  },
+  target(key, delta) {
+    const p = PROBES.find(x => x.key === key); const e = E(p.label + ' target', ['number']); const cur = num(e);
+    if (cur == null) return fail('target unknown'); setNum(e, cur + delta * (isF() ? 1 : 0.5));
+  },
+  targetSet(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' target', ['number']), parseFloat(v)); },
+  profile(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' protein', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
+  weight(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' weight', ['number']), parseFloat(v) || 0); },
+  wrap(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' wrapped', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
+  preset(v) { const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
+  load() { const t = $('progtext').value.trim(); if (!t) return; esph('load_program', { program: t }).then(() => toast('Program sent')); },
+  prog(svc) { esph(svc).then(() => toast(svc.replace('_', ' '))); },
+  plan() {
+    const t = $('plantext').value.trim(); if (!t) return toast('Describe the cook first');
+    toast('Asking the AI…'); H().service('script', 'smoker_plan_cook', { request: t }).then(() => toast('Plan requested: check notifications')).catch(fail);
+  },
+  advise() { toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
+  serve(v) {
+    const e = E('Smoker serve by', ['input_datetime']) || byName('Smoker serve by', ['input_datetime']);
+    if (!e || !v) return; H().call('input_datetime', 'set_datetime', e, { datetime: v.replace('T', ' ') + ':00' }).then(() => toast('Serve time set')).catch(fail);
+  },
+  toggle(eid) { const d = eid.split('.')[0]; H().call(d, 'toggle', eid).catch(fail); },
+  range(h) { chartHours = h; lastChart = 0; render(); },
+};
+
+// ---------------------------------------------------------------- sections
+function probeState(p) {
+  const t = num(E(p.label + ' temperature', ['sensor']));
+  const tgtE = E(p.label + ' target', ['number']) || E(p.label + ' target (reported)', ['sensor']);
+  return {
+    t, tgt: num(tgtE), tgtE,
+    phase: val(E(p.label + ' phase', ['sensor'])),
+    rem: num(E(p.label + ' time remaining', ['sensor'])),
+    lo: num(E(p.label + ' time remaining (early)', ['sensor'])),
+    hi: num(E(p.label + ' time remaining (late)', ['sensor'])),
+    total: num(E(p.label + ' estimated total cook time', ['sensor'])),
+    stallRem: num(E(p.label + ' stall remaining', ['sensor'])),
+    rate: num(E(p.label + ' rate', ['sensor'])),
+    finish: val(E(p.label + ' finish time', ['sensor'])),
+    stall: val(E(p.label + ' stall', ['binary_sensor'])) === 'on',
+    warn: val(E(p.label + ' probe warning', ['binary_sensor'])) === 'on',
+    profile: S(E(p.label + ' protein', ['select'])),
+    weight: num(E(p.label + ' weight', ['number'])),
+    wrapE: E(p.label + ' wrapped', ['switch']),
+    info: val(E(p.label + ' estimate basis', ['sensor'])),
+  };
+}
+
+function renderHero() {
+  const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
+  const link = val(E('Grill connected', ['binary_sensor'])), via = val(E('Grill link', ['sensor']));
+  const lid = val(E('Lid', ['binary_sensor'])), fan = val(E('Fan', ['binary_sensor']));
+  const cook = val(E('Cook active', ['binary_sensor'])) === 'on';
+  put('pitbig', fmt(pit) + `<small>${esc(TU())} pit${tgt != null ? ' → ' + fmt(tgt) + esc(TU()) : ''}</small>`);
+  const chips = [];
+  if (link === 'on') chips.push(`<span class="chip ok">Grill via ${esc(via || 'link')}</span>`);
+  else chips.push('<span class="chip bad">Grill not connected</span>');
+  if (cook) chips.push('<span class="chip hot">Cooking</span>');
+  if (lid === 'on') chips.push('<span class="chip warn">Lid open</span>');
+  if (fan === 'on') chips.push('<span class="chip">Fan on</span>');
+  if (val(E('Grill alarm', ['binary_sensor'])) === 'on') chips.push('<span class="chip bad">Grill alarm</span>');
+  if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) chips.push(`<span class="chip warn">${pit > tgt ? 'Running hot' : 'Running cold'}</span>`);
+  put('chips', chips.join(''));
+  put('gstatus', esc(val(E('Program status', ['sensor'])) || ''));
+}
+
+function renderKpis() {
+  const k = [];
+  const add = (l, v, u, n) => k.push(`<div class="kpi"><span class="l">${esc(l)}</span><span class="v">${v}${u ? `<small>${esc(u)}</small>` : ''}</span><span class="n">${n || '&nbsp;'}</span></div>`);
+  const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
+  add('Pit', fmt(pit), TU(), tgt != null ? 'target ' + fmt(tgt) + TU() : 'no target');
+  PROBES.slice(0, 2).forEach(p => { const s = probeState(p); if (s.t != null || p.key === 'food1') add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + atTxt(s.rem) : (s.phase || '')); });
+  const el = num(E('Cook elapsed', ['sensor']));
+  add('Cook time', el != null ? minsTxt(el) : '--', '', val(E('Cook active', ['binary_sensor'])) === 'on' ? 'in progress' : 'idle');
+  const w = Object.keys(H().all()).find(id => id.startsWith('weather.'));
+  const wx = w ? S(w) : null;
+  if (wx) add('Outside', fmt(wx.attributes.temperature), wx.attributes.temperature_unit || '', `${esc(wx.state)} · ${fmt(wx.attributes.humidity)}% · wind ${fmt(wx.attributes.wind_speed)}`);
+  put('kpis', k.join(''));
+}
+
+function renderPit() {
+  const e = E('Pit target', ['number']); const tgt = num(e);
+  put('pitcard', `<h3>Pit target <small>${esc(TU())}</small></h3>
+    <div class="step"><button class="btn" onclick="act.pit(-1)" aria-label="Lower">−</button><span class="val">${fmt(tgt)}</span>
+      <button class="btn" onclick="act.pit(1)" aria-label="Raise">+</button></div>
+    <div class="row"><span>Pit now</span><span class="r">${fmt(num(E('Pit temperature', ['sensor'])))}${esc(TU())}</span></div>
+    <div class="row"><span>Lid</span><span class="r">${val(E('Lid', ['binary_sensor'])) === 'on' ? 'open' : 'closed'}</span></div>
+    <div class="row"><span>Fan</span><span class="r">${val(E('Fan', ['binary_sensor'])) === 'on' ? 'on' : 'off'}</span></div>
+    <p class="muted small" style="margin:8px 0 0">The stock controller only accepts new targets while it is cooking (started from its panel).</p>`);
+}
+
+function renderProgram() {
+  const st = val(E('Program state', ['sensor'])) || 'Idle', status = val(E('Program status', ['sensor'])) || '';
+  const preset = S(E('Program preset', ['select'])), err = val(E('Program error', ['sensor']));
+  const prog = val(E('Program', ['text'])) || '';
+  const opts = preset ? (preset.attributes.options || []) : [];
+  const running = st === 'Running', paused = st === 'Paused';
+  put('progcard', `<h3>Cook program <span class="chip ${running ? 'ok' : paused ? 'warn' : ''}">${esc(st)}</span></h3>
+    <div class="small" style="margin-bottom:8px">${esc(status)}</div>
+    <div class="row"><span>Preset</span><select onchange="act.preset(this.value)">${opts.map(o => `<option ${preset && preset.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
+    <textarea id="progtext" spellcheck="false" placeholder='pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify "Done"'>${esc(prog)}</textarea>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div class="btns">
+      <button class="btn" onclick="act.load()">Load</button>
+      <button class="btn pri" onclick="act.prog('start_program')" ${running ? 'disabled' : ''}>Start</button>
+      <button class="btn" onclick="act.prog(${paused ? "'resume_program'" : "'pause_program'"})" ${!(running || paused) ? 'disabled' : ''}>${paused ? 'Resume' : 'Pause'}</button>
+      <button class="btn" onclick="act.prog('skip_step')" ${!(running || paused) ? 'disabled' : ''}>Skip step</button>
+      <button class="btn" onclick="act.prog('stop_program')" ${!(running || paused) ? 'disabled' : ''}>Stop</button>
+    </div>`);
+}
+
+function renderAI() {
+  const eta = num(byName('Smoker AI ETA (minutes)', ['input_number']));
+  const etaE = byName('Smoker AI ETA (minutes)', ['input_number']);
+  const at = etaE && S(etaE) ? Date.parse(S(etaE).last_changed) : null;
+  const left = eta && at ? eta - (Date.now() - at) / 60000 : null;
+  const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
+  const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
+  put('aicard', `<h3>AI pitmaster <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
+    <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span></div>
+    <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
+    ${sug ? `<div class="row"><span>Tip</span><span class="small" style="text-align:right">${esc(sug)}</span></div>` : ''}
+    <div class="btns"><button class="btn" onclick="act.advise()">Ask now</button></div>`);
+}
+
+function rangeBar(s, ai) {
+  if (s.lo == null || s.hi == null || s.rem == null) return '';
+  const max = Math.max(s.hi, ai || 0) * 1.1 || 1, pc = v => Math.max(0, Math.min(100, 100 * v / max));
+  return `<div class="range" title="estimate range"><span class="band" style="left:${pc(s.lo)}%;width:${pc(s.hi) - pc(s.lo)}%"></span>
+    <span class="mid" style="left:${pc(s.rem)}%"></span>${ai ? `<span class="ai" style="left:${pc(ai)}%" title="AI estimate"></span>` : ''}</div>
+    <div class="small muted" style="display:flex;justify-content:space-between"><span>now</span><span>${atTxt(s.lo)} – ${atTxt(s.hi)}</span></div>`;
+}
+
+function renderProbes() {
+  const aiE = byName('Smoker AI ETA (minutes)', ['input_number']);
+  const aiAt = aiE && S(aiE) ? Date.parse(S(aiE).last_changed) : null;
+  const aiLeft = num(aiE) && aiAt ? num(aiE) - (Date.now() - aiAt) / 60000 : null;
+  const cards = [];
+  PROBES.forEach((p, i) => {
+    const s = probeState(p);
+    const exists = E(p.label + ' temperature', ['sensor']);
+    if (!exists || (s.t == null && i > 0)) return;  // only probes that are plugged in (food 1 always shown)
+    const profOpts = s.profile ? (s.profile.attributes.options || []) : [];
+    const wrapped = val(s.wrapE) === 'on';
+    const phaseChip = s.stall ? '<span class="chip warn">Stall</span>' : s.phase ? `<span class="chip ${/Done/.test(s.phase) ? 'ok' : ''}">${esc(s.phase)}</span>` : '';
+    cards.push(`<section class="tc probe"><span class="edge" style="background:${p.color}"></span>
+      <h3>${esc(p.label)} ${phaseChip}</h3>
+      <div class="ptemp">${fmt(s.t)}<small>${esc(TU())}${s.tgt != null ? ' / ' + fmt(s.tgt) + esc(TU()) : ''}</small></div>
+      ${s.warn ? '<div class="err">Probe jumped towards pit temperature – is it still in the meat?</div>' : ''}
+      <div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
+        <span class="muted small">${s.rem != null ? 'in ' + minsTxt(s.rem) : esc(s.phase || 'no estimate yet')}</span></div>
+      ${rangeBar(s, i === 0 ? aiLeft : null)}
+      ${s.stall && s.stallRem != null ? `<div class="row"><span>Stall left</span><span class="r">~${minsTxt(s.stallRem)}</span></div>` : ''}
+      <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(TU()) + '/h' : '--'}</span></div>
+      <div class="row"><span>Whole cook</span><span class="r">${s.total != null ? minsTxt(s.total) : '--'}</span></div>
+      <div class="row"><span>Target</span><span class="step"><button class="btn" onclick="act.target('${p.key}',-1)">−</button>
+        <button class="btn" onclick="act.target('${p.key}',1)">+</button></span></div>
+      <div class="row"><span>Protein</span><select onchange="act.profile('${p.key}',this.value)">${profOpts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
+      <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${isF() ? 'lb' : 'kg'}</span></div>
+      <div class="row"><span>Wrapped</span><button class="tg ${wrapped ? 'on' : ''}" onclick="act.wrap('${p.key}')" aria-label="wrapped"></button></div>
+      ${s.info ? `<div class="small muted" style="margin-top:6px">${esc(s.info)}</div>` : ''}
+    </section>`);
+  });
+  put('probes', cards.join('') || '<div class="empty">No food probes connected.</div>');
+}
+
+function renderPlan() {
+  const serveE = byName('Smoker serve by', ['input_datetime']), startE = byName('Smoker start cooking by', ['sensor']);
+  const serve = val(serveE), start = val(startE);
+  const restE = byName('Smoker rest timer', ['timer']), rest = S(restE);
+  const local = serve ? serve.replace(' ', 'T').slice(0, 16) : '';
+  put('plancard', `<h3>Plan a cook</h3>
+    <textarea id="plantext" placeholder="e.g. 8 lb pork butt, ready by 6pm, I'll wrap at the stall" style="font-family:'Instrument Sans';font-size:14px"></textarea>
+    <div class="btns"><button class="btn pri" onclick="act.plan()">Plan with AI</button></div>
+    <div class="row" style="margin-top:10px"><span>Serve by</span><input type="datetime-local" value="${esc(local)}" onchange="act.serve(this.value)"></div>
+    <div class="row"><span>Light the grill by</span><span class="r">${start && start !== 'unknown' ? clock(start) + ' (' + (until(start) || '') + ')' : '--'}</span></div>
+    <div class="row"><span>Rest timer</span><span class="r">${rest ? esc(rest.state) + (rest.attributes.finishes_at ? ' · ends ' + clock(rest.attributes.finishes_at) : '') : '--'}</span></div>`);
+}
+
+function renderLearn() {
+  const n = num(E('Cooks learned', ['sensor'])), gf = num(E('Grill heat factor', ['sensor']));
+  const last = val(byName('Smoker last cook summary', ['input_text']));
+  put('learncard', `<h3>Learning</h3>
+    <div class="row"><span>Cooks learned</span><span class="r">${fmt(n)}</span></div>
+    <div class="row"><span>Grill heat factor</span><span class="r">${gf != null ? fmt(gf, 2) + '×' : '--'}</span></div>
+    <p class="small muted" style="margin:8px 0">Each finished cook is saved on the controller (protein, weight, pit, weather, stall, total time).
+      New cooks start from the most similar past cooks, then follow the live data.</p>
+    ${last ? `<div class="small"><b>Last cook:</b> ${esc(last)}</div>` : ''}`);
+}
+
+function renderDiag() {
+  const rows = [['Grill link', E('Grill link', ['sensor'])], ['Raw status frame', E('Raw status frame', ['sensor'])],
+    ['Wi-Fi signal', E('Wi-Fi signal', ['sensor'])], ['Firmware', E('Firmware version', ['sensor'])], ['Uptime', E('Uptime', ['sensor'])],
+    ['Grill IP address', E('Grill IP address', ['text'])]];
+  const fw = E('Firmware', ['update']);
+  const bridge = E('Bridge enabled', ['switch']);
+  put('diag', rows.filter(r => r[1]).map(([l, e]) => `<div class="row"><span>${esc(l)}</span><span class="r">${esc(val(e) || '--')} ${esc(unitOf(e))}</span></div>`).join('') +
+    (bridge ? `<div class="row"><span>Bridge enabled (off lets the Char-Griller app connect)</span><button class="tg ${val(bridge) === 'on' ? 'on' : ''}" onclick="act.toggle('${esc(bridge)}')"></button></div>` : '') +
+    (fw && S(fw) ? `<div class="row"><span>Firmware update</span><span class="r">${S(fw).state === 'on' ? 'available: ' + esc(S(fw).attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : ''));
+  put('foot', 'Smoker controller · ' + esc(val(E('Firmware version', ['sensor'])) || ''));
+}
+
+// ---------------------------------------------------------------- chart (inline SVG, follows the theme tokens)
+let chartHours = 6, lastChart = 0, chartData = null;
+async function loadChart() {
+  const series = [['Pit', E('Pit temperature', ['sensor']), 'var(--pit)'], ['Pit target', E('Pit target', ['number']), 'var(--muted)']];
+  PROBES.forEach(p => { const e = E(p.label + ' temperature', ['sensor']); if (e && num(e) != null) series.push([p.label, e, p.color]); });
+  const ids = series.map(s => s[1]).filter(Boolean);
+  if (!ids.length) return;
+  const h = await hist(ids, chartHours);
+  chartData = series.filter(s => s[1]).map(([name, eid, color]) => ({ name, color, dash: name === 'Pit target',
+    pts: (h[eid] || []).map(p => [p.t, parseFloat(p.s)]).filter(p => isFinite(p[1])) }));
+}
+function drawChart() {
+  const box = $('chart'); if (!box || !chartData) return;
+  const W = box.clientWidth || 600, Hh = box.clientHeight || 280, L = 40, R = 10, T = 10, B = 24;
+  const now = Date.now(), t0 = now - chartHours * 3600e3;
+  let lo = Infinity, hi = -Infinity;
+  chartData.forEach(s => s.pts.forEach(p => { if (p[0] >= t0) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); } }));
+  if (!isFinite(lo)) { box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
+  const span = Math.max(20, hi - lo), stepY = span > 200 ? 50 : span > 80 ? 25 : 10;
+  lo = Math.floor((lo - 5) / stepY) * stepY; hi = Math.ceil((hi + 5) / stepY) * stepY;
+  const x = t => L + (W - L - R) * (t - t0) / (now - t0), y = v => T + (Hh - T - B) * (1 - (v - lo) / (hi - lo));
+  let g = '';
+  for (let v = lo; v <= hi; v += stepY) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  const hstep = chartHours <= 6 ? 1 : chartHours <= 12 ? 2 : 4;
+  for (let t = Math.ceil(t0 / 3600e3 / hstep) * hstep * 3600e3; t <= now; t += hstep * 3600e3)
+    g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}</text>`;
+  const lines = chartData.map(s => {
+    const pts = s.pts.filter(p => p[0] >= t0 - 3600e3);
+    if (!pts.length) return '';
+    let d = '', last = null;
+    pts.forEach(p => { const px = Math.max(L, x(p[0])), py = y(p[1]); if (last != null && s.dash) d += `L${px},${last}`; d += (d ? 'L' : 'M') + px + ',' + py; last = py; });
+    d += `L${x(now)},${last}`;
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? 1.5 : 2.2}" ${s.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`;
+  }).join('');
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="Temperature history">${g}${lines}</svg>`;
+  put('legend', chartData.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join(''));
+}
+function renderRange() {
+  put('range', [3, 6, 12, 24].map(h => `<button aria-pressed="${h === chartHours}" onclick="act.range(${h})">${h}h</button>`).join(''));
+}
+
+// ---------------------------------------------------------------- loop
+function render() {
+  renderHero(); renderKpis(); renderPit(); renderProgram(); renderAI(); renderProbes(); renderPlan(); renderLearn(); renderDiag(); renderRange();
+  if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
+}
+window.addEventListener('resize', () => drawChart());
+live(render, 20000);
+</script>
+</body>
+</html>

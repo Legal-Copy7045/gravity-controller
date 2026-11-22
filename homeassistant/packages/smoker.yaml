@@ -1,0 +1,453 @@
+# Gravity 980 smoker: Home Assistant package
+#
+# Install: copy to /config/packages/smoker.yaml and make sure configuration.yaml has
+#   homeassistant:
+#     packages: !include_dir_named packages
+# then restart Home Assistant. See docs/install.md.
+#
+# Assumes the ESPHome device is named "gravity980" with friendly name "Smoker"
+# (entity ids sensor.smoker_*, actions esphome.gravity980_*).
+#
+# Edit the two lines marked EDIT below (your phone and AI task entity).
+
+# ------------------------------------------------------------------- helpers
+
+input_boolean:
+  smoker_ai_advisor:
+    name: Smoker AI advisor
+    icon: mdi:robot-outline
+    initial: true
+
+input_number:
+  smoker_ai_eta_minutes:
+    name: Smoker AI ETA (minutes)
+    min: 0
+    max: 3000
+    step: 1
+    mode: box
+    icon: mdi:robot
+  smoker_rest_minutes:
+    name: Smoker rest time
+    min: 0
+    max: 240
+    step: 5
+    initial: 60
+    unit_of_measurement: min
+    icon: mdi:timer-sand
+
+input_text:
+  smoker_ai_summary:
+    name: Smoker AI summary
+    max: 255
+  smoker_ai_suggestion:
+    name: Smoker AI suggestion
+    max: 255
+  smoker_ai_last_cook:
+    name: Smoker last cook summary
+    max: 255
+  smoker_plan_request:
+    name: Smoker plan request
+    max: 255
+    icon: mdi:chat-processing
+
+input_datetime:
+  smoker_serve_time:
+    name: Smoker serve by
+    has_date: true
+    has_time: true
+    icon: mdi:silverware-fork-knife
+
+timer:
+  smoker_rest:
+    name: Smoker rest timer
+    icon: mdi:timer-sand-complete
+
+# ------------------------------------------------------------------- derived sensors
+
+template:
+  - sensor:
+      - name: Smoker food 1 finish
+        unique_id: smoker_food1_finish
+        device_class: timestamp
+        state: >
+          {% set m = states('sensor.smoker_food_1_time_remaining') %}
+          {{ (now() + timedelta(minutes=m|float)).isoformat() if is_number(m) else none }}
+      - name: Smoker food 2 finish
+        unique_id: smoker_food2_finish
+        device_class: timestamp
+        state: >
+          {% set m = states('sensor.smoker_food_2_time_remaining') %}
+          {{ (now() + timedelta(minutes=m|float)).isoformat() if is_number(m) else none }}
+      - name: Smoker AI finish
+        unique_id: smoker_ai_finish
+        device_class: timestamp
+        state: >
+          {% set m = states('input_number.smoker_ai_eta_minutes') | float(0) %}
+          {% set at = states.input_number.smoker_ai_eta_minutes.last_changed %}
+          {{ (at + timedelta(minutes=m)).isoformat() if m > 0 else none }}
+      # "Ready by" planner: when to light the grill to serve at input_datetime.smoker_serve_time.
+      - name: Smoker start cooking by
+        unique_id: smoker_start_by
+        device_class: timestamp
+        icon: mdi:fire-alert
+        state: >
+          {% set serve = states('input_datetime.smoker_serve_time') %}
+          {% set total = states('sensor.smoker_food_1_estimated_total_cook_time') %}
+          {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
+          {% if serve not in ['unknown', 'unavailable', ''] and is_number(total) %}
+            {% set ts = as_datetime(serve) | as_local %}
+            {# + 45 min to light the grill and come up to temperature #}
+            {{ (ts - timedelta(minutes=total|float + rest + 45)).isoformat() }}
+          {% else %}{{ none }}{% endif %}
+
+# ------------------------------------------------------------------- scripts
+
+script:
+  # Single place that decides how smoker notifications reach your phone.
+  smoker_notify:
+    alias: Smoker notify
+    mode: queued
+    fields:
+      title: {description: Title}
+      message: {description: Message}
+      priority: {description: "0 info, 1 high, 2 critical"}
+      tag: {description: Notification tag (replaces older ones with the same tag)}
+      actions: {description: Optional actionable buttons}
+    sequence:
+      - variables:
+          prio: "{{ priority | int(0) }}"
+          push:
+            interruption-level: "{{ 'critical' if prio >= 2 else ('time-sensitive' if prio == 1 else 'active') }}"
+            sound: >
+              {{ {'name': 'default', 'critical': 1, 'volume': 1.0} if prio >= 2 else 'default' }}
+      # EDIT: your phone's notify action (Settings > Companion app shows the device name).
+      - action: notify.mobile_app_your_phone
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+          data:
+            tag: "smoker_{{ tag | default('general') }}"
+            group: smoker
+            url: /smoker-dashboard
+            push: "{{ push }}"
+            actions: "{{ actions | default([]) }}"
+
+  smoker_plan_cook:
+    alias: Smoker plan cook with AI
+    description: Describe the cook in plain words; the AI writes a cook program and loads it (not started).
+    icon: mdi:robot-happy
+    mode: single
+    fields:
+      request:
+        description: e.g. "8 lb pork butt, done by 6pm, I'll wrap at the stall"
+        selector: {text: {multiline: true}}
+    sequence:
+      - variables:
+          req: "{{ request if request is defined and request else states('input_text.smoker_plan_request') }}"
+      - action: ai_task.generate_data
+        response_variable: plan
+        data:
+          task_name: Smoker cook plan
+          # EDIT: your AI task entity.
+          entity_id: ai_task.google_ai_task
+          instructions: |
+            You plan cooks for a Char-Griller Gravity 980 charcoal smoker. Write a cook program in this exact language.
+            Steps separated by ';'. Each step: actions then optional 'until' conditions joined by 'or'.
+            Actions: 'pit N' (set pit °F), 'hold N' (set and stay), 'notify "text"', 'shutdown'.
+            Conditions: 'food1 >= N [for Nm]', 'food1 <= N', 'food1 done', 'after Nh|Nm', 'at HH:MM',
+            'stall_start food1', 'stall_end food1'. Probes: pit, food1, food2. Temperatures in °F.
+            Start with 'name: <short name>;'. Keep it under 240 characters. Example:
+            name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify "Rest it"
+            Current time: {{ now().strftime('%a %H:%M') }}. Outdoor: {{ state_attr('weather.forecast_home', 'temperature') }}°F,
+            wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph.
+            The cook: {{ req }}
+          structure:
+            program:
+              description: The cook program text
+              required: true
+              selector: {text: {}}
+            explanation:
+              description: One or two sentences explaining the plan and the expected timing
+              required: true
+              selector: {text: {}}
+      - action: esphome.gravity980_load_program
+        data:
+          program: "{{ plan.data.program }}"
+      - delay: 2
+      - if:
+          - condition: template
+            value_template: "{{ states('sensor.smoker_program_error') not in ['', 'unknown', 'unavailable'] }}"
+        then:
+          - action: script.smoker_notify
+            data:
+              title: AI plan rejected
+              message: "The controller rejected the program: {{ states('sensor.smoker_program_error') }}"
+              priority: 0
+              tag: plan
+        else:
+          - action: script.smoker_notify
+            data:
+              title: Cook plan ready
+              message: "{{ plan.data.explanation }} Program: {{ plan.data.program }}"
+              priority: 0
+              tag: plan
+              actions:
+                - action: SMOKER_START_PROGRAM
+                  title: Start program
+
+  smoker_ai_advise:
+    alias: Smoker AI advisor run
+    mode: single
+    sequence:
+      - action: esphome.gravity980_request_context
+      - wait_for_trigger:
+          - trigger: event
+            event_type: esphome.smoker_context
+        timeout: "00:00:20"
+        continue_on_timeout: false
+      - variables:
+          ctx: "{{ wait.trigger.event.data }}"
+      - action: ai_task.generate_data
+        response_variable: advice
+        data:
+          task_name: Smoker advisor
+          entity_id: ai_task.google_ai_task
+          instructions: |
+            You are a pitmaster advising on a live cook on a Char-Griller Gravity 980 charcoal smoker.
+            The controller's physics model gives its own estimate (minutes_remaining, with an early/late range).
+            Give an independent second opinion using the live state, the history of similar past cooks
+            (total_h, stall_h by protein/weight/pit), and the weather. Be concrete and brief.
+            Live state (JSON): {{ ctx.state }}
+            Past cooks (JSON): {{ ctx.history }}
+            Weather: {{ state_attr('weather.forecast_home', 'temperature') }}°F, humidity {{ state_attr('weather.forecast_home', 'humidity') }}%,
+            wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph, condition {{ states('weather.forecast_home') }}.
+            Serve-by target: {{ states('input_datetime.smoker_serve_time') }}. Now: {{ now().strftime('%H:%M') }}.
+          structure:
+            eta_minutes:
+              description: Your estimate of minutes until the main food probe reaches its target (0 if unknown)
+              required: true
+              selector: {number: {min: 0, max: 3000}}
+            summary:
+              description: One sentence on how the cook is going (max 200 characters)
+              required: true
+              selector: {text: {}}
+            suggestion:
+              description: One actionable suggestion, or empty if none is needed (max 200 characters)
+              required: false
+              selector: {text: {}}
+      - action: input_number.set_value
+        target: {entity_id: input_number.smoker_ai_eta_minutes}
+        data: {value: "{{ advice.data.eta_minutes | int(0) }}"}
+      - action: input_text.set_value
+        target: {entity_id: input_text.smoker_ai_summary}
+        data: {value: "{{ advice.data.summary[:250] }}"}
+      - if:
+          - condition: template
+            value_template: >
+              {{ (advice.data.suggestion | default('')) | length > 0 and
+                 advice.data.suggestion[:250] != states('input_text.smoker_ai_suggestion') }}
+        then:
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_suggestion}
+            data: {value: "{{ advice.data.suggestion[:250] }}"}
+          - action: script.smoker_notify
+            data:
+              title: Pitmaster tip
+              message: "{{ advice.data.suggestion }}"
+              priority: 0
+              tag: ai
+
+# ------------------------------------------------------------------- automations
+
+automation:
+  - id: smoker_forward_notifications
+    alias: Smoker - forward controller notifications
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: event
+        event_type: esphome.smoker_notify
+    actions:
+      - variables:
+          tag: "{{ trigger.event.data.tag }}"
+          buttons: >
+            {% if tag.startswith('done_') %}
+              [{"action": "SMOKER_FOOD_PLUS_5_{{ tag[5:] | upper }}", "title": "+5°F target"},
+               {"action": "SMOKER_PIT_HOLD", "title": "Hold at 160°F"}]
+            {% elif tag == 'pit_band' %}
+              [{"action": "SMOKER_PIT_PLUS_25", "title": "Pit +25°F"}, {"action": "SMOKER_PIT_MINUS_25", "title": "Pit −25°F"}]
+            {% elif tag == 'program' and 'paused' in trigger.event.data.title | lower %}
+              [{"action": "SMOKER_RESUME_PROGRAM", "title": "Resume program"}]
+            {% elif tag.startswith('stall_') and 'stall' == trigger.event.data.title.split(' ')[-1] %}
+              [{"action": "SMOKER_WRAPPED_{{ tag[6:] | upper }}", "title": "I wrapped it"}]
+            {% else %}[]{% endif %}
+      - action: script.smoker_notify
+        data:
+          title: "{{ trigger.event.data.title }}"
+          message: "{{ trigger.event.data.message }}"
+          priority: "{{ trigger.event.data.priority }}"
+          tag: "{{ tag }}"
+          actions: "{{ buttons }}"
+
+  - id: smoker_notification_actions
+    alias: Smoker - notification buttons
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.action.startswith('SMOKER_') }}"
+    actions:
+      - variables:
+          a: "{{ trigger.event.data.action }}"
+      - choose:
+          - conditions: "{{ a == 'SMOKER_START_PROGRAM' }}"
+            sequence:
+              - action: esphome.gravity980_start_program
+          - conditions: "{{ a == 'SMOKER_RESUME_PROGRAM' }}"
+            sequence:
+              - action: esphome.gravity980_resume_program
+          - conditions: "{{ a in ['SMOKER_PIT_PLUS_25', 'SMOKER_PIT_MINUS_25'] }}"
+            sequence:
+              - action: number.set_value
+                target: {entity_id: number.smoker_pit_target}
+                data:
+                  value: >
+                    {{ states('number.smoker_pit_target') | float(225) + (25 if a.endswith('PLUS_25') else -25) }}
+          - conditions: "{{ a == 'SMOKER_PIT_HOLD' }}"
+            sequence:
+              - action: esphome.gravity980_stop_program
+              - action: number.set_value
+                target: {entity_id: number.smoker_pit_target}
+                data: {value: 200}
+          - conditions: "{{ a.startswith('SMOKER_FOOD_PLUS_5_') }}"
+            sequence:
+              - variables:
+                  n: "{{ 'number.smoker_food_1_target' if a.endswith('FOOD1') else 'number.smoker_food_2_target' }}"
+              - action: number.set_value
+                target: {entity_id: "{{ n }}"}
+                data: {value: "{{ states(n) | float(203) + 5 }}"}
+          - conditions: "{{ a.startswith('SMOKER_WRAPPED_') }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ 'switch.smoker_food_1_wrapped' if a.endswith('FOOD1') else 'switch.smoker_food_2_wrapped' }}"
+
+  - id: smoker_ai_advisor_schedule
+    alias: Smoker - AI advisor every 30 minutes during a cook
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: state
+        entity_id: binary_sensor.smoker_food_1_stall
+        to: "on"
+        for: "00:20:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.smoker_cook_active
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.smoker_ai_advisor
+        state: "on"
+      - condition: template
+        value_template: "{{ is_number(states('sensor.smoker_food_1_temperature')) }}"
+    actions:
+      - action: script.smoker_ai_advise
+
+  - id: smoker_cook_complete_summary
+    alias: Smoker - learn and summarise finished cooks
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: esphome.smoker_cook_complete
+    actions:
+      - variables:
+          s: "{{ trigger.event.data.summary | from_json }}"
+      - action: logbook.log
+        data:
+          name: Smoker
+          message: >
+            {{ s.name }} ({{ s.profile }}{{ ', %.1f kg' % s.weight_kg if s.weight_kg else '' }}) done in
+            {{ '%.1f' % s.total_h }} h, stall {{ '%.1f' % s.stall_h }} h at a {{ '%.0f' % (s.pit_c * 9 / 5 + 32) }}°F pit.
+            The controller has now learned from {{ s.history_count }} cooks.
+          entity_id: sensor.smoker_cooks_learned
+      - action: timer.start
+        target: {entity_id: timer.smoker_rest}
+        data:
+          duration: "{{ (states('input_number.smoker_rest_minutes') | int(60)) * 60 }}"
+      - if:
+          - condition: state
+            entity_id: input_boolean.smoker_ai_advisor
+            state: "on"
+        then:
+          - action: ai_task.generate_data
+            response_variable: review
+            data:
+              task_name: Smoker cook review
+              entity_id: ai_task.google_ai_task
+              instructions: |
+                Write a friendly two-sentence review of this finished smoker cook with one tip for next time.
+                Cook (JSON): {{ trigger.event.data.summary }}. Weather now: {{ state_attr('weather.forecast_home', 'temperature') }}°F.
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_last_cook}
+            data: {value: "{{ review.data[:250] }}"}
+          - action: script.smoker_notify
+            data:
+              title: Cook review
+              message: "{{ review.data }}"
+              priority: 0
+              tag: review
+
+  - id: smoker_rest_done
+    alias: Smoker - rest finished
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data: {entity_id: timer.smoker_rest}
+    actions:
+      - action: script.smoker_notify
+        data:
+          title: Rest complete
+          message: The meat has rested. Time to slice!
+          priority: 1
+          tag: rest
+
+  - id: smoker_light_reminder
+    alias: Smoker - time to light the grill
+    triggers:
+      - trigger: time
+        at: sensor.smoker_start_cooking_by
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.smoker_cook_active
+        state: "off"
+    actions:
+      - action: script.smoker_notify
+        data:
+          title: Time to light the smoker
+          message: >
+            To serve at {{ as_timestamp(states('input_datetime.smoker_serve_time')) | timestamp_custom('%H:%M') }},
+            start now (about {{ (states('sensor.smoker_food_1_estimated_total_cook_time') | float(0) / 60) | round(1) }} h
+            cook + {{ states('input_number.smoker_rest_minutes') | int }} min rest).
+          priority: 1
+          tag: plan
+
+  - id: smoker_controller_offline
+    alias: Smoker - controller offline during a cook
+    triggers:
+      - trigger: state
+        entity_id: sensor.smoker_pit_temperature
+        to: unavailable
+        for: "00:03:00"
+    conditions:
+      - condition: template
+        value_template: "{{ states('binary_sensor.smoker_cook_active') in ['on', 'unavailable'] }}"
+    actions:
+      - action: script.smoker_notify
+        data:
+          title: Smoker controller offline
+          message: Home Assistant has lost contact with the smoker controller for 3 minutes.
+          priority: 2
+          tag: offline
