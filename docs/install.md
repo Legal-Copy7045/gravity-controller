@@ -56,6 +56,11 @@ dashboard (pull the latest and install).
 5. If your weather entity isn't `weather.forecast_home`, change the `weather_entity` substitution (ESPHome dashboard)
    and the same name in the package — or create a template weather entity with that id.
 
+**The controller's own page:** open `http://gravity980.local` (or its IP; on a phone the IP is more reliable) for a
+phone page served by the controller itself: connection status first, the grill with live readings, food, pit target
+and program, charcoal and setup. It works without Home Assistant and without the internet. ESPHome's standard page
+with every entity and the logs is at `http://gravity980.local/?classic` (that one loads from the internet).
+
 ## 3. Home Assistant package
 
 Copy `homeassistant/packages/smoker.yaml` to `/config/packages/smoker.yaml`. If you don't use packages yet, add to

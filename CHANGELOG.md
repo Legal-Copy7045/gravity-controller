@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.6] - 2026-11-22
+
+### Firmware
+- **The controller's own web page** (`http://gravity980.local`) in the home-dashboards look, replacing ESPHome's stock
+  page: a status strip first (connected, controlling, anything wrong), the grill with live readings, food, pit target
+  and program, charcoal, and setup (Bluetooth control, bridge, grill IP and Wi-Fi report, probe sources). Built into
+  the firmware: works without Home Assistant or the internet. The stock page is at `/?classic`.
+
+### Home Assistant dashboard
+- Rebuilt in the home-dashboards layout: a status strip first, the grill (your own photo from
+  `/config/www/smoker/grill.png`, or a drawing) with each reading where it is on the grill, a sticky section bar, and
+  sections that follow the grill: food, pit & program, charcoal, then chart, plan, journal and setup.
+- Food cards lead with temperature, finish, target, pull and rest; the rest folds away (and stays open while it
+  updates). A Setup section gathers the connection, probe sources and controller details.
+
 ## [0.2.5] - 2026-11-22
 
 - **Grill Wi-Fi** diagnostic entity: what the grill reports about its own Wi-Fi over Bluetooth (network, IP, signal,

@@ -75,6 +75,18 @@ jobs:
         run: python3 tests/e2e.py
       - name: Failure scenarios (idle grill, silent link, manual override, done alert, restart)
         run: python3 tests/e2e_scenarios.py
+      - name: Device web page (firmware/device-ui) in Chromium against the host build
+        run: |
+          pip install playwright aiohttp
+          python3 -m playwright install --with-deps chromium
+          python3 tests/webui_e2e.py _device_ui_screens
+      - name: Upload device page screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: device-page-screenshots
+          path: _device_ui_screens/*.png
+          if-no-files-found: ignore
       - name: Assemble site
         run: python3 .github/scripts/make_site.py _site firmware/.esphome/build/gravity980/build firmware/core.yaml
       - name: Attest the published firmware

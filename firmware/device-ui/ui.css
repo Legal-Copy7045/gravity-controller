@@ -107,3 +107,14 @@
 @keyframes hd-glow{50%{opacity:.55}}
 .gx .grillpic .ember{animation:hd-glow 2.4s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){.gx .grillpic .fan.on,.gx .grillpic .ember{animation:none}}
+
+/* status strip (first on the page) */
+.gx .topbar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.gx .topbar .conn{display:flex;align-items:center;gap:9px;font:700 15px "Instrument Sans",system-ui,sans-serif}
+.gx .topbar .conn .dot{width:12px;height:12px}
+.gx .topbar .conn small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2)}
+.gx .topbar .alerts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.gx .topbar.bad{border-color:color-mix(in srgb,var(--bad) 55%,var(--line));background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
+.gx .topbar.warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
+@media (max-width:560px){.gx .topbar .alerts{margin-left:0}}
+.gx .dot.stale{background:var(--warn)}

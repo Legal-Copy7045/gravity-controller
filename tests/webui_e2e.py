@@ -122,11 +122,14 @@ def run_page(browser, width, height, shots):
         check(False, f"page drew the hero at {width}px (errors: {errors[:3]}, body: {pg.inner_html('body')[:300]!r})")
         ctx.close()
         return
-    pit = value("sensor", "Pit temperature")
-    big = pg.inner_text("#hero .big")
-    check(str(round(pit)) in big.replace("\n", "") or abs(float(big.split("°")[0]) - pit) <= 2,
-          f"hero shows the pit temperature ({big.split(chr(10))[0]!r} vs {pit:.0f})")
+    # the simulation runs at 120x: the hero must catch up with the device's reading within a few seconds
+    shown = lambda: float(pg.inner_text("#hero .big").replace("\n", "").split("°")[0])
+    ok = wait(lambda: abs(shown() - value("sensor", "Pit temperature")) <= 1, 6, "the hero to follow the pit")
+    check(ok, f"hero shows the pit temperature ({shown():.0f}; device {value('sensor', 'Pit temperature'):.0f})")
     check(pg.locator("#grillpic svg").count() == 1, "grill drawing rendered")
+    top = pg.inner_text("#topbar")
+    check("Grill connected" in top, f"status strip first on the page says connected ({top[:80]!r})")
+    check(pg.evaluate("document.querySelector('.wrap').firstElementChild.id") == "topbar", "status strip is the first thing on the page")
     pg.wait_for_selector("#food .food[data-slot='1'] .ptemp", timeout=10000)
     check(pg.locator("#food .food").count() >= 1, "a food card renders")
     # pit +: the grill must report the new target

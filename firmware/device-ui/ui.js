@@ -20,6 +20,7 @@ function start() {
   doc.head.appendChild(f);
   const app = doc.querySelector('esp-app'); if (app) app.remove();
   doc.body.insertAdjacentHTML('afterbegin', `<div class="wrap">
+  <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
   <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
   <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">Food</a><a href="#s-pit">Pit &amp; program</a><a href="#s-fuel">Charcoal</a><a href="#s-setup">Setup</a></nav>
   <section class="sect" id="s-food"><h2 class="sec">Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
@@ -181,6 +182,25 @@ function render() {
       ${on(E('binary_sensor', 'Lid')) ? '<span class="chip warn">Lid open</span>' : ''}
       ${on(E('binary_sensor', 'Grill alarm')) ? '<span class="chip bad">Grill alarm</span>' : ''}</div>
     ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}`);
+  // Status strip, first on the page: connected? controlling? anything wrong?
+  const conn = on(E('binary_sensor', 'Grill connected')), via = T('Grill link');
+  const al = [], add = (c, t) => al.push(`<span class="chip ${c}">${esc(t)}</span>`);
+  if (on(E('binary_sensor', 'Grill alarm'))) add('bad', 'Grill alarm');
+  if (on(E('binary_sensor', 'Lid'))) add('warn', 'Lid open');
+  if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) add('warn', pit > tgt ? 'Running hot' : 'Running cold');
+  for (let i = 1; i <= 6; i++) if (on(E('binary_sensor', `Food ${i} probe warning`))) add('warn', `Food ${i}: check the probe`);
+  const hl = S('Charcoal hours left');
+  if (hl != null && hl < 1.5 && active) add(hl < 0.75 ? 'bad' : 'warn', `Charcoal ~${fmt(hl, 1)} h left`);
+  if (pst === 'Paused') add('warn', 'Program paused');
+  if (!live) add('warn', 'Page reconnecting to the controller');
+  const ok = conn && via !== 'none';
+  const how = via === 'wifi' ? ' · Wi-Fi' : via === 'bluetooth' ? ' · Bluetooth' : '';
+  const head = ok ? `Grill connected${how}<small>${L.cls === 'ok' ? 'this page controls it' : esc(L.why || 'read-only')}</small>`
+    : `Grill not connected<small>${esc(L.why && /bridge/i.test(L.why) ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?')}</small>`;
+  const tb = $('topbar');
+  if (tb) tb.className = 'topbar' + (!ok || al.some(x => /chip bad/.test(x)) ? ' bad' : L.cls !== 'ok' || al.length ? ' warn' : '');
+  put('topbar', `<span class="conn"><i class="dot ${!ok ? 'off' : L.cls === 'ok' ? 'on' : 'stale'}"></i>${head}</span>
+    <span class="alerts">${al.join('') || '<span class="chip ok">All good</span>'}</span>`);
   renderGrill(u, pit, tgt); renderPit(u, pit, tgt); renderFood(u); renderFuel(); renderProg(); renderSetup(u);
 }
 
