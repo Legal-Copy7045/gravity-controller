@@ -346,7 +346,21 @@ function renderPit() {
     <div class="row"><span>Pit now</span><span class="r">${fmt(num(E('Pit temperature', ['sensor'])))}${esc(TU())}</span></div>
     <div class="row"><span>Lid</span><span class="r">${val(E('Lid', ['binary_sensor'])) === 'on' ? 'open' : 'closed'}</span></div>
     <div class="row"><span>Fan</span><span class="r">${val(E('Fan', ['binary_sensor'])) === 'on' ? 'on' : 'off'}</span></div>
+    ${controlRow()}
     <p class="muted small" style="margin:8px 0 0">The stock controller only accepts new targets while it is cooking (started from its panel).</p>`);
+}
+
+// How the app's changes reach the grill: Wi-Fi, Bluetooth (experimental), or not at all (and why).
+function controlRow() {
+  const conn = val(E('Grill connected', ['binary_sensor'])) === 'on', via = val(E('Grill link', ['sensor'])) || 'none';
+  const bleE = E('Control over Bluetooth (experimental)', ['switch']), ble = val(bleE) === 'on';
+  let txt, cls = '';
+  if (!conn || via === 'none') { txt = 'Not connected to the grill: read-only'; cls = 'warn'; }
+  else if (via === 'wifi') txt = 'Controlling the grill over Wi-Fi';
+  else if (ble) txt = 'Controlling the grill over Bluetooth';
+  else { txt = 'Bluetooth link is read-only: turn on control below'; cls = 'warn'; }
+  return `<div class="row"><span>Control</span><span class="r"><span class="chip ${cls}">${esc(txt)}</span>${via === 'bluetooth' && ble ? ' ' + EXP('Setting targets over Bluetooth is new on the 980: check the grill follows the first change.') : ''}</span></div>` +
+    (bleE ? `<div class="row"><span>Control over Bluetooth</span><button class="tg ${ble ? 'on' : ''}" onclick="act.toggle('${esc(bleE)}')" aria-label="Control over Bluetooth"></button></div>` : '');
 }
 
 function renderProgram() {

@@ -66,16 +66,31 @@ starts from it.
 
 ## Control over Bluetooth
 
-The 980 is known to take pit and food targets over Wi-Fi; over Bluetooth it hasn't been confirmed yet. If the grill's
-Wi-Fi is unreliable, try it:
+The app (dashboard, programs, voice, notification buttons) changes the grill's pit and food targets through the
+controller, over Wi-Fi when the grill is on Wi-Fi and otherwise over Bluetooth. **Control over Bluetooth
+(experimental)** is on by default; the dashboard's pit card shows which link is in use. The 980 is known to take
+targets over Wi-Fi; over Bluetooth it hasn't been confirmed yet, so check it on your first cook:
 
 1. Start a cook on the grill's panel (the grill ignores target changes while idle, over either link).
-2. Device page → Configuration → turn on **Control over Bluetooth (experimental)**.
-3. Change **Pit target** by 5–10 degrees. Within a few seconds *Pit target (reported)* and the grill's display should
-   follow. The log shows `Set pit target …` and then the reported value.
-4. If the grill doesn't follow, the log says `Grill ignored … target`: nothing was changed. Turn the switch off and
-   tell us; the bridge then stays read-only over Bluetooth and needs Wi-Fi for control.
+2. On the dashboard, change the pit target by 5–10 degrees. Within a few seconds the grill's display and *Pit target
+   (reported)* should follow. The log shows `Set pit target … via BLE` and then the reported value.
+3. If the log says `Grill ignored … target`, nothing was changed: tell us, and use Wi-Fi for control.
 
 Only pit and food targets are ever sent (the same three commands as over Wi-Fi, within the grill's 200–700 °F range);
-each write is checked against what the grill reports back.
+each write is checked against what the grill reports back. Turn the switch off (device page → Configuration) to make
+the Bluetooth link read-only.
 
+## The grill's Wi-Fi (UniFi and mesh networks)
+
+You don't need it: Bluetooth carries both readings and control. If you'd like the grill on Wi-Fi anyway (longer
+range than Bluetooth, the Char-Griller app away from home), these UniFi settings commonly stop small 2.4 GHz
+controllers joining. The easiest fix is a dedicated IoT network for them:
+
+- 2.4 GHz only (no band steering), 20 MHz channel width, channel 1, 6 or 11.
+- Security WPA2 (not WPA3, not WPA2/WPA3 transition); PMF *optional* or off.
+- Off: *Fast roaming (802.11r)*, *BSS transition*, *Minimum data rate control*, *Multicast enhancement*,
+  *Proxy ARP*, *Client device isolation*; and if UniFi's *Optimize network* (or *IoT auto-detect*) is pushing settings,
+  set them by hand.
+- Give the grill a fixed IP (DHCP reservation), then enter it in **Grill IP address**.
+
+The smoker controller itself is an ESP32 and copes with most of these, but the same IoT network suits it too.

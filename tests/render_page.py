@@ -86,6 +86,7 @@ STATES = dict([
     st("sensor.smoker_food_3_pull_at", 170, "Smoker Food 3 pull at", **F),
     st("sensor.smoker_charcoal_estimate_basis", "Experimental: default burn rate for briquettes (learned from 0.0 of 3 kg).",
        "Smoker Charcoal estimate basis"),
+    st("switch.smoker_control_over_bluetooth_experimental", "on", "Smoker Control over Bluetooth (experimental)"),
     st("sensor.smoker_program_state", "Running", "Smoker Program state"),
     st("sensor.smoker_program_status", "Step 1/3, pit 250°F, until food1 158/165°F (held 0/30 min)", "Smoker Program status"),
     st("sensor.smoker_program_error", "", "Smoker Program error"),
@@ -187,6 +188,7 @@ def main():
                     "scan": fr.inner_text("#scancard"),
                     "journal": fr.inner_text("#journal"),
                     "sources": fr.inner_html("#sources"),
+                    "pitcard": fr.inner_text("#pitcard"),
                 }
                 if errors:
                     failures.append(f"{scheme}/{name}: JS errors {errors}")
@@ -210,6 +212,8 @@ def main():
                     failures.append(f"{scheme}/{name}: experimental chips per card {exp}")
                 if "Experimental" not in checks["fuel"] or "Experimental" not in checks["recs"]:
                     failures.append(f"{scheme}/{name}: experimental label missing: fuel {checks['fuel'][:200]!r} recs {checks['recs'][:120]!r}")
+                if "Controlling the grill over Wi-Fi" not in checks["pitcard"] or "Control over Bluetooth" not in checks["pitcard"]:
+                    failures.append(f"{scheme}/{name}: control row: {checks['pitcard'][:200]!r}")
                 src = checks["sources"]
                 if (src.count("<select") != 4 or 'value="sensor.example_probe" selected' not in src or "H5198 probe 4" not in src
                         or "Porch temperature" not in src or "example_probe_alarm" in src):

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.4] - 2026-11-22
+
+- **Control over Bluetooth** is on by default: the app controls the grill over Bluetooth when its Wi-Fi isn't
+  connected (it often won't join UniFi networks). Still experimental until a cook confirms the grill takes it.
+- Dashboard: the pit card shows how the app reaches the grill (Wi-Fi, Bluetooth, or read-only and why), with the
+  Bluetooth control switch.
+- Docs: UniFi/mesh settings that stop the grill joining Wi-Fi.
+
 ## [0.2.3] - 2026-11-22
 
 ### Firmware
