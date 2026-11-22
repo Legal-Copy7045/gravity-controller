@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.2.1] - 2026-11-22
+
+Second review round, and **Experimental** labels on estimates that need history
+([what's experimental](docs/features-0.2.md#whats-experimental)).
+
+### Firmware
+- **Fix:** the controller no longer reboots after 15 minutes without Home Assistant or Wi-Fi (it kept cooking and
+  alerting through ntfy, then restarted and lost the cook's estimates).
+- **Fix:** probe targets: quick changes no longer bounce back, a target the idle grill ignored is re-sent, targets set
+  on the grill's panel are taken as they are (the slot range is now the grill's), and two slots on the same grill
+  probe don't overwrite each other. The charcoal gauge ignores a warm but unlit grill.
+- The H5198 reader only picks a device once it has sent real probe readings.
+- **Experimental** labels: finish times (until 3 similar cooks), pull-at (until 2 measured rests) and the charcoal
+  gauge (until about one logged cook) say so in their estimate basis and alerts until there's enough history; new
+  *Charcoal estimate basis* entity.
+
+### Home Assistant
+- Dashboard: an **Experimental** chip on estimates without enough history yet, the AI estimate and
+  recommendations, and H5198 readings ([what's experimental](docs/features-0.2.md#whats-experimental)).
+- Voice finish-time answers say when the estimate is still experimental.
+- Package scan photos are kept in `media/smoker_scans`; only the integration's own files there are tidied up.
+- Weather entity lines are marked **EDIT** in the package.
+
+### Docs
+- ESPHome dashboard snippet includes `govee_h5198` and needs ESPHome 2026.11 or newer; which USB port to use; adding
+  the device by hand when it isn't discovered; `.local` names on phones.
+
 ## [0.2.0] - 2026-11-22
 
 Five new features ([docs/features-0.2.md](docs/features-0.2.md)) and selectable food probes.
@@ -29,15 +56,6 @@ directly (below). Cook programs use `food3`…`food6` instead of `govee1`…`gov
   longer gap; switching a slot's source just after a finish keeps the cook; marking "pulled" twice doesn't
   overwrite the measured rest.
 - Food targets, slice-at and pull-at are temperature entities, so Home Assistant shows them in its own unit.
-- **Fix:** the controller no longer reboots after 15 minutes without Home Assistant or Wi-Fi (it kept cooking and
-  alerting through ntfy, then restarted and lost the cook's estimates).
-- **Fix:** probe targets: quick changes no longer bounce back, a target the idle grill ignored is re-sent, targets set
-  on the grill's panel are taken as they are (the slot range is now the grill's), and two slots on the same grill
-  probe don't overwrite each other. The charcoal gauge ignores a warm but unlit grill.
-- The H5198 reader only picks a device once it has sent real probe readings.
-- **Experimental** labels: finish times (until 3 similar cooks), pull-at (until 2 measured rests) and the charcoal
-  gauge (until about one logged cook) say so in their estimate basis and alerts until there's enough history; new
-  *Charcoal estimate basis* entity.
 
 ### Home Assistant
 - Cook journal (Smoker integration): every finished cook with ratings, notes and curve comparison.
@@ -45,15 +63,13 @@ directly (below). Cook programs use `food3`…`food6` instead of `govee1`…`gov
   weight.
 - Voice: ask for finish times, pit temperature, charcoal; set the pit; log the hopper; start presets; mark pulled.
 - AI advisor and planner use journal ratings/notes and scanned packages; forecast sent to the controller.
-- Dashboard: an **Experimental** chip on estimates without enough history yet, the AI estimate and
-  recommendations, and H5198 readings ([what's experimental](docs/features-0.2.md#whats-experimental)).
 - Dashboard: *Probe sources* picks each slot's thermometer (and the Home Assistant entity); the probe card shows it.
 - Helpers *Smoker external probe 1-6 entity* replace the Govee helpers; °C sources are converted.
 - **Fix:** voice no longer takes over "the grill is off", asks which probe when it's ambiguous, answers the stall
   question for the food you name, uses the pit's own range (°C too), and understands "half a hopper".
 - **Fix:** photo uploads are size-limited while reading; scanned item ids are checked (they ended up in the page);
   bad weights and ratings return a message instead of an error; photo names can't collide; unused scan photos are
-  tidied up (only the integration's own, in `media/smoker_scans`).
+  tidied up.
 - **Fix:** the finished-cook summary no longer fails for cooks without a stall (poultry, sausage, fish) or without a
   pit average, so the rest timer and the AI review run; package photo thumbnails load; the AI plan isn't refreshed
   every time the controller reconnects; notification buttons use the pit's own range and unit.
