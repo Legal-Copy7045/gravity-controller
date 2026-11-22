@@ -16,9 +16,9 @@ substitutions:
   temperature_unit: "F"                 # or "C"
   weather_entity: weather.forecast_home # your weather entity (outdoor temp, humidity, wind)
 packages:
-  smoker: github://Legal-Copy7045/gravity-controller/firmware/core.yaml@claude/intelligent-cori-rntbhy
+  smoker: github://Legal-Copy7045/gravity-controller/firmware/core.yaml@main
 external_components:
-  - source: github://Legal-Copy7045/gravity-controller@claude/intelligent-cori-rntbhy
+  - source: github://Legal-Copy7045/gravity-controller@main
     components: [gravity980, cook_assistant]
     refresh: 1d
 wifi:
@@ -28,7 +28,7 @@ wifi:
 update: !remove
 ```
 
-(Replace the branch with `main` once the project has one.)
+
 
 Updates: a board flashed from the web installer checks GitHub Pages every 6 hours and shows **Firmware** under
 *Updates* in Home Assistant: install from there. A board built in the ESPHome dashboard is updated from the
