@@ -68,7 +68,7 @@ Reuse the stock **fan, pit probe, meat probes, door switch and 12 V PSU**, and r
 Run A first, logging stock behaviour and building the HA dashboards and stall logic. Then swap to B.
 The HA entity names stay the same, so dashboards and automations carry over.
 
-**Recommendation: C.** Phase 1 costs nothing in hardware and gives working logs and alarms
+**Decision (updated): Option B, full replacement keeping the stock fan.** See [design.md](design.md).
 quickly. Phase 2 happens once the probe types are measured.
 
 ## 5. Home Assistant features (either option)
