@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.18] - 2026-11-22
+
+- **The integration installs the Home Assistant package for you**: action `smoker.install_package` (admin) writes
+  `/config/packages/smoker.yaml` from the copy bundled with the integration, filled in with your phone, AI task and
+  weather. Run it again after an update to bring the package up to date (your choices are kept; the old file is kept
+  as a backup). Restart Home Assistant afterwards.
+
 ## [0.2.17] - 2026-11-22
 
 - Fix: without the Smoker package for Home Assistant installed, the AI pitmaster switch said "not allowed: .toggle".

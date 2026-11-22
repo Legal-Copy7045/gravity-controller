@@ -176,3 +176,40 @@ async def test_unload_and_reload(hass: HomeAssistant, tmp_path):
     hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps({"probe": "food1", "total_h": 1})})
     await hass.async_block_till_done()
     assert len(hass.data[DATA].data["entries"]) == 1
+
+
+def test_bundled_package_matches_repo():
+    root = Path(__file__).resolve().parents[2]
+    assert (root / "custom_components/smoker/package/smoker.yaml").read_text() == \
+        (root / "homeassistant/packages/smoker.yaml").read_text(), \
+        "copy homeassistant/packages/smoker.yaml to custom_components/smoker/package/smoker.yaml"
+
+
+async def test_install_package(hass: HomeAssistant, tmp_path):
+    import pytest
+    from homeassistant.exceptions import HomeAssistantError
+
+    hass.config.config_dir = str(tmp_path)
+    (tmp_path / "configuration.yaml").write_text("homeassistant:\n  packages: !include_dir_named packages\n")
+    await _setup(hass, tmp_path)
+    with pytest.raises(HomeAssistantError):  # the phone is required the first time
+        await hass.services.async_call(DOMAIN, "install_package", {}, blocking=True, return_response=True)
+    res = await hass.services.async_call(DOMAIN, "install_package", {"notify": "notify.mobile_app_test_phone"},
+                                         blocking=True, return_response=True)
+    pkg = tmp_path / "packages/smoker.yaml"
+    text = pkg.read_text()
+    assert res["changed"] and res["packages_loaded"] and res["backup"] is None
+    assert "notify.mobile_app_test_phone" in text and "notify.mobile_app_your_phone" not in text
+    assert "ai_task.google_ai_task" in text and text.startswith("# Installed by the Smoker integration")
+    # Again with no fields: same choices, nothing to do.
+    res = await hass.services.async_call(DOMAIN, "install_package", {}, blocking=True, return_response=True)
+    assert not res["changed"]
+    # A new weather entity: the old file is kept as a backup, the phone stays.
+    res = await hass.services.async_call(DOMAIN, "install_package", {"weather": "weather.other"},
+                                         blocking=True, return_response=True)
+    text = pkg.read_text()
+    assert res["changed"] and res["backup"] and Path(res["backup"]).exists()
+    assert "weather.other" in text and "weather.forecast_home" not in text and "notify.mobile_app_test_phone" in text
+    with pytest.raises(Exception):
+        await hass.services.async_call(DOMAIN, "install_package", {"notify": "light.kitchen"}, blocking=True,
+                                       return_response=True)

@@ -1,0 +1,1040 @@
+# Gravity 980 smoker: Home Assistant package
+#
+# Install: copy to /config/packages/smoker.yaml and make sure configuration.yaml has
+#   homeassistant:
+#     packages: !include_dir_named packages
+# then restart Home Assistant. See docs/install.md.
+#
+# Assumes the ESPHome device is named "gravity980" with friendly name "Smoker"
+# (entity ids sensor.smoker_*, actions esphome.gravity980_*).
+#
+# Edit the lines marked EDIT below: your phone (once) and your AI task entity (three times).
+
+# ------------------------------------------------------------------- helpers
+
+input_boolean:
+  smoker_ai_advisor:
+    name: Smoker AI advisor
+    icon: mdi:robot-outline
+    initial: true
+
+input_number:
+  smoker_ai_eta_minutes:
+    name: Smoker AI ETA (minutes)
+    min: 0
+    max: 3000
+    step: 1
+    mode: box
+    icon: mdi:robot
+  smoker_rest_minutes:
+    name: Smoker rest time
+    min: 0
+    max: 240
+    step: 5
+    initial: 60
+    unit_of_measurement: min
+    icon: mdi:timer-sand
+
+input_text:
+  # Any thermometer already in Home Assistant (a Wi-Fi/Bluetooth probe, another grill...): put its temperature
+  # entity here, then pick "Home Assistant" as the source on that food slot (select.smoker_food_N_probe).
+  # Left empty, slots 3-6 use the Govee H5198 ("Meat Thermometer") probes 1-4. EDIT the defaults in the
+  # "Smoker external probe N" template sensors below if yours are named differently.
+  # The controller reads sensor.smoker_external_probe_N, which follows whatever entity you name (stated in °F;
+  # Home Assistant shows and passes it in your unit system, which is `weather_temperature_unit` on the controller).
+  smoker_external_probe_1_entity:
+    name: Smoker external probe 1 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_external_probe_2_entity:
+    name: Smoker external probe 2 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_external_probe_3_entity:
+    name: Smoker external probe 3 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_external_probe_4_entity:
+    name: Smoker external probe 4 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_external_probe_5_entity:
+    name: Smoker external probe 5 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_external_probe_6_entity:
+    name: Smoker external probe 6 entity
+    max: 120
+    icon: mdi:thermometer-probe
+  smoker_ai_summary:
+    name: Smoker AI summary
+    max: 255
+  smoker_ai_suggestion:
+    name: Smoker AI suggestion
+    max: 255
+  smoker_ai_last_cook:
+    name: Smoker last cook summary
+    max: 255
+  smoker_plan_request:
+    name: Smoker plan request
+    max: 255
+    icon: mdi:chat-processing
+
+input_datetime:
+  smoker_ai_finish:
+    name: Smoker AI finish time
+    has_date: true
+    has_time: true
+    icon: mdi:robot
+  smoker_serve_time:
+    name: Smoker serve by
+    has_date: true
+    has_time: true
+    icon: mdi:silverware-fork-knife
+
+timer:
+  smoker_rest:
+    name: Smoker rest timer
+    icon: mdi:timer-sand-complete
+
+# ------------------------------------------------------------------- derived sensors
+
+template:
+  # Latest context the controller sent (esphome.smoker_context): live state and cook history as JSON, for the AI.
+  - triggers:
+      - trigger: event
+        event_type: esphome.smoker_context
+    sensor:
+      - name: Smoker AI context
+        unique_id: smoker_ai_context
+        icon: mdi:code-json
+        state: "{{ now().isoformat() }}"
+        device_class: timestamp
+        attributes:
+          state_json: "{{ trigger.event.data.state }}"
+          history_json: "{{ trigger.event.data.history }}"
+  # The AI's recommendations for the dashboard (kept across restarts).
+  - triggers:
+      - trigger: event
+        event_type: smoker_ai_recommendations
+    sensor:
+      - name: Smoker recommendations
+        unique_id: smoker_ai_recommendations
+        icon: mdi:chef-hat
+        device_class: timestamp
+        state: "{{ now().isoformat() }}"
+        attributes:
+          mode: "{{ trigger.event.data.mode }}"
+          summary: "{{ trigger.event.data.summary }}"
+          items: "{{ trigger.event.data['items'] }}"
+  - sensor:
+      - name: Smoker external probe 1
+        unique_id: smoker_external_probe_1
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set h = states('input_text.smoker_external_probe_1_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_1_entity') %}
+            {% set e = h if h.startswith('sensor.') else '' %}
+            {{ e }}
+      - name: Smoker external probe 1 target
+        unique_id: smoker_external_probe_1_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_1_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
+      - name: Smoker external probe 2
+        unique_id: smoker_external_probe_2
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set h = states('input_text.smoker_external_probe_2_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_2_entity') %}
+            {% set e = h if h.startswith('sensor.') else '' %}
+            {{ e }}
+      - name: Smoker external probe 2 target
+        unique_id: smoker_external_probe_2_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_2_entity') %}
+          {% set e = h if h.startswith('sensor.') else '' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
+      - name: Smoker external probe 3
+        unique_id: smoker_external_probe_3
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set h = states('input_text.smoker_external_probe_3_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_1' %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_3_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_1' %}
+            {{ e }}
+      - name: Smoker external probe 3 target
+        unique_id: smoker_external_probe_3_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_3_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_1' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
+      - name: Smoker external probe 4
+        unique_id: smoker_external_probe_4
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set h = states('input_text.smoker_external_probe_4_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_2' %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_4_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_2' %}
+            {{ e }}
+      - name: Smoker external probe 4 target
+        unique_id: smoker_external_probe_4_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_4_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_2' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
+      - name: Smoker external probe 5
+        unique_id: smoker_external_probe_5
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set h = states('input_text.smoker_external_probe_5_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_3' %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_5_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_3' %}
+            {{ e }}
+      - name: Smoker external probe 5 target
+        unique_id: smoker_external_probe_5_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_5_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_3' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
+      - name: Smoker external probe 6
+        unique_id: smoker_external_probe_6
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state_class: measurement
+        state: >
+          {% set h = states('input_text.smoker_external_probe_6_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_4' %}
+          {% set v = states(e) if e.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(e, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {# Govee thermometers report an unplugged probe as exactly 0 °C (32 °F): that's no reading. #}
+          {{ none if f == 32.0 and (device_attr(e, 'manufacturer') or '') | lower is search('govee') else f }}
+        attributes:
+          source: >
+            {% set h = states('input_text.smoker_external_probe_6_entity') %}
+            {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_4' %}
+            {{ e }}
+      - name: Smoker external probe 6 target
+        unique_id: smoker_external_probe_6_target
+        device_class: temperature
+        unit_of_measurement: "°F"
+        state: >
+          {% set h = states('input_text.smoker_external_probe_6_entity') %}
+          {% set e = h if h.startswith('sensor.') else 'sensor.meat_thermometer_temperature_probe_4' %}
+          {# The thermometer's own alarm for that probe, when it has one (Govee: ..._temperature_alarm_probe_N). #}
+          {% set a = e | replace('_temperature_probe_', '_temperature_alarm_probe_') %}
+          {% set v = states(a) if a != e and a.startswith('sensor.') else 'unknown' %}
+          {% set c = (state_attr(a, 'unit_of_measurement') or '') in ['°C', 'C'] %}
+          {% set f = ((v | float * 1.8 + 32) if c else v | float) | round(1) if is_number(v) else none %}
+          {{ none if f is none or f <= 32.0 else f }}
+      - name: Smoker food 1 finish
+        unique_id: smoker_food1_finish
+        device_class: timestamp
+        state: >
+          {% set m = states('sensor.smoker_food_1_time_remaining') %}
+          {{ (now() + timedelta(minutes=m|float)).isoformat() if is_number(m) else none }}
+      - name: Smoker food 2 finish
+        unique_id: smoker_food2_finish
+        device_class: timestamp
+        state: >
+          {% set m = states('sensor.smoker_food_2_time_remaining') %}
+          {{ (now() + timedelta(minutes=m|float)).isoformat() if is_number(m) else none }}
+      - name: Smoker AI finish
+        unique_id: smoker_ai_finish
+        device_class: timestamp
+        state: >
+          {% set ts = state_attr('input_datetime.smoker_ai_finish', 'timestamp') %}
+          {{ (ts | as_datetime | as_local).isoformat() if ts and ts > as_timestamp(now()) - 3600
+             and is_state('binary_sensor.smoker_cook_active', 'on') else none }}
+      # "Ready by" planner: when to light the grill to serve at input_datetime.smoker_serve_time.
+      - name: Smoker start cooking by
+        unique_id: smoker_start_by
+        device_class: timestamp
+        icon: mdi:fire-alert
+        state: >
+          {% set serve = states('input_datetime.smoker_serve_time') %}
+          {% set total = states('sensor.smoker_food_1_estimated_total_cook_time') %}
+          {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
+          {% set ts = as_datetime(serve) | as_local if serve not in ['unknown', 'unavailable', ''] else none %}
+          {% if ts and ts > now() and is_number(total) %}
+            {# + 45 min to light the grill and come up to temperature #}
+            {{ (ts - timedelta(minutes=total|float + rest + 45)).isoformat() }}
+          {% else %}{{ none }}{% endif %}
+
+# ------------------------------------------------------------------- scripts
+
+script:
+  # Single place that decides how smoker notifications reach your phone.
+  smoker_notify:
+    alias: Smoker notify
+    mode: queued
+    fields:
+      title: {description: Title}
+      message: {description: Message}
+      priority: {description: "0 info, 1 high, 2 critical"}
+      tag: {description: Notification tag (replaces older ones with the same tag)}
+      actions: {description: Optional actionable buttons}
+    sequence:
+      - variables:
+          prio: "{{ priority | int(0) }}"
+          push:
+            interruption-level: "{{ 'critical' if prio >= 2 else ('time-sensitive' if prio == 1 else 'active') }}"
+            sound: >
+              {{ {'name': 'default', 'critical': 1, 'volume': 1.0} if prio >= 2 else 'default' }}
+      # EDIT: your phone's notify action (Settings > Companion app shows the device name).
+      - action: notify.mobile_app_your_phone
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+          data:
+            tag: "smoker_{{ tag | default('general') }}"
+            group: smoker
+            url: /smoker-dashboard
+            push: "{{ push }}"
+            actions: "{{ actions | default([]) }}"
+
+  smoker_plan_cook:
+    alias: Smoker plan cook with AI
+    description: Describe the cook in plain words; the AI writes a cook program and loads it (not started).
+    icon: mdi:robot-happy
+    mode: single
+    fields:
+      request:
+        description: e.g. "8 lb pork butt, done by 6pm, I'll wrap at the stall"
+        selector: {text: {multiline: true}}
+    sequence:
+      - if:
+          - condition: template
+            value_template: "{{ states('sensor.smoker_program_state') in ['Running', 'Paused'] }}"
+        then:
+          - action: script.smoker_notify
+            data:
+              title: Program already running
+              message: Stop the running cook program before planning a new one.
+              priority: 0
+              tag: plan
+          - stop: A program is running
+      - variables:
+          req: "{{ request if request is defined and request else states('input_text.smoker_plan_request') }}"
+      - action: ai_task.generate_data
+        response_variable: plan
+        data:
+          task_name: Smoker cook plan
+          entity_id: ai_task.google_ai_task   # EDIT: your AI task entity
+          instructions: |
+            You plan cooks for a Char-Griller Gravity 980 charcoal smoker. Write a cook program in this exact language.
+            The pit can be set from 200°F to 700°F only (so hold the meat warm at 200°F, never lower).
+            Steps separated by ';'. Each step: actions then optional 'until' conditions joined by 'or'.
+            Actions: 'pit N' (set pit °F), 'hold N' (set and stay), 'notify "text"', 'shutdown'.
+            Conditions: 'food1 >= N [for Nm]', 'food1 <= N', 'food1 done', 'after Nh|Nm', 'at HH:MM',
+            'stall_start food1', 'stall_end food1'. Probes: pit, food1 to food6. Temperatures in °F.
+            Start with 'name: <short name>;'. Keep it under 240 characters. Example:
+            name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"
+            Current time: {{ now().strftime('%a %H:%M') }}. Outdoor: {{ state_attr('weather.forecast_home', 'temperature') }}°F,
+            wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph.
+            Packages scanned for this cook (from photos): {{ state_attr('sensor.smoker_journal', 'draft_items') or 'none' }}.
+            Past cooks with notes and ratings: {{ state_attr('sensor.smoker_journal', 'recent') or [] }}.
+            The cook: {{ req }}
+          structure:
+            program:
+              description: The cook program text
+              required: true
+              selector: {text: {}}
+            explanation:
+              description: One or two sentences explaining the plan and the expected timing
+              required: true
+              selector: {text: {}}
+      - action: esphome.gravity980_load_program
+        data:
+          program: "{{ plan.data.program }}"
+      - delay: 2
+      - if:
+          - condition: template
+            value_template: "{{ states('sensor.smoker_program_error') not in ['', 'unknown', 'unavailable'] }}"
+        then:
+          - action: script.smoker_notify
+            data:
+              title: AI plan rejected
+              message: "The controller rejected the program: {{ states('sensor.smoker_program_error') }}"
+              priority: 0
+              tag: plan
+        else:
+          - action: script.smoker_notify
+            data:
+              title: Cook plan ready
+              message: "{{ plan.data.explanation }} Program: {{ plan.data.program }}"
+              priority: 0
+              tag: plan
+              actions:
+                - action: SMOKER_START_PROGRAM
+                  title: Start program
+
+  # AI advisor: a second-opinion ETA, a one-line summary, a tip, and the Recommendations list on the dashboard.
+  # Before a cook it writes a prep + lighting plan; during a cook, what to do next.
+  smoker_ai_advise:
+    alias: Smoker AI advisor run
+    mode: single
+    max_exceeded: silent
+    sequence:
+      # The controller answers with an esphome.smoker_context event, captured by sensor.smoker_ai_context below.
+      - action: esphome.gravity980_request_context
+        continue_on_error: true
+      - delay: 3
+      - action: weather.get_forecasts
+        continue_on_error: true
+        target: {entity_id: weather.forecast_home}   # EDIT: your weather entity (every weather.forecast_home)
+        data: {type: hourly}
+        response_variable: fc
+      - variables:
+          cooking: "{{ is_state('binary_sensor.smoker_cook_active', 'on') }}"
+          ctx_state: "{{ state_attr('sensor.smoker_ai_context', 'state_json') or '{}' }}"
+          ctx_history: "{{ state_attr('sensor.smoker_ai_context', 'history_json') or '[]' }}"
+          forecast: >
+            {% set f = (fc or {}).get('weather.forecast_home', {}).get('forecast', []) %}
+            {% for h in f[:16] %}{{ as_timestamp(h.datetime) | timestamp_custom('%H:%M') }} {{ h.temperature }}°F
+            {{ h.condition }} wind {{ h.wind_speed }} rain {{ h.precipitation_probability | default(0) }}%; {% endfor %}
+      - action: ai_task.generate_data
+        response_variable: advice
+        data:
+          task_name: Smoker advisor
+          entity_id: ai_task.google_ai_task   # EDIT: your AI task entity
+          instructions: |
+            You are an experienced pitmaster coaching someone cooking on a Char-Griller Gravity 980 gravity-fed charcoal
+            smoker (16 lb hopper, fan-controlled, holds 200-700°F). {{ 'A cook is in progress.' if cooking else 'No cook is running yet: plan the next one.' }}
+            The smoker controller's own physics model (fitted to this cook and to similar past cooks) gives
+            minutes_remaining with an early/late range for each probe; give an independent second opinion.
+            Live state (JSON): {{ ctx_state }}
+            Past cooks on this grill (JSON): {{ ctx_history }}
+            Weather now: {{ state_attr('weather.forecast_home', 'temperature') }}°F, humidity {{ state_attr('weather.forecast_home', 'humidity') }}%,
+            wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph, {{ states('weather.forecast_home') }}.
+            Hourly forecast: {{ forecast }}
+            Serve-by time: {{ states('input_datetime.smoker_serve_time') }}. Now: {{ now().strftime('%a %H:%M') }}.
+            Planned rest: {{ states('input_number.smoker_rest_minutes') }} min.
+            Scanned for the next cook: {{ state_attr('sensor.smoker_journal', 'draft_items') or 'nothing' }}.
+            The cook's own journal (recent cooks with the cook's notes and 1-5 ratings; learn from them, e.g. a low
+            rating with "dry" means cook lower or wrap earlier): {{ state_attr('sensor.smoker_journal', 'recent') or [] }}.
+            Fuel: the live state's fuel_percent / fuel_hours_left are the hopper estimate; flag a top-up if it won't last.
+            Recommendations: 3 to 6 concrete, ordered instructions for what to do next, each on its own line as
+            "WHEN | TITLE | DETAIL" (WHEN like "now", "18:30", "at 165°F", "when it stalls"). Before a cook: prep
+            (trim, rub, bring-to-temperature), when to light the grill to make the serve time, fuel (fill the hopper; how
+            much charcoal for the expected time and weather), water pan, probe placement, the cook plan and what to
+            expect (stall, wrap point). During a cook: what to do next and when. Mention weather effects (cold, wind,
+            rain) when they matter. No generic food-safety boilerplate.
+          structure:
+            eta_minutes:
+              description: Minutes until the main food probe reaches its target (0 if no cook or unknown)
+              required: true
+              selector: {number: {min: 0, max: 3000}}
+            summary:
+              description: One sentence on how the cook is going, or the plan if none is running (max 200 characters)
+              required: true
+              selector: {text: {}}
+            suggestion:
+              description: The single most important action right now, or empty if none is needed (max 200 characters)
+              required: false
+              selector: {text: {}}
+            recommendations:
+              description: 3-6 lines, each "WHEN | TITLE | DETAIL"
+              required: true
+              selector: {text: {multiline: true}}
+      - variables:
+          items: >
+            {% set out = namespace(l=[]) %}
+            {% for line in (advice.data.recommendations | default('')).split('\n') if '|' in line %}
+              {% set p = line.split('|') %}
+              {% set out.l = out.l + [{'when': p[0] | trim, 'title': (p[1] | default('')) | trim,
+                                       'detail': (p[2:] | join('|')) | trim}] %}
+            {% endfor %}
+            {{ out.l[:8] }}
+      - event: smoker_ai_recommendations
+        event_data:
+          mode: "{{ 'live' if cooking else 'plan' }}"
+          summary: "{{ advice.data.summary }}"
+          items: "{{ items }}"
+      - if: "{{ cooking and (advice.data.eta_minutes | int(0)) > 0 }}"
+        then:
+          - variables:
+              eta: "{{ [advice.data.eta_minutes | int(0), 3000] | min }}"
+          - action: input_number.set_value
+            target: {entity_id: input_number.smoker_ai_eta_minutes}
+            data: {value: "{{ eta }}"}
+          - action: input_datetime.set_datetime
+            target: {entity_id: input_datetime.smoker_ai_finish}
+            data: {timestamp: "{{ as_timestamp(now()) + eta * 60 }}"}
+      - action: input_text.set_value
+        target: {entity_id: input_text.smoker_ai_summary}
+        data: {value: "{{ (advice.data.summary or '')[:250] }}"}
+      - if:
+          - condition: template
+            value_template: >
+              {{ cooking and (advice.data.suggestion or '') | length > 0 and
+                 advice.data.suggestion[:250] != states('input_text.smoker_ai_suggestion') }}
+        then:
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_suggestion}
+            data: {value: "{{ advice.data.suggestion[:250] }}"}
+          - action: script.smoker_notify
+            data:
+              title: Pitmaster tip
+              message: "{{ advice.data.suggestion }}"
+              priority: 0
+              tag: ai
+
+# ------------------------------------------------------------------- automations
+
+automation:
+  - id: smoker_forward_notifications
+    alias: Smoker - forward controller notifications
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: event
+        event_type: esphome.smoker_notify
+    actions:
+      - variables:
+          tag: "{{ trigger.event.data.tag }}"
+          buttons: >
+            {% if tag.startswith('done_') %}
+              [{"action": "SMOKER_FOOD_PLUS_5_{{ tag[5:] | upper }}", "title": "+5°F target"},
+               {"action": "SMOKER_PIT_HOLD", "title": "Stop program, hold pit at 200°F"}]
+            {% elif tag == 'pit_band' %}
+              [{"action": "SMOKER_PIT_PLUS_25", "title": "Pit +25°F (pauses program)"}, {"action": "SMOKER_PIT_MINUS_25", "title": "Pit −25°F (pauses program)"}]
+            {% elif tag == 'program' and ('paused' in (trigger.event.data.title | lower) or 'restarted' in (trigger.event.data.title | lower)) %}
+              [{"action": "SMOKER_RESUME_PROGRAM", "title": "Resume program"}]
+            {% elif tag.startswith('pull_') %}
+              [{"action": "SMOKER_PULLED_{{ tag[5:] | upper }}", "title": "Pulled it (start rest)"}]
+            {% elif tag == 'fuel' %}
+              [{"action": "URI", "title": "Log a top-up", "uri": "/smoker-dashboard"}]
+            {% elif tag.startswith('stall_') and 'stall' == trigger.event.data.title.split(' ')[-1] %}
+              [{"action": "SMOKER_WRAPPED_{{ tag[6:] | upper }}", "title": "I wrapped it"}]
+            {% else %}[]{% endif %}
+      - action: script.smoker_notify
+        data:
+          title: "{{ trigger.event.data.title }}"
+          message: "{{ trigger.event.data.message }}"
+          priority: "{{ trigger.event.data.priority }}"
+          tag: "{{ tag }}"
+          actions: "{{ buttons }}"
+
+  - id: smoker_notification_actions
+    alias: Smoker - notification buttons
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.action.startswith('SMOKER_') }}"
+    actions:
+      - variables:
+          a: "{{ trigger.event.data.action }}"
+      - choose:
+          - conditions: "{{ a == 'SMOKER_START_PROGRAM' }}"
+            sequence:
+              - action: esphome.gravity980_start_program
+          - conditions: "{{ a == 'SMOKER_RESUME_PROGRAM' }}"
+            sequence:
+              - action: esphome.gravity980_resume_program
+          - conditions: "{{ a in ['SMOKER_PIT_PLUS_25', 'SMOKER_PIT_MINUS_25'] }}"
+            sequence:
+              - action: number.set_value
+                target: {entity_id: number.smoker_pit_target}
+                data:
+                  value: >
+                    {% set n = 'number.smoker_pit_target' %}
+                    {% set c = (state_attr(n, 'unit_of_measurement') or '°F') == '°C' %}
+                    {% set v = states(n) | float(107 if c else 225) + ((14 if c else 25) if a.endswith('PLUS_25') else -(14 if c else 25)) %}
+                    {{ [state_attr(n, 'min') | float(93 if c else 200), [state_attr(n, 'max') | float(371 if c else 700), v] | min] | max }}
+          - conditions: "{{ a == 'SMOKER_PIT_HOLD' }}"
+            sequence:
+              - action: esphome.gravity980_stop_program
+              - action: number.set_value
+                target: {entity_id: number.smoker_pit_target}
+                data: {value: "{{ state_attr('number.smoker_pit_target', 'min') | float(200) }}"}   # lowest the grill holds
+          - conditions: "{{ a.startswith('SMOKER_FOOD_PLUS_5_') }}"
+            sequence:
+              - variables:
+                  # food1 -> food_1 (the entity ids HA builds from "Food 1")
+                  key: "{% set k = a.split('_')[-1] | lower %}{{ k[:-1] ~ '_' ~ k[-1:] }}"
+                  n: "number.smoker_{{ key }}_target"
+              - action: number.set_value
+                target: {entity_id: "{{ n }}"}
+                data:
+                  value: >
+                    {% set c = (state_attr(n, 'unit_of_measurement') or '°F') == '°C' %}
+                    {{ [states(n) | float(95 if c else 203) + (3 if c else 5), state_attr(n, 'max') | float(105 if c else 220)] | min }}
+          - conditions: "{{ a.startswith('SMOKER_PULLED_') }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: "{% set k = a.split('_')[-1] | lower %}switch.smoker_{{ k[:-1] ~ '_' ~ k[-1:] }}_pulled"
+          - conditions: "{{ a.startswith('SMOKER_WRAPPED_') }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: "{% set k = a.split('_')[-1] | lower %}switch.smoker_{{ k[:-1] ~ '_' ~ k[-1:] }}_wrapped"
+
+  - id: smoker_ai_advisor_schedule
+    alias: Smoker - AI advisor every 30 minutes during a cook
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: state
+        entity_id: binary_sensor.smoker_food_1_stall
+        to: "on"
+        for: "00:20:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.smoker_cook_active
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.smoker_ai_advisor
+        state: "on"
+    actions:
+      - action: script.smoker_ai_advise
+
+  - id: smoker_ai_plan_refresh
+    alias: Smoker - refresh the AI plan when the cook plan changes
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_datetime.smoker_serve_time
+          - select.smoker_food_1_protein
+          - number.smoker_food_1_weight
+          - text.smoker_program
+    conditions:
+      - condition: state
+        entity_id: input_boolean.smoker_ai_advisor
+        state: "on"
+      - condition: template
+        # A real edit, not the controller (re)connecting, HA starting, or an attribute change.
+        value_template: >
+          {{ trigger.from_state is not none and trigger.to_state is not none
+             and trigger.from_state.state not in ['unknown', 'unavailable']
+             and trigger.to_state.state not in ['unknown', 'unavailable']
+             and trigger.from_state.state != trigger.to_state.state }}
+    actions:
+      - delay: "00:02:00"   # let a burst of edits settle
+      - action: script.smoker_ai_advise
+
+  # Hourly forecast -> controller, so finish times account for a colder night ahead.
+  - id: smoker_forecast_feed
+    alias: Smoker - send the hourly forecast to the controller
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: state
+        entity_id: binary_sensor.smoker_cook_active
+        to: "on"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: template
+        value_template: "{{ states('binary_sensor.smoker_grill_connected') not in ['unavailable', 'unknown'] }}"
+    actions:
+      - action: weather.get_forecasts
+        target: {entity_id: weather.forecast_home}   # EDIT: your weather entity (every weather.forecast_home)
+        data: {type: hourly}
+        response_variable: fc
+      - variables:
+          f: "{{ fc['weather.forecast_home'].forecast[:24] if fc and 'weather.forecast_home' in fc else [] }}"
+          minutes: >
+            {% set out = namespace(l=[]) %}
+            {% for h in f %}{% set out.l = out.l + [((as_timestamp(h.datetime) - as_timestamp(now())) / 60) | round(0)] %}{% endfor %}
+            {{ out.l }}
+          temps: "{{ f | map(attribute='temperature') | map('float', 0) | list }}"
+      - if: "{{ minutes | length > 1 }}"
+        then:
+          - action: esphome.gravity980_set_forecast
+            data:
+              minutes: "{{ minutes }}"
+              temps: "{{ temps }}"
+
+  # ---------------- Voice (Assist): ask or tell the smoker things ----------------
+  - id: smoker_voice_when_done
+    alias: Smoker voice - when is it done
+    triggers:
+      - trigger: conversation
+        command:
+          - "how long [until|till] [the] {food} [is] (done|ready)"
+          - "when will [the] {food} be (done|ready)"
+          - "when is [the] {food} (done|ready)"
+          - "how long [is] left on the smoker"
+    actions:
+      - variables:
+          probes: [food_1, food_2, food_3, food_4, food_5, food_6]
+          want: "{{ (trigger.slots.food | default('')) | lower }}"
+          lines: >
+            {% set out = namespace(l=[]) %}
+            {% for p in probes %}
+              {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
+              {% set rem = states('sensor.smoker_' ~ p ~ '_time_remaining') %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% set name = p | replace('_', ' ') %}
+              {% if is_number(t) and (not want or want in prot or want in name or want in ['meat', 'food', 'it', 'cook']) %}
+                {% if is_number(rem) %}
+                  {% set fin = (now() + timedelta(minutes=rem | float)).strftime('%-I:%M %p') %}
+                  {% set out.l = out.l + [name ~ (' (' ~ prot ~ ')' if prot not in ['auto', 'unknown'] else '') ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees and should be done around ' ~ fin
+                    ~ (' (an experimental estimate: it firms up after a few similar cooks)' if states('sensor.smoker_' ~ p ~ '_estimate_basis').startswith('Experimental') else '')] %}
+                {% else %}
+                  {% set out.l = out.l + [name ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees; ' ~ (states('sensor.smoker_' ~ p ~ '_phase') | lower)] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ out.l }}
+      - set_conversation_response: >
+          {{ lines | join('. ') ~ '.' if lines | length else "I don't see a food probe in the smoker right now." }}
+
+  - id: smoker_voice_temperature
+    alias: Smoker voice - pit temperature
+    triggers:
+      - trigger: conversation
+        command:
+          - "how hot is the smoker"
+          - "what('s| is) the smoker [temperature|temp|at]"
+          - "what('s| is) the pit [temperature|temp|at]"
+    actions:
+      - set_conversation_response: >
+          {% set t = states('sensor.smoker_pit_temperature') %}
+          {% if is_number(t) %}The pit is at {{ t | float | round(0) }} degrees{% if is_number(states('number.smoker_pit_target')) %}, aiming for {{ states('number.smoker_pit_target') | float | round(0) }}{% endif %}.{% else %}I can't reach the smoker right now.{% endif %}
+
+  - id: smoker_voice_set_temperature
+    alias: Smoker voice - set the pit
+    triggers:
+      - trigger: conversation
+        command:
+          - "set the (smoker|pit|grill) to {temp} [degrees]"
+          - "(raise|lower|change) the (smoker|pit) to {temp} [degrees]"
+    actions:
+      - variables:
+          v: "{{ (trigger.slots.temp | regex_replace('[^0-9.]', '')) | float(0) }}"
+          lo: "{{ state_attr('number.smoker_pit_target', 'min') | float(200) }}"
+          hi: "{{ state_attr('number.smoker_pit_target', 'max') | float(700) }}"
+      - if: "{{ lo | float <= v <= hi | float }}"
+        then:
+          - action: number.set_value
+            target: {entity_id: number.smoker_pit_target}
+            data: {value: "{{ v }}"}
+          - set_conversation_response: >
+              Setting the smoker to {{ v | round(0) }} degrees{% if states('sensor.smoker_program_state') == 'Running' %}. That pauses the cook program{% endif %}.
+        else:
+          - set_conversation_response: "The smoker can be set between {{ lo | float | round(0) }} and {{ hi | float | round(0) }} degrees."
+
+  - id: smoker_voice_fuel
+    alias: Smoker voice - charcoal
+    triggers:
+      - trigger: conversation
+        command:
+          - "how much (charcoal|fuel|coal) is left"
+          - "how long will the (charcoal|fuel|coal) last"
+          - "do I need (more|to add) (charcoal|fuel|coal)"
+    actions:
+      - set_conversation_response: >
+          {% set l = states('sensor.smoker_charcoal_level') %}{% set h = states('sensor.smoker_charcoal_hours_left') %}
+          {% if is_number(l) %}The hopper is about {{ l | float | round(0) }} percent full{% if is_number(h) %}, roughly {{ h | float | round(1) }} hours at this rate, empty around {{ states('sensor.smoker_charcoal_empty_at') }}{% endif %}.{% else %}Tell me how full the hopper is first, for example: the hopper is three quarters full.{% endif %}
+
+  - id: smoker_voice_fuel_tell
+    alias: Smoker voice - tell it the hopper level
+    triggers:
+      - trigger: conversation
+        command:
+          - "the hopper is {level} [full]"
+          - "I (filled|topped up|refilled) the hopper [to] {level} [full]"
+          - "I added {level} [of] [a] hopper"
+    actions:
+      - variables:
+          words: {"full": 100, "all the way": 100, "three quarters": 75, "3/4": 75, "half": 50, "1/2": 50,
+                  "a quarter": 25, "quarter": 25, "1/4": 25, "an eighth": 12.5, "empty": 0, "a third": 33, "two thirds": 67}
+          raw: "{{ trigger.slots.level | lower | trim | regex_replace(' (a|an|of|of a)$', '') }}"
+          pct: >
+            {% set n = raw | regex_replace('[^0-9.]', '') %}
+            {% if n and 'percent' in raw %}{{ n | float }}{% elif raw in words %}{{ words[raw] }}{% elif n %}{{ n | float }}{% else %}-1{% endif %}
+          kind: "{{ 'added' if trigger.sentence is search('added') else ('refilled' if trigger.sentence is search('filled|topped') else 'level') }}"
+      - if: "{{ pct | float(-1) < 0 or pct | float > 100 }}"
+        then:
+          - set_conversation_response: "I didn't catch how full. Say, for example, the hopper is half full."
+        else:
+          - action: "esphome.gravity980_fuel_{{ kind }}"
+            data: {percent: "{{ pct | float }}"}
+          - set_conversation_response: >
+              {% if kind == 'added' %}Got it, {{ pct | float | round(0) }} percent of a hopper added.{% else %}Got it, the hopper is at {{ pct | float | round(0) }} percent.{% endif %}
+
+  - id: smoker_voice_stall
+    alias: Smoker voice - stall
+    triggers:
+      - trigger: conversation
+        command:
+          - "is the stall over"
+          - "is [the] {food} [still] stalled"
+          - "is [the] {food} in the stall"
+    actions:
+      - variables:
+          want: "{{ (trigger.slots.food | default('')) | lower | trim }}"
+          lines: >
+            {% set out = namespace(l=[]) %}
+            {% for p in ['food_1', 'food_2', 'food_3', 'food_4', 'food_5', 'food_6'] %}
+              {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% if is_number(t) and (not want or want == p | replace('_', ' ') or want in ['meat', 'food', 'it', 'cook']
+                    or (prot not in ['auto', 'unknown'] and want in prot)) %}
+                {% set name = p | replace('_', ' ') %}
+                {% if is_state('binary_sensor.smoker_' ~ p ~ '_stall', 'on') %}
+                  {% set r = states('sensor.smoker_' ~ p ~ '_stall_remaining') %}
+                  {% set out.l = out.l + [name ~ ' is still in the stall' ~ (', about ' ~ ((r | float / 60) | round(1)) ~ ' more hours expected' if is_number(r) else '')] %}
+                {% else %}
+                  {% set out.l = out.l + [name ~ ' is not stalled; it is ' ~ (states('sensor.smoker_' ~ p ~ '_phase') | lower)] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}{{ out.l | join('. ') }}
+      - set_conversation_response: >
+          {{ (lines ~ '.') if lines | trim else "I don't have a food probe reading for that." }}{% if 'still in the stall' in lines %} Wrapping will push it through faster.{% endif %}
+
+  - id: smoker_voice_pulled
+    alias: Smoker voice - pulled off the grill
+    triggers:
+      - trigger: conversation
+        command:
+          - "I (pulled|took off|took out) the {food}"
+          - "the {food} is resting"
+    actions:
+      - variables:
+          want: "{{ trigger.slots.food | lower | trim }}"
+          probe: >
+            {% set ns = namespace(p='', n=0) %}
+            {% for p in ['food_1', 'food_2', 'food_3', 'food_4', 'food_5', 'food_6'] %}
+              {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% if is_number(t) and (want == p | replace('_', ' ') or (prot not in ['auto', 'unknown'] and want in prot)
+                    or want in ['meat', 'food', 'it', 'cook']) %}{% set ns.p = p %}{% set ns.n = ns.n + 1 %}{% endif %}
+            {% endfor %}{{ ns.p if ns.n == 1 else '' }}
+      - if: "{{ probe != '' }}"
+        then:
+          - action: switch.turn_on
+            target: {entity_id: "switch.smoker_{{ probe }}_pulled"}
+          - set_conversation_response: >
+              Resting {{ probe | replace('_', ' ') }}. I'll tell you when it's down to {{ states('number.smoker_slice_at') | float(150) | round(0) }} degrees and ready to slice.
+        else:
+          - set_conversation_response: "Which probe? Say, for example, I pulled food 1."
+
+  - id: smoker_voice_start_program
+    alias: Smoker voice - start a program
+    triggers:
+      - trigger: conversation
+        command:
+          - "start [the] {preset} (program|cook)"
+          - "(cook|smoke) [a|the|some] {preset}"
+    actions:
+      - variables:
+          want: "{{ trigger.slots.preset | lower }}"
+          options: "{{ state_attr('select.smoker_program_preset', 'options') or [] }}"
+          match: >
+            {% set ns = namespace(m='') %}
+            {% for o in options %}{% if not ns.m and (want in o | lower or (o | lower).split(' ')[0] in want) and o != 'Custom' %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}
+      - if: "{{ match == '' }}"
+        then:
+          - set_conversation_response: "I don't have a program for {{ want }}. I can ask the AI to plan one: open the smoker dashboard."
+        else:
+          - action: select.select_option
+            target: {entity_id: select.smoker_program_preset}
+            data: {option: "{{ match }}"}
+          - delay: 2
+          - action: esphome.gravity980_start_program
+          - set_conversation_response: "Starting the {{ match }} program. Make sure the grill is lit and cooking on its panel."
+
+  - id: smoker_cook_complete_summary
+    alias: Smoker - learn and summarise finished cooks
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: esphome.smoker_cook_complete
+    actions:
+      - variables:
+          s: "{{ trigger.event.data.summary | from_json }}"
+      - action: logbook.log
+        continue_on_error: true
+        data:
+          name: Smoker
+          message: >
+            {{ s.name }} ({{ s.profile }}{{ ', %.1f kg' % s.weight_kg if s.weight_kg is number else '' }}) done
+            {{- (' in %.1f h' % s.total_h) if s.total_h is number else '' }}
+            {{- (', stall %.1f h' % s.stall_h) if s.stall_h is number and s.stall_h > 0 else '' }}
+            {{- (' at a %.0f°F pit' % (s.pit_c * 9 / 5 + 32)) if s.pit_c is number else '' }}.
+            The controller has now learned from {{ s.history_count }} cooks.
+          entity_id: sensor.smoker_cooks_learned
+      - action: input_number.set_value
+        target: {entity_id: input_number.smoker_ai_eta_minutes}
+        data: {value: 0}
+      - action: timer.start
+        target: {entity_id: timer.smoker_rest}
+        data:
+          duration: "{{ (states('input_number.smoker_rest_minutes') | int(60)) * 60 }}"
+      - if:
+          - condition: state
+            entity_id: input_boolean.smoker_ai_advisor
+            state: "on"
+        then:
+          - action: ai_task.generate_data
+            response_variable: review
+            data:
+              task_name: Smoker cook review
+              entity_id: ai_task.google_ai_task   # EDIT: your AI task entity
+              instructions: |
+                Write a friendly two-sentence review of this finished smoker cook with one tip for next time.
+                Cook (JSON): {{ trigger.event.data.summary }}. Weather now: {{ state_attr('weather.forecast_home', 'temperature') }}°F.
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_last_cook}
+            data: {value: "{{ review.data[:250] }}"}
+          - action: script.smoker_notify
+            data:
+              title: Cook review
+              message: "{{ review.data }}"
+              priority: 0
+              tag: review
+
+  - id: smoker_rest_done
+    alias: Smoker - rest finished
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data: {entity_id: timer.smoker_rest}
+    actions:
+      - action: script.smoker_notify
+        data:
+          title: Rest complete
+          message: The meat has rested. Time to slice!
+          priority: 1
+          tag: rest
+
+  - id: smoker_light_reminder
+    alias: Smoker - time to light the grill
+    triggers:
+      - trigger: template
+        value_template: >
+          {% set s = states('sensor.smoker_start_cooking_by') %}
+          {{ s not in ['unknown', 'unavailable', 'None', ''] and now() >= as_datetime(s) }}
+    conditions:
+      # Once per plan: the estimate moves every minute, so the trigger can re-arm.
+      - condition: template
+        value_template: >
+          {{ this.attributes.last_triggered is none or
+             (now() - this.attributes.last_triggered).total_seconds() > 6 * 3600 }}
+      - condition: state
+        entity_id: binary_sensor.smoker_cook_active
+        state: "off"
+    actions:
+      - action: script.smoker_notify
+        data:
+          title: Time to light the smoker
+          message: >
+            To serve at {{ (states('input_datetime.smoker_serve_time') | as_datetime | as_local).strftime('%H:%M') }},
+            start now (about {{ (states('sensor.smoker_food_1_estimated_total_cook_time') | float(0) / 60) | round(1) }} h
+            cook + {{ states('input_number.smoker_rest_minutes') | int }} min rest).
+          priority: 1
+          tag: plan
+
+  - id: smoker_controller_offline
+    alias: Smoker - controller offline during a cook
+    # Only when the controller drops out *during* a cook (every entity goes unavailable at once on a reboot).
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.smoker_cook_active
+        from: "on"
+        to: unavailable
+        for: "00:03:00"
+    actions:
+      - action: script.smoker_notify
+        data:
+          title: Smoker controller offline
+          message: Home Assistant has lost contact with the smoker controller for 3 minutes.
+          priority: 2
+          tag: offline

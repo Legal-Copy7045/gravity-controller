@@ -1,0 +1,25 @@
+install_package:
+  name: Install the Smoker package
+  description: >-
+    Writes the Smoker package (helpers, automations, AI advisor, Home Assistant probe bridges) to
+    /config/packages/smoker.yaml, filled in with your phone, AI task and weather. Run it again to update the package;
+    your choices are kept. Restart Home Assistant afterwards.
+  fields:
+    notify:
+      name: Phone
+      description: The notify action for your phone (Settings > Companion app shows the name).
+      example: notify.mobile_app_my_phone
+      selector:
+        text:
+    ai_task:
+      name: AI task entity
+      example: ai_task.google_ai_task
+      selector:
+        entity:
+          domain: ai_task
+    weather:
+      name: Weather entity
+      example: weather.forecast_home
+      selector:
+        entity:
+          domain: weather
