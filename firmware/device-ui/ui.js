@@ -757,13 +757,15 @@ function renderSetup(u) {
   }
   put('sources', `<h3>Probe sources</h3>${rows || '<p class="note" style="margin-top:0">This controller has fixed probes.</p>'}
     ${h5 ? row('H5198 thermometer', on(h5) ? 'receiving' + (rssi != null ? ' · ' + fmt(rssi) + ' dBm' : '') : 'not heard') + `<p class="note">${EXP('Direct H5198 readings follow Home Assistant\'s Govee decoder but haven\'t been checked against its display on a real cook yet.')} "Home Assistant" sources need Home Assistant running; the rest work without it.</p>` : ''}`);
-  const ver = T('Firmware version'), sig = S('Wi-Fi signal'), up = S('Uptime');
-  put('dev', `<h3>This controller</h3>${ver ? row('Firmware', esc(ver)) : ''}${sig != null ? row('Wi-Fi signal', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', mins(up / 60)) : ''}
+  const ver = T('Firmware version'), rel = T('Release'), sig = S('Wi-Fi signal'), up = S('Uptime');
+  const dur = s => { const m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    return d ? `${d} d ${h % 24} h` : h ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`; };
+  put('dev', `<h3>This controller</h3>${rel ? row('Release', esc(rel)) : ''}${ver ? row('Built with', 'ESPHome ' + esc(String(ver).split(' ')[0])) : ''}${sig != null ? row('Its Wi-Fi <span class="muted small">(to your router, not the grill)</span>', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', dur(up)) : ''}
     ${row('Cooks learned', fmt(S('Cooks learned')))}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}
     <p class="note"><a href="?classic">Full device view</a>: ESPHome's standard page with every entity and the logs (loads from the internet).</p>`);
-  put('foot', `<span>${esc(cfg.title || 'Smoker')} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
+  put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
 }
 
 // Run last: everything above (let/const) must be initialised first.

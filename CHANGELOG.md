@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.20] - 2026-11-22
+
+- Release numbers on show: a new *Release* sensor on the controller; the dashboard's Diagnostics shows the controller
+  and integration releases (and the footer), the device page shows its release.
+- The Wi-Fi signal is labelled for what it is: the controller's own connection to your router, not the grill's (it
+  reads even with the grill off). Diagnostics also shows the link status in words, uptime as days/hours and the
+  ESPHome version it was built with.
+
 ## [0.2.19] - 2026-11-22
 
 - **The package now updates itself with the integration.** After a HACS update, a package that

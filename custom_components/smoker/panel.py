@@ -7,6 +7,8 @@ frontend/panel.js is the sidebar element that loads it into a frame and hands it
 
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 
 from aiohttp import web
@@ -25,7 +27,8 @@ def build_page() -> str:
     """The page with its helpers, shim, fonts and styles (blocking: run in the executor)."""
     read = lambda name: (FRONTEND / name).read_text(encoding="utf-8")  # noqa: E731
     html = read("page.html").replace("/*COMMON*/", read("common.js"))
-    head = "<script>" + read("shim.js") + "</script>\n"
+    version = json.loads((FRONTEND.parent / "manifest.json").read_text(encoding="utf-8"))["version"]
+    head = "<script>window.SMOKER_INTEGRATION = " + json.dumps(version) + ";" + read("shim.js") + "</script>\n"
     style = read("fonts.html") + "<style>" + read("style.css") + "</style>\n"
     html = html.replace("<head>", "<head>" + head, 1)
     i = html.find("</head>")

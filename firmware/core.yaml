@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.19"
+  project_version: "0.2.20"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -397,6 +397,13 @@ text_sensor:
   - platform: version
     name: Firmware version
     hide_timestamp: true
+  # This project's release (project_version above), for the pages' "Release" row.
+  - platform: template
+    name: Release
+    icon: mdi:tag-outline
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: return std::string(ESPHOME_PROJECT_VERSION);
 
 number:
   - platform: gravity980

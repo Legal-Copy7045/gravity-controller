@@ -1367,16 +1367,31 @@ function renderLearn() {
     ${last ? `<div class="small"><b>Last cook:</b> ${esc(last)}</div>` : ''}`);
 }
 
+// "3 d 4 h", "2 h 05 min", "15 min" from seconds.
+const durTxt = s => { if (s == null || !isFinite(s)) return '--'; const m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  return d ? `${d} d ${h % 24} h` : h ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`; };
 function renderDiag() {
-  const rows = [['Grill link', E('Grill link', ['sensor'])], ['Raw status frame', E('Raw status frame', ['sensor'])],
-    ['Wi-Fi signal', E('Wi-Fi signal', ['sensor'])], ['Firmware', E('Firmware version', ['sensor'])], ['Uptime', E('Uptime', ['sensor'])],
-    ['H5198 signal', E('H5198 signal', ['sensor'])]];
-  const fw = E('Firmware', ['update']);
-  put('diag', rows.filter(r => r[1]).map(([l, e]) => `<div class="row"><span>${esc(l)}</span><span class="r">${esc(val(e) || '--')} ${esc(unitOf(e))}</span></div>`).join('') +
+  const fw = E('Firmware', ['update']), fs = fw && S(fw);
+  const ctl = val(E('Release', ['sensor'])) || (fs && fs.attributes.installed_version) || '';
+  const integ = window.SMOKER_INTEGRATION || '';
+  const ok = v => v && !/^(unknown|unavailable)$/.test(v);
+  const link = val(E('Grill link status', ['sensor'])), via = val(E('Grill link', ['sensor']));
+  const raw = val(E('Raw status frame', ['sensor'])), sig = num(E('Wi-Fi signal', ['sensor'])), up = num(E('Uptime', ['sensor']));
+  const h5 = num(E('H5198 signal', ['sensor'])), esphome = (val(E('Firmware version', ['sensor'])) || '').split(' ')[0];
+  const row = (l, v, note) => `<div class="row"><span>${esc(l)}${note ? `<br><span class="muted small">${esc(note)}</span>` : ''}</span><span class="r" style="white-space:normal">${esc(v)}</span></div>`;
+  put('diag', [
+    row('Release', [ok(ctl) ? 'controller ' + ctl : '', integ ? 'integration ' + integ : ''].filter(Boolean).join(' · ') || '--'),
+    row('Grill link', ok(link) ? link : ok(via) && via !== 'none' ? via : 'not connected'),
+    ok(raw) ? row('Last status frame', raw) : '',
+    sig != null ? row('Controller Wi-Fi', fmt(sig) + ' dBm', 'The controller\'s own connection to your router, not the grill\'s') : '',
+    row('H5198 signal', h5 != null ? fmt(h5) + ' dBm' : 'not heard'),
+    up != null ? row('Controller running for', durTxt(up)) : '',
+    ok(esphome) ? row('Built with', 'ESPHome ' + esphome) : '',
+  ].join('') +
     (E('Restart', ['button']) ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn" onclick="act.restart(this)">${restartArmed ? 'Tap again to restart' : 'Restart'}</button></div>` : '') +
-    (fw && S(fw) ? `<div class="row"><span>Firmware update</span><span class="r">${S(fw).state === 'on' ? 'available: ' + esc(S(fw).attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : ''));
-  put('foot', 'Smoker controller · ' + esc(val(E('Firmware version', ['sensor'])) || ''));
+    (fs ? `<div class="row"><span>Controller firmware</span><span class="r">${fs.state === 'on' ? 'update available: ' + esc(fs.attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : ''));
+  put('foot', 'Smoker' + (ok(ctl) ? ' · controller ' + esc(ctl) : '') + (integ ? ' · integration ' + esc(integ) : ''));
 }
 
 // ---------------------------------------------------------------- chart (inline SVG, follows the theme tokens)
