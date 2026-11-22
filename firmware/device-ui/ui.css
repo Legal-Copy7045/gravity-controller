@@ -49,7 +49,7 @@
 .gx .ptemp{font:600 38px/1.05 "JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
 .gx .ptemp small{font:500 15px "Instrument Sans",system-ui,sans-serif;color:var(--muted);margin-left:4px}
 .gx .row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;align-items:center;min-width:0}
-.gx .row>span:first-child{min-width:0}
+.gx .row>span:first-child{min-width:0;flex:none;max-width:55%}
 .gx .row .r{font:500 13px "JetBrains Mono",ui-monospace,monospace;text-align:right;min-width:0;overflow-wrap:anywhere}
 .gx .muted{color:var(--muted)}.gx .small{font-size:12.5px}
 .gx .err{color:var(--bad);font-size:13px;margin:6px 0 0}

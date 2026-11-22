@@ -9,16 +9,6 @@ const doc = document, $ = id => doc.getElementById(id);
 const meta = (n, c) => { const m = doc.createElement('meta'); m.name = n; m.content = c; doc.head.appendChild(m); };
 meta('viewport', 'width=device-width,initial-scale=1,viewport-fit=cover');
 
-if (Q.has('classic')) {
-  // Stock page: drop our stylesheet and load ESPHome's app into the <esp-app> the index already has.
-  const css = doc.querySelector('link[href="/0.css"]'); if (css) css.remove();
-  const s = doc.createElement('script'); s.src = CLASSIC;
-  s.onerror = () => { doc.body.insertAdjacentHTML('afterbegin', '<p style="font:15px system-ui;padding:16px">The full device view is ESPHome\'s standard page, loaded from oi.esphome.io: this phone needs internet access for it. <a href="./">Back to the smoker page</a></p>'); };
-  doc.body.appendChild(s);
-} else {
-  start();
-}
-
 function start() {
   doc.documentElement.classList.add('gx');
   doc.documentElement.lang = 'en';
@@ -313,7 +303,7 @@ function renderFood(u) {
         ${rate ? row('Rising', num(rate) != null ? fmt(num(rate), 1) + ' ' + esc(rate.uom || '') : '--') : ''}
         ${info ? `<p class="note">${esc(info)}</p>` : ''}</details></article>`);
   }
-  $('foodsub').textContent = cards.length ? cards.length + ' reading' : '';
+  $('foodsub').textContent = cards.length ? cards.length + ' on the grill' : '';
   put('food', cards.join('') || '<div class="empty">No food probe is reading. Plug one in, or pick a thermometer for a slot under Setup.</div>');
 }
 
@@ -364,4 +354,15 @@ function renderSetup(u) {
     ${row('Cooks learned', fmt(S('Cooks learned')))}
     <p class="note"><a href="?classic">Full device view</a>: ESPHome's standard page with every entity and the logs (loads from the internet).</p>`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
+}
+
+// Run last: everything above (let/const) must be initialised first.
+if (Q.has('classic')) {
+  // Stock page: drop our stylesheet and load ESPHome's app into the <esp-app> the index already has.
+  const css = doc.querySelector('link[href="/0.css"]'); if (css) css.remove();
+  const s = doc.createElement('script'); s.src = CLASSIC;
+  s.onerror = () => { doc.body.insertAdjacentHTML('afterbegin', '<p style="font:15px system-ui;padding:16px">The full device view is ESPHome\'s standard page, loaded from oi.esphome.io: this phone needs internet access for it. <a href="./">Back to the smoker page</a></p>'); };
+  doc.body.appendChild(s);
+} else {
+  start();
 }

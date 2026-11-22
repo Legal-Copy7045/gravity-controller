@@ -31,6 +31,7 @@ PROGRAM = os.path.join(HERE, ".esphome/build/smoker-host-test/.pioenvs/smoker-ho
 HTTP = 18080
 BASE = f"http://127.0.0.1:{HTTP}"
 failures = []
+PAGE = None  # while a page is open, waits pump Playwright (its routes serve the page's requests)
 
 
 def check(cond, msg):
@@ -57,7 +58,7 @@ def wait(pred, timeout, what):
     while time.monotonic() - t0 < timeout:
         if pred():
             return True
-        time.sleep(0.25)
+        PAGE.wait_for_timeout(250) if PAGE else time.sleep(0.25)
     print(f"  (timed out waiting for {what})")
     return False
 
@@ -108,11 +109,12 @@ def run_page(browser, width, height, shots):
     print(f"-- {width}px")
     ctx = browser.new_context(viewport={"width": width, "height": height})
     offline(ctx)
-    pg = ctx.new_page()
+    global PAGE
+    pg = PAGE = ctx.new_page()
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and not (m.location or {}).get("url", "").startswith(
-        "https://fonts.") and "net::ERR_FAILED" not in m.text and errors.append(m.text))
+        "https://fonts.") and errors.append(m.text))
     pg.goto(BASE + "/")
     try:
         pg.wait_for_function("document.querySelector('#hero .big') && /\\d/.test(document.querySelector('#hero .big').textContent)", timeout=15000)
@@ -139,13 +141,14 @@ def run_page(browser, width, height, shots):
     src = pg.locator("#sources select[data-n='Food 1 probe']")
     first = src.input_value()
     src.select_option("Spare")
+    check(wait(lambda: get("/select/Food 1 probe")["value"] == "Spare", 10, "the select"), "probe source select reached the device")
     check(wait(lambda: abs((value("sensor", "Food 1 temperature") or 0) - 135.5) < 0.6, 15, "food 1 on the spare probe"),
-          "probe source select reached the device")
+          f"food 1 now reads the spare probe ({value('sensor', 'Food 1 temperature')})")
     pg.locator("body").click(position={"x": 1, "y": 1})
     pg.locator("#sources select[data-n='Food 1 probe']").select_option(first)
     wait(lambda: abs((value("sensor", "Food 1 temperature") or 0) - 135.5) > 0.6, 15, "food 1 back on its probe")
     pg.locator("body").click(position={"x": 1, "y": 1})
-    time.sleep(1)
+    pg.wait_for_timeout(3000)  # let the toast go
     over = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     check(over <= 0, f"no horizontal overflow at {width}px ({over}px)")
     check(not errors, f"no console errors at {width}px {errors[:3]}")
@@ -153,9 +156,10 @@ def run_page(browser, width, height, shots):
         pg.evaluate("window.scrollTo(0,0)")
         pg.screenshot(path=os.path.join(shots, f"device-{width}-light.png"), full_page=True)
         pg.emulate_media(color_scheme="dark")
-        time.sleep(0.3)
+        pg.wait_for_timeout(300)
         pg.screenshot(path=os.path.join(shots, f"device-{width}-dark.png"), full_page=True)
     ctx.close()
+    PAGE = None
 
 
 def classic(browser):
