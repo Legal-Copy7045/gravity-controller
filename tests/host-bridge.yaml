@@ -46,7 +46,7 @@ cook_assistant:
   lid: lid_open
   link: grill_connected
   on_set_pit:
-    - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, x);
+    - lambda: id(smoker).pit_write_result(id(grill).request_target(esphome::gravity980::PROBE_PIT, x));
   on_notify:
     - logger.log:
         format: "NOTIFY %d %s: %s"

@@ -51,6 +51,11 @@ input_text:
     icon: mdi:chat-processing
 
 input_datetime:
+  smoker_ai_finish:
+    name: Smoker AI finish time
+    has_date: true
+    has_time: true
+    icon: mdi:robot
   smoker_serve_time:
     name: Smoker serve by
     has_date: true
@@ -109,9 +114,9 @@ template:
         unique_id: smoker_ai_finish
         device_class: timestamp
         state: >
-          {% set m = states('input_number.smoker_ai_eta_minutes') | float(0) %}
-          {% set at = states.input_number.smoker_ai_eta_minutes.last_changed %}
-          {{ (at + timedelta(minutes=m)).isoformat() if m > 0 else none }}
+          {% set ts = state_attr('input_datetime.smoker_ai_finish', 'timestamp') %}
+          {{ (ts | as_datetime | as_local).isoformat() if ts and ts > as_timestamp(now()) - 3600
+             and is_state('binary_sensor.smoker_cook_active', 'on') else none }}
       # "Ready by" planner: when to light the grill to serve at input_datetime.smoker_serve_time.
       - name: Smoker start cooking by
         unique_id: smoker_start_by
@@ -121,8 +126,8 @@ template:
           {% set serve = states('input_datetime.smoker_serve_time') %}
           {% set total = states('sensor.smoker_food_1_estimated_total_cook_time') %}
           {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
-          {% if serve not in ['unknown', 'unavailable', ''] and is_number(total) %}
-            {% set ts = as_datetime(serve) | as_local %}
+          {% set ts = as_datetime(serve) | as_local if serve not in ['unknown', 'unavailable', ''] else none %}
+          {% if ts and ts > now() and is_number(total) %}
             {# + 45 min to light the grill and come up to temperature #}
             {{ (ts - timedelta(minutes=total|float + rest + 45)).isoformat() }}
           {% else %}{{ none }}{% endif %}
@@ -169,6 +174,17 @@ script:
         description: e.g. "8 lb pork butt, done by 6pm, I'll wrap at the stall"
         selector: {text: {multiline: true}}
     sequence:
+      - if:
+          - condition: template
+            value_template: "{{ states('sensor.smoker_program_state') in ['Running', 'Paused'] }}"
+        then:
+          - action: script.smoker_notify
+            data:
+              title: Program already running
+              message: Stop the running cook program before planning a new one.
+              priority: 0
+              tag: plan
+          - stop: A program is running
       - variables:
           req: "{{ request if request is defined and request else states('input_text.smoker_plan_request') }}"
       - action: ai_task.generate_data
@@ -179,12 +195,13 @@ script:
           entity_id: ai_task.google_ai_task
           instructions: |
             You plan cooks for a Char-Griller Gravity 980 charcoal smoker. Write a cook program in this exact language.
+            The pit can be set from 200°F to 700°F only (so hold the meat warm at 200°F, never lower).
             Steps separated by ';'. Each step: actions then optional 'until' conditions joined by 'or'.
             Actions: 'pit N' (set pit °F), 'hold N' (set and stay), 'notify "text"', 'shutdown'.
             Conditions: 'food1 >= N [for Nm]', 'food1 <= N', 'food1 done', 'after Nh|Nm', 'at HH:MM',
             'stall_start food1', 'stall_end food1'. Probes: pit, food1, food2. Temperatures in °F.
             Start with 'name: <short name>;'. Keep it under 240 characters. Example:
-            name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify "Rest it"
+            name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"
             Current time: {{ now().strftime('%a %H:%M') }}. Outdoor: {{ state_attr('weather.forecast_home', 'temperature') }}°F,
             wind {{ state_attr('weather.forecast_home', 'wind_speed') }} mph.
             The cook: {{ req }}
@@ -300,18 +317,23 @@ script:
           mode: "{{ 'live' if cooking else 'plan' }}"
           summary: "{{ advice.data.summary }}"
           items: "{{ items }}"
-      - if: "{{ (advice.data.eta_minutes | int(0)) > 0 }}"
+      - if: "{{ cooking and (advice.data.eta_minutes | int(0)) > 0 }}"
         then:
+          - variables:
+              eta: "{{ [advice.data.eta_minutes | int(0), 3000] | min }}"
           - action: input_number.set_value
             target: {entity_id: input_number.smoker_ai_eta_minutes}
-            data: {value: "{{ advice.data.eta_minutes | int(0) }}"}
+            data: {value: "{{ eta }}"}
+          - action: input_datetime.set_datetime
+            target: {entity_id: input_datetime.smoker_ai_finish}
+            data: {timestamp: "{{ as_timestamp(now()) + eta * 60 }}"}
       - action: input_text.set_value
         target: {entity_id: input_text.smoker_ai_summary}
-        data: {value: "{{ advice.data.summary[:250] }}"}
+        data: {value: "{{ (advice.data.summary or '')[:250] }}"}
       - if:
           - condition: template
             value_template: >
-              {{ cooking and (advice.data.suggestion | default('')) | length > 0 and
+              {{ cooking and (advice.data.suggestion or '') | length > 0 and
                  advice.data.suggestion[:250] != states('input_text.smoker_ai_suggestion') }}
         then:
           - action: input_text.set_value
@@ -340,10 +362,10 @@ automation:
           buttons: >
             {% if tag.startswith('done_') %}
               [{"action": "SMOKER_FOOD_PLUS_5_{{ tag[5:] | upper }}", "title": "+5°F target"},
-               {"action": "SMOKER_PIT_HOLD", "title": "Hold at 160°F"}]
+               {"action": "SMOKER_PIT_HOLD", "title": "Stop program, hold pit at 200°F"}]
             {% elif tag == 'pit_band' %}
-              [{"action": "SMOKER_PIT_PLUS_25", "title": "Pit +25°F"}, {"action": "SMOKER_PIT_MINUS_25", "title": "Pit −25°F"}]
-            {% elif tag == 'program' and 'paused' in trigger.event.data.title | lower %}
+              [{"action": "SMOKER_PIT_PLUS_25", "title": "Pit +25°F (pauses program)"}, {"action": "SMOKER_PIT_MINUS_25", "title": "Pit −25°F (pauses program)"}]
+            {% elif tag == 'program' and ('paused' in (trigger.event.data.title | lower) or 'restarted' in (trigger.event.data.title | lower)) %}
               [{"action": "SMOKER_RESUME_PROGRAM", "title": "Resume program"}]
             {% elif tag.startswith('stall_') and 'stall' == trigger.event.data.title.split(' ')[-1] %}
               [{"action": "SMOKER_WRAPPED_{{ tag[6:] | upper }}", "title": "I wrapped it"}]
@@ -381,7 +403,8 @@ automation:
                 target: {entity_id: number.smoker_pit_target}
                 data:
                   value: >
-                    {{ states('number.smoker_pit_target') | float(225) + (25 if a.endswith('PLUS_25') else -25) }}
+                    {% set v = states('number.smoker_pit_target') | float(225) + (25 if a.endswith('PLUS_25') else -25) %}
+                    {{ [200, [700, v] | min] | max }}
           - conditions: "{{ a == 'SMOKER_PIT_HOLD' }}"
             sequence:
               - action: esphome.gravity980_stop_program
@@ -391,15 +414,17 @@ automation:
           - conditions: "{{ a.startswith('SMOKER_FOOD_PLUS_5_') }}"
             sequence:
               - variables:
-                  n: "{{ 'number.smoker_food_1_target' if a.endswith('FOOD1') else 'number.smoker_food_2_target' }}"
+                  # food1 -> food_1, govee2 -> govee_2 (the entity ids HA builds from "Food 1", "Govee 2")
+                  key: "{% set k = a.split('_')[-1] | lower %}{{ k[:-1] ~ '_' ~ k[-1:] }}"
+                  n: "number.smoker_{{ key }}_target"
               - action: number.set_value
                 target: {entity_id: "{{ n }}"}
-                data: {value: "{{ states(n) | float(203) + 5 }}"}
+                data: {value: "{{ [states(n) | float(203) + 5, 350] | min }}"}
           - conditions: "{{ a.startswith('SMOKER_WRAPPED_') }}"
             sequence:
               - action: switch.turn_on
                 target:
-                  entity_id: "{{ 'switch.smoker_food_1_wrapped' if a.endswith('FOOD1') else 'switch.smoker_food_2_wrapped' }}"
+                  entity_id: "{% set k = a.split('_')[-1] | lower %}switch.smoker_{{ k[:-1] ~ '_' ~ k[-1:] }}_wrapped"
 
   - id: smoker_ai_advisor_schedule
     alias: Smoker - AI advisor every 30 minutes during a cook
@@ -458,6 +483,9 @@ automation:
             {{ '%.1f' % s.total_h }} h, stall {{ '%.1f' % s.stall_h }} h at a {{ '%.0f' % (s.pit_c * 9 / 5 + 32) }}°F pit.
             The controller has now learned from {{ s.history_count }} cooks.
           entity_id: sensor.smoker_cooks_learned
+      - action: input_number.set_value
+        target: {entity_id: input_number.smoker_ai_eta_minutes}
+        data: {value: 0}
       - action: timer.start
         target: {entity_id: timer.smoker_rest}
         data:
@@ -502,8 +530,10 @@ automation:
   - id: smoker_light_reminder
     alias: Smoker - time to light the grill
     triggers:
-      - trigger: time
-        at: sensor.smoker_start_cooking_by
+      - trigger: template
+        value_template: >
+          {% set s = states('sensor.smoker_start_cooking_by') %}
+          {{ s not in ['unknown', 'unavailable', 'None', ''] and now() >= as_datetime(s) }}
     conditions:
       - condition: state
         entity_id: binary_sensor.smoker_cook_active
@@ -513,7 +543,7 @@ automation:
         data:
           title: Time to light the smoker
           message: >
-            To serve at {{ as_timestamp(states('input_datetime.smoker_serve_time')) | timestamp_custom('%H:%M') }},
+            To serve at {{ (states('input_datetime.smoker_serve_time') | as_datetime | as_local).strftime('%H:%M') }},
             start now (about {{ (states('sensor.smoker_food_1_estimated_total_cook_time') | float(0) / 60) | round(1) }} h
             cook + {{ states('input_number.smoker_rest_minutes') | int }} min rest).
           priority: 1
@@ -521,14 +551,13 @@ automation:
 
   - id: smoker_controller_offline
     alias: Smoker - controller offline during a cook
+    # Only when the controller drops out *during* a cook (every entity goes unavailable at once on a reboot).
     triggers:
       - trigger: state
-        entity_id: sensor.smoker_pit_temperature
+        entity_id: binary_sensor.smoker_cook_active
+        from: "on"
         to: unavailable
         for: "00:03:00"
-    conditions:
-      - condition: template
-        value_template: "{{ states('binary_sensor.smoker_cook_active') in ['on', 'unavailable'] }}"
     actions:
       - action: script.smoker_notify
         data:

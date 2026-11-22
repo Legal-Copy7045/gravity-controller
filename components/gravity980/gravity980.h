@@ -81,7 +81,7 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   bool parse_device(const esp32_ble_tracker::ESPBTDevice &device) override;
   bool gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                            esp_ble_gattc_cb_param_t *param) override;
-  bool ready() const { return this->notify_handle_ != 0; }
+  bool ready() const { return this->write_handle_ != 0; }
   bool write(const std::vector<uint8_t> &data);
   void set_enabled(bool enabled);
 
@@ -189,7 +189,13 @@ class Gravity980Component : public Component {
   std::vector<uint8_t> tx_;
 
   bool ble_connected_{false};
+  bool ble_got_frame_{false};
   uint32_t ble_last_frame_{0};
+  uint32_t ble_warned_{0};
+  bool tcp_got_frame_{false};
+  std::string resolved_host_;
+  uint32_t resolved_addr_{0};
+  uint32_t resolved_at_{0};
 
   Transport active_{Transport::NONE};
   Status status_{};

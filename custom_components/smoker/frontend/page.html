@@ -153,7 +153,16 @@ const isF = () => TU().indexOf('F') >= 0;
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
 const fail = e => toast('⚠ ' + ((e && e.message) || e));
 const typing = () => { const a = document.activeElement; return a && /INPUT|TEXTAREA|SELECT/.test(a.tagName); };
-function put(id, html) { const el = $(id); if (!el) return; if (el._h === html) return; if (typing() && el.contains(document.activeElement)) return; el._h = html; el.innerHTML = html; }
+// Re-render a section only when its HTML changed; never under someone typing; keep text the user has edited
+// (fields marked dirty by the input listener below) until it's sent.
+function put(id, html) {
+  const el = $(id); if (!el) return; if (el._h === html) return; if (typing() && el.contains(document.activeElement)) return;
+  const keep = {}; el.querySelectorAll('textarea[id],input[id]').forEach(f => { if (f.dataset.dirty) keep[f.id] = f.value; });
+  el._h = html; el.innerHTML = html;
+  Object.entries(keep).forEach(([k, v]) => { const f = $(k); if (f) { f.value = v; f.dataset.dirty = '1'; } });
+}
+document.addEventListener('input', e => { if (e.target && e.target.id) e.target.dataset.dirty = '1'; });
+const clean = id => { const f = $(id); if (f) delete f.dataset.dirty; };
 const minsTxt = m => m == null ? '--' : m < 60 ? Math.round(m) + ' min' : Math.floor(m / 60) + 'h ' + String(Math.round(m % 60)).padStart(2, '0') + 'm';
 const atTxt = m => m == null ? '--' : clock(Date.now() + m * 60000);
 
@@ -168,18 +177,20 @@ window.act = {
   },
   target(key, delta) {
     const p = PROBES.find(x => x.key === key); const e = E(p.label + ' target', ['number']); const cur = num(e);
-    if (cur == null) return fail('target unknown'); setNum(e, cur + delta * (isF() ? 1 : 0.5));
+    if (cur == null) return fail('target unknown');
+    const st = S(e), step = (st && st.attributes && st.attributes.step) || (isF() ? 1 : 0.5);
+    setNum(e, cur + delta * step);
   },
   targetSet(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' target', ['number']), parseFloat(v)); },
   profile(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' protein', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
   weight(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' weight', ['number']), parseFloat(v) || 0); },
   wrap(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' wrapped', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   preset(v) { const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
-  load() { const t = $('progtext').value.trim(); if (!t) return; esph('load_program', { program: t }).then(() => toast('Program sent')); },
+  load() { const t = $('progtext').value.trim(); if (!t) return; esph('load_program', { program: t }).then(() => { clean('progtext'); toast('Program sent'); }); },
   prog(svc) { esph(svc).then(() => toast(svc.replace('_', ' '))); },
   plan() {
     const t = $('plantext').value.trim(); if (!t) return toast('Describe the cook first');
-    toast('Asking the AI…'); H().service('script', 'smoker_plan_cook', { request: t }).then(() => toast('Plan requested: check notifications')).catch(fail);
+    toast('Asking the AI…'); H().service('script', 'smoker_plan_cook', { request: t }).then(() => { clean('plantext'); toast('Plan requested: check notifications'); }).catch(fail);
   },
   advise() { toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
   serve(v) {
@@ -235,8 +246,8 @@ function renderKpis() {
   const k = [];
   const add = (l, v, u, n) => k.push(`<div class="kpi"><span class="l">${esc(l)}</span><span class="v">${v}${u ? `<small>${esc(u)}</small>` : ''}</span><span class="n">${n || '&nbsp;'}</span></div>`);
   const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
-  add('Pit', fmt(pit), TU(), tgt != null ? 'target ' + fmt(tgt) + TU() : 'no target');
-  PROBES.slice(0, 2).forEach(p => { const s = probeState(p); if (s.t != null || p.key === 'food1') add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + atTxt(s.rem) : (s.phase || '')); });
+  add('Pit', fmt(pit), TU(), tgt != null ? 'target ' + fmt(tgt) + esc(TU()) : 'no target');
+  PROBES.slice(0, 2).forEach(p => { const s = probeState(p); if (s.t != null || p.key === 'food1') add(p.label, fmt(s.t), TU(), s.rem != null ? 'done ~' + esc(atTxt(s.rem)) : esc(s.phase || '')); });
   const el = num(E('Cook elapsed', ['sensor']));
   add('Cook time', el != null ? minsTxt(el) : '--', '', val(E('Cook active', ['binary_sensor'])) === 'on' ? 'in progress' : 'idle');
   const w = Object.keys(H().all()).find(id => id.startsWith('weather.'));
@@ -279,7 +290,7 @@ function renderProgram() {
   put('progcard', `<h3>Cook program <span class="chip ${running ? 'ok' : paused ? 'warn' : ''}">${esc(st)}</span></h3>
     <div class="small" style="margin-bottom:8px">${esc(status)}</div>
     <div class="row"><span>Preset</span><select onchange="act.preset(this.value)">${opts.map(o => `<option ${preset && preset.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
-    <textarea id="progtext" spellcheck="false" placeholder='pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify "Done"'>${esc(prog)}</textarea>
+    <textarea id="progtext" spellcheck="false" placeholder='pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Done"'>${esc(prog)}</textarea>
     ${err ? `<div class="err">${esc(err)}</div>` : ''}
     <div class="btns">
       <button class="btn" onclick="act.load()">Load</button>
@@ -290,11 +301,15 @@ function renderProgram() {
     </div>`);
 }
 
+function aiLeftMin() {
+  const f = val(byName('Smoker AI finish', ['sensor']));
+  const t = f ? Date.parse(f) : NaN;
+  return isFinite(t) ? (t - Date.now()) / 60000 : null;
+}
 function renderAI() {
-  const eta = num(byName('Smoker AI ETA (minutes)', ['input_number']));
-  const etaE = byName('Smoker AI ETA (minutes)', ['input_number']);
-  const at = etaE && S(etaE) ? Date.parse(S(etaE).last_changed) : null;
-  const left = eta && at ? eta - (Date.now() - at) / 60000 : null;
+  const left = aiLeftMin();
+  const sumE = byName('Smoker AI summary', ['input_text']);
+  const at = sumE && S(sumE) ? Date.parse(S(sumE).last_changed) : null;
   const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
   const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
   put('aicard', `<h3>AI pitmaster <button class="tg ${on ? 'on' : ''}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
@@ -313,9 +328,7 @@ function rangeBar(s, ai) {
 }
 
 function renderProbes() {
-  const aiE = byName('Smoker AI ETA (minutes)', ['input_number']);
-  const aiAt = aiE && S(aiE) ? Date.parse(S(aiE).last_changed) : null;
-  const aiLeft = num(aiE) && aiAt ? num(aiE) - (Date.now() - aiAt) / 60000 : null;
+  const aiLeft = aiLeftMin();
   const cards = [];
   PROBES.forEach((p, i) => {
     const s = probeState(p);
@@ -354,7 +367,7 @@ function renderPlan() {
     <textarea id="plantext" placeholder="e.g. 8 lb pork butt, ready by 6pm, I'll wrap at the stall" style="font-family:'Instrument Sans';font-size:14px"></textarea>
     <div class="btns"><button class="btn pri" onclick="act.plan()">Plan with AI</button></div>
     <div class="row" style="margin-top:10px"><span>Serve by</span><input type="datetime-local" value="${esc(local)}" onchange="act.serve(this.value)"></div>
-    <div class="row"><span>Light the grill by</span><span class="r">${start && start !== 'unknown' ? clock(start) + ' (' + (until(start) || '') + ')' : '--'}</span></div>
+    <div class="row"><span>Light the grill by</span><span class="r">${start && start !== 'unknown' ? clock(start) + ' (' + (Date.parse(start) < Date.now() ? 'now' : esc(until(start) || '')) + ')' : '--'}</span></div>
     <div class="row"><span>Rest timer</span><span class="r">${rest ? esc(rest.state) + (rest.attributes.finishes_at ? ' · ends ' + clock(rest.attributes.finishes_at) : '') : '--'}</span></div>`);
 }
 

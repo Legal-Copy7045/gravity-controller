@@ -1,3 +1,5 @@
+import math
+
 import esphome.codegen as cg
 from esphome.components import number
 import esphome.config_validation as cv
@@ -27,8 +29,12 @@ CONFIG_SCHEMA = GRAVITY980_CHILD_SCHEMA.extend(
 )
 
 
-def _f_to_c(f):
-    return round((f - 32) * 5 / 9)
+def _f_to_c_floor(f):
+    return math.floor((f - 32) * 5 / 9)
+
+
+def _f_to_c_ceil(f):
+    return math.ceil((f - 32) * 5 / 9)
 
 
 async def to_code(config):
@@ -43,7 +49,7 @@ async def to_code(config):
         if fahrenheit:
             n = await number.new_number(conf, min_value=lo, max_value=hi, step=5)
         else:
-            n = await number.new_number(conf, min_value=_f_to_c(lo) + 1, max_value=_f_to_c(hi), step=1)
+            n = await number.new_number(conf, min_value=_f_to_c_ceil(lo), max_value=_f_to_c_floor(hi), step=1)
         await cg.register_component(n, conf)
         cg.add(n.set_parent(parent))
         p = cg.RawExpression(f"esphome::gravity980::{probe}")

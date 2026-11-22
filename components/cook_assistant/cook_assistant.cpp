@@ -29,6 +29,42 @@ struct HistoryBlob {
   cook::CookRecord r[cook::CookHistory::CAPACITY];
 };
 
+// JSON helpers: escaped strings, NaN as null.
+static std::string json_str(const std::string &v) {
+  std::string o = "\"";
+  for (char c : v) {
+    switch (c) {
+      case '"':
+        o += "\\\"";
+        break;
+      case '\\':
+        o += "\\\\";
+        break;
+      case '\n':
+        o += "\\n";
+        break;
+      default:
+        if ((unsigned char) c < 0x20)
+          o += ' ';
+        else
+          o += c;
+    }
+  }
+  return o + "\"";
+}
+
+static void json_num(std::string &s, const char *key, float v, const char *fmt = "%.2f") {
+  char b[48];
+  if (std::isnan(v) || std::isinf(v)) {
+    std::snprintf(b, sizeof(b), "\"%s\":null", key);
+  } else {
+    char f[16];
+    std::snprintf(f, sizeof(f), "\"%%s\":%s", fmt);
+    std::snprintf(b, sizeof(b), f, key, v);
+  }
+  s += b;
+}
+
 // ------------------------------------------------------------ entity helpers
 
 void CANumber::setup() {
@@ -104,7 +140,7 @@ std::string CookAssistant::fmt_minutes_(float m) const {
   return b;
 }
 
-double CookAssistant::now_min_() const { return millis() / 60000.0; }
+double CookAssistant::now_min_() const { return double(millis_64()) / 60000.0; }  // 64-bit: no 49-day wrap
 
 int CookAssistant::minute_of_day_() {
 #ifdef USE_TIME
@@ -143,7 +179,7 @@ void CookAssistant::setup() {
     if (this->program_pref_.load(blob)) {
       blob->text[PROGRAM_MAX - 1] = 0;
       if (blob->text[0] != 0)
-        this->load_program(blob->text);
+        this->load_program(blob->text, false);  // don't overwrite the saved run state before restoring it
     }
     delete blob;
   }
@@ -164,6 +200,16 @@ void CookAssistant::setup() {
       });
     if (p->wrapped != nullptr)
       p->wrapped->set_on_change([this, i](bool w) { this->set_wrapped(i, w); });
+    // The entities restored their values before these callbacks existed: apply them now.
+    if (p->profile != nullptr && p->profile->has_state()) {
+      auto idx = p->profile->active_index();
+      if (idx.has_value())
+        p->predictor.set_profile(int(*idx));
+    }
+    if (p->weight != nullptr && p->weight->has_state() && p->weight->state > 0)
+      p->predictor.set_weight(this->fahrenheit_ ? p->weight->state * 0.4536f : p->weight->state);
+    if (p->wrapped != nullptr && p->wrapped->state)
+      p->predictor.set_wrapped(true);
     this->refresh_priors_(p, true);
   }
   if (this->program_text_ != nullptr)
@@ -217,10 +263,10 @@ cook::Environment CookAssistant::environment_() const {
   cook::Environment e;
   auto val = [](sensor::Sensor *s) { return s != nullptr && s->has_state() ? s->state : NAN; };
   float a = val(this->ambient_);
-  e.ambient_c = std::isnan(a) ? NAN : this->to_c_(a);
+  e.ambient_c = std::isnan(a) ? NAN : (this->ambient_fahrenheit_ ? (a - 32.0f) * 5.0f / 9.0f : a);
   e.humidity = val(this->humidity_);
   float w = val(this->wind_);
-  e.wind_kmh = std::isnan(w) ? NAN : (this->fahrenheit_ ? w * 1.609f : w);
+  e.wind_kmh = std::isnan(w) ? NAN : w * this->wind_to_kmh_;
   return e;
 }
 
@@ -289,11 +335,16 @@ void CookAssistant::tick_second_() {
       this->notify(p->name + " stall over", p->name + " is climbing again (" + this->fmt_temp_(t) + ").", 0,
                    "stall_" + p->key);
     }
-    if (done_ev && !p->done_notified) {
+    if ((done_ev || p->predictor.phase() == cook::Phase::DONE) && !p->done_notified) {
       p->done_notified = true;
       this->notify(p->name + " is done", p->name + " reached " + this->fmt_temp_(t) + ".", 1, "done_" + p->key);
     }
     float target = this->probe_target_c_(p);
+    if (!std::isnan(target) && (std::isnan(p->last_target_c) || std::fabs(target - p->last_target_c) > 0.3f)) {
+      p->approach_notified = false;  // a new target gets its own alerts
+      p->done_notified = false;
+      p->last_target_c = target;
+    }
     if (!std::isnan(t) && !std::isnan(target)) {
       if (!p->approach_notified && t >= target - 3.0f && t < target) {
         p->approach_notified = true;
@@ -301,6 +352,8 @@ void CookAssistant::tick_second_() {
                      0, "done_" + p->key);
       } else if (t < target - 6.0f) {
         p->approach_notified = false;
+        p->done_notified = false;
+      } else if (t < target - 1.0f) {
         p->done_notified = false;
       }
     }
@@ -324,17 +377,27 @@ void CookAssistant::tick_second_() {
       this->save_history_();
       ESP_LOGI(TAG, "%s: cook recorded (k=%.3f, stall %.1fh, total %.1fh)", p->name.c_str(), rec.k_pre, rec.stall_h,
                rec.total_h);
-      char json[320];
-      std::snprintf(json, sizeof(json),
-                    "{\"probe\":\"%s\",\"name\":\"%s\",\"profile\":\"%s\",\"weight_kg\":%.2f,\"wrapped\":%s,"
-                    "\"pit_c\":%.1f,\"start_c\":%.1f,\"target_c\":%.1f,\"k_pre\":%.4f,\"k_post\":%.4f,"
-                    "\"stall_h\":%.2f,\"total_h\":%.2f,\"history_count\":%u}",
-                    p->key.c_str(), p->name.c_str(), cook::profiles()[rec.profile].name,
-                    std::isnan(rec.weight_kg) ? 0.0f : rec.weight_kg, (rec.flags & 1) ? "true" : "false", rec.pit_c,
-                    rec.start_c, rec.target_c, std::isnan(rec.k_pre) ? 0.0f : rec.k_pre,
-                    std::isnan(rec.k_post) ? 0.0f : rec.k_post, std::isnan(rec.stall_h) ? 0.0f : rec.stall_h,
-                    rec.total_h, (unsigned) this->history_.count());
-      std::string js = json;
+      std::string js = "{";
+      js += "\"probe\":" + json_str(p->key) + ",\"name\":" + json_str(p->name) + ",\"profile\":" +
+            json_str(cook::profiles()[rec.profile].name) + ",";
+      json_num(js, "weight_kg", rec.weight_kg);
+      js += std::string(",\"wrapped\":") + ((rec.flags & 1) ? "true" : "false") + ",";
+      json_num(js, "pit_c", rec.pit_c, "%.1f");
+      js += ",";
+      json_num(js, "start_c", rec.start_c, "%.1f");
+      js += ",";
+      json_num(js, "target_c", rec.target_c, "%.1f");
+      js += ",";
+      json_num(js, "k_pre", rec.k_pre, "%.4f");
+      js += ",";
+      json_num(js, "k_post", rec.k_post, "%.4f");
+      js += ",";
+      json_num(js, "stall_h", rec.stall_h);
+      js += ",";
+      json_num(js, "total_h", rec.total_h);
+      js += ",";
+      json_num(js, "ambient_c", rec.ambient_c, "%.1f");
+      js += ",\"history_count\":" + std::to_string(this->history_.count()) + "}";
       for (auto *tr : this->complete_triggers_)
         tr->trigger(js);
       if (this->history_count_ != nullptr)
@@ -346,25 +409,44 @@ void CookAssistant::tick_second_() {
 
   // Program
   if (this->runner_.state() == cook::ProgramRunner::State::RUNNING) {
-    // Manual override detection: the reported pit target no longer matches ours.
+    // Manual override: the reported pit target moved to a new value that isn't ours. A write the grill
+    // ignored (idle, link down) leaves the old value in place: retry it instead of pausing.
     float cmd = this->runner_.commanded_pit();
     float rep = this->pit_setpoint_ != nullptr && this->pit_setpoint_->has_state()
                     ? this->to_c_(this->pit_setpoint_->state)
                     : NAN;
-    if (!std::isnan(cmd) && !std::isnan(rep) && std::fabs(cmd - rep) > 2.0f &&
-        millis() - this->last_set_pit_ms_ > 20000) {
-      if (this->override_since_ < 0)
-        this->override_since_ = now;
-      if (now - this->override_since_ > 0.5) {
-        this->runner_.pause("pit target changed outside the program");
-        this->notify("Program paused", "The pit target was changed to " + this->fmt_temp_(rep) +
-                                           ". Resume the program to go back to " + this->fmt_temp_(cmd) + ".",
-                     0, "program");
+    bool settled = millis() - this->last_set_pit_ms_ > 20000;
+    if (!std::isnan(cmd) && !std::isnan(rep) && std::fabs(cmd - rep) > 2.0f && settled) {
+      bool unchanged = !std::isnan(this->rep_at_write_c_) && std::fabs(rep - this->rep_at_write_c_) <= 1.0f;
+      if (unchanged || this->pit_write_failed_) {
+        // Not taken: retry every minute; tell the user once after a few tries.
+        if (millis() - this->last_set_pit_ms_ > 60000) {
+          this->write_retries_++;
+          if (this->write_retries_ == 3)
+            this->notify("Grill isn't taking the target",
+                         "The program set the pit to " + this->fmt_temp_(cmd) +
+                             " but the grill still reports " + this->fmt_temp_(rep) +
+                             ". The stock controller only accepts targets while it is cooking: start a cook on its panel.",
+                         1, "program");
+          this->set_pit_(cmd);
+        }
         this->override_since_ = -1;
-        this->save_program_state_();
+      } else {
+        if (this->override_since_ < 0)
+          this->override_since_ = now;
+        if (now - this->override_since_ > 0.5) {
+          this->runner_.pause(now, "pit target changed outside the program");
+          this->notify("Program paused", "The pit target was changed to " + this->fmt_temp_(rep) +
+                                             ". Resume the program to go back to " + this->fmt_temp_(cmd) + ".",
+                       0, "program");
+          this->override_since_ = -1;
+          this->save_program_state_();
+        }
       }
     } else {
       this->override_since_ = -1;
+      if (!std::isnan(cmd) && !std::isnan(rep) && std::fabs(cmd - rep) <= 2.0f)
+        this->write_retries_ = 0;
     }
     auto out = this->runner_.tick(now, in);
     this->apply_outputs_(out);
@@ -491,6 +573,20 @@ void CookAssistant::check_alerts_() {
   bool lid_open = this->lid_ != nullptr && this->lid_->has_state() && this->lid_->state;
 
   // Pit out of band (after it first reached the setpoint).
+  // A new setpoint restarts "has the pit reached its target yet".
+  if (!std::isnan(sp) && (std::isnan(this->alert_sp_c_) || std::fabs(sp - this->alert_sp_c_) > 3.0f)) {
+    this->alert_sp_c_ = sp;
+    this->pit_reached_ = false;
+    this->pit_off_since_ = this->fire_low_since_ = -1;
+  }
+  // Pit trend over 5 minutes (one sample a minute).
+  if (!std::isnan(pit) && now - this->pit_hist_last_min_ >= 1.0) {
+    this->pit_hist_last_min_ = now;
+    this->pit_hist_.push_back(pit);
+    if (this->pit_hist_.size() > 6)
+      this->pit_hist_.erase(this->pit_hist_.begin());
+  }
+  bool falling = this->pit_hist_.size() >= 6 && this->pit_hist_.back() < this->pit_hist_.front() - 1.0f;
   if (!std::isnan(pit) && !std::isnan(sp)) {
     if (std::fabs(pit - sp) < 5.0f)
       this->pit_reached_ = true;
@@ -509,8 +605,7 @@ void CookAssistant::check_alerts_() {
         this->pit_band_notified_ = false;
     }
     // Fire out: > 28 °C (50 °F) below target and still falling for 15 min.
-    bool low = this->pit_reached_ && !lid_open && sp - pit > 28.0f &&
-               (std::isnan(this->last_pit_c_) || pit <= this->last_pit_c_ + 0.5f);
+    bool low = this->pit_reached_ && !lid_open && sp - pit > 28.0f && falling;
     if (low) {
       if (this->fire_low_since_ < 0)
         this->fire_low_since_ = now;
@@ -572,6 +667,10 @@ void CookAssistant::set_pit_(float c) {
   if (std::isnan(c))
     return;
   this->last_set_pit_ms_ = millis();
+  this->pit_write_failed_ = false;
+  this->rep_at_write_c_ = this->pit_setpoint_ != nullptr && this->pit_setpoint_->has_state()
+                              ? this->to_c_(this->pit_setpoint_->state)
+                              : NAN;
   this->last_commanded_c_ = c;
   float v = std::round(this->from_c_(c));
   for (auto *t : this->set_pit_triggers_)
@@ -608,7 +707,7 @@ void CookAssistant::apply_outputs_(const cook::RunnerOutputs &o) {
     this->save_program_state_();
 }
 
-bool CookAssistant::load_program(const std::string &text) {
+bool CookAssistant::load_program(const std::string &text, bool persist) {
   cook::Program prog;
   std::string err;
   if (!cook::parse_program(text, this->probe_keys(), this->fahrenheit_, prog, err)) {
@@ -617,20 +716,37 @@ bool CookAssistant::load_program(const std::string &text) {
       this->program_error_->publish_state(err);
     return false;
   }
-  if (this->runner_.state() == cook::ProgramRunner::State::RUNNING ||
-      this->runner_.state() == cook::ProgramRunner::State::PAUSED)
-    this->runner_.stop();
+  auto fail = [this](const std::string &e) {
+    ESP_LOGW(TAG, "Program error: %s", e.c_str());
+    if (this->program_error_ != nullptr)
+      this->program_error_->publish_state(e);
+    return false;
+  };
+  for (size_t i = 0; i < prog.steps.size(); i++) {
+    float pc = prog.steps[i].pit_c;
+    if (std::isnan(pc))
+      continue;
+    if (pc < this->pit_min_c_ - 0.3f || pc > this->pit_max_c_ + 0.3f)
+      return fail("step " + std::to_string(i + 1) + ": pit " + this->fmt_temp_(pc) + " is outside the grill's range " +
+                  this->fmt_temp_(this->pit_min_c_) + "-" + this->fmt_temp_(this->pit_max_c_));
+  }
+  if (persist && (this->runner_.state() == cook::ProgramRunner::State::RUNNING ||
+                  this->runner_.state() == cook::ProgramRunner::State::PAUSED))
+    return fail("a program is running: stop it before loading another");
   this->runner_.load(prog);
   this->program_source_ = text;
   if (this->program_error_ != nullptr)
     this->program_error_->publish_state("");
-  auto *blob = new ProgramBlob();  // NOLINT
-  std::strncpy(blob->text, text.c_str(), PROGRAM_MAX - 1);
-  this->program_pref_.save(blob);
-  delete blob;
+  if (persist) {
+    auto *blob = new ProgramBlob();  // NOLINT
+    std::strncpy(blob->text, text.c_str(), PROGRAM_MAX - 1);
+    this->program_pref_.save(blob);
+    delete blob;
+  }
   ESP_LOGI(TAG, "Loaded program '%s' with %u steps", prog.name.c_str(), (unsigned) prog.steps.size());
   this->publish_program_();
-  this->save_program_state_();
+  if (persist)
+    this->save_program_state_();
   return true;
 }
 
@@ -659,7 +775,7 @@ void CookAssistant::start_program() {
   this->save_program_state_();
 }
 void CookAssistant::pause_program() {
-  this->runner_.pause("paused by user");
+  this->runner_.pause(this->now_min_(), "paused by user");
   this->save_program_state_();
 }
 void CookAssistant::resume_program() {
@@ -702,6 +818,13 @@ void CookAssistant::restore_program_state_() {
   });
 }
 
+void CookAssistant::pit_write_result(bool ok) {
+  if (!ok) {
+    this->pit_write_failed_ = true;
+    ESP_LOGW(TAG, "Pit target write failed (no writable link to the grill, or out of range)");
+  }
+}
+
 void CookAssistant::set_wrapped(size_t probe, bool wrapped) {
   if (probe >= this->probes_.size())
     return;
@@ -729,18 +852,6 @@ void CookAssistant::clear_history() {
     this->refresh_priors_(p, true);
 }
 
-static void json_num(std::string &s, const char *key, float v, const char *fmt = "%.2f") {
-  char b[48];
-  if (std::isnan(v))
-    std::snprintf(b, sizeof(b), "\"%s\":null", key);
-  else {
-    char f[16];
-    std::snprintf(f, sizeof(f), "\"%%s\":%s", fmt);
-    std::snprintf(b, sizeof(b), f, key, v);
-  }
-  s += b;
-}
-
 std::string CookAssistant::state_json() {
   std::string s = "{";
   s += std::string("\"unit\":\"") + (this->fahrenheit_ ? "F" : "C") + "\",";
@@ -755,8 +866,8 @@ std::string CookAssistant::state_json() {
     auto &pr = p->predictor;
     if (i)
       s += ",";
-    s += "{\"key\":\"" + p->key + "\",\"name\":\"" + p->name + "\",\"profile\":\"" +
-         cook::profiles()[pr.profile()].name + "\",\"phase\":\"" + cook::phase_name(pr.phase()) + "\",";
+    s += "{\"key\":" + json_str(p->key) + ",\"name\":" + json_str(p->name) + ",\"profile\":" +
+         json_str(cook::profiles()[pr.profile()].name) + ",\"phase\":" + json_str(cook::phase_name(pr.phase())) + ",";
     float t = pr.current_temp();
     json_num(s, "temp", std::isnan(t) ? NAN : this->from_c_(t), "%.0f");
     s += ",";
@@ -784,18 +895,24 @@ std::string CookAssistant::history_json() {
   std::string s = "[";
   bool first = true;
   for (const auto &r : this->history_.records()) {
-    char b[256];
-    std::snprintf(b, sizeof(b),
-                  "%s{\"profile\":\"%s\",\"weight_kg\":%.2f,\"wrapped\":%s,\"pit_c\":%.0f,\"target_c\":%.0f,"
-                  "\"stall_h\":%.2f,\"total_h\":%.2f}",
-                  first ? "" : ",", r.profile < cook::profile_count() ? cook::profiles()[r.profile].name : "?",
-                  std::isnan(r.weight_kg) ? 0.0f : r.weight_kg, (r.flags & 1) ? "true" : "false", r.pit_c, r.target_c,
-                  std::isnan(r.stall_h) ? 0.0f : r.stall_h, r.total_h);
-    s += b;
+    if (!first)
+      s += ",";
     first = false;
+    s += "{\"profile\":" + json_str(r.profile < cook::profile_count() ? cook::profiles()[r.profile].name : "?") + ",";
+    json_num(s, "weight_kg", r.weight_kg);
+    s += std::string(",\"wrapped\":") + ((r.flags & 1) ? "true" : "false") + ",";
+    json_num(s, "pit_c", r.pit_c, "%.0f");
+    s += ",";
+    json_num(s, "target_c", r.target_c, "%.0f");
+    s += ",";
+    json_num(s, "ambient_c", r.ambient_c, "%.0f");
+    s += ",";
+    json_num(s, "stall_h", r.stall_h);
+    s += ",";
+    json_num(s, "total_h", r.total_h);
+    s += "}";
   }
-  s += "]";
-  return s;
+  return s + "]";
 }
 
 }  // namespace cook_assistant

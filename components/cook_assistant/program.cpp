@@ -73,7 +73,26 @@ bool tokenize(const std::string &s, std::vector<Tok> &out, std::string &err) {
       } else {
         t.num = std::strtof(t.text.c_str(), nullptr);
       }
-      // Optional unit suffix (°, F, C, m, min, h).
+      // Optional unit suffix (°, F, C, m, min, h), attached or after one space.
+      {
+        size_t k = j;
+        while (k < s.size() && s[k] == ' ')
+          k++;
+        size_t e = k;
+        if (e < s.size() && (unsigned char) s[e] == 0xC2 && e + 1 < s.size() && (unsigned char) s[e + 1] == 0xB0)
+          e += 2;
+        size_t w = e;
+        while (w < s.size() && std::isalpha((unsigned char) s[w]))
+          w++;
+        std::string word = lower(s.substr(e, w - e));
+        static const char *const UNITS[] = {"f", "c", "m", "min", "mins", "minutes", "h", "hr", "hrs", "hour", "hours"};
+        bool unit_word = false;
+        for (auto *u : UNITS)
+          if (word == u)
+            unit_word = true;
+        if (k > j && (unit_word || e > k))
+          j = e;  // skip the space (and degree sign) so the unit attaches
+      }
       if (j < s.size() && (unsigned char) s[j] == 0xC2 && j + 1 < s.size() && (unsigned char) s[j + 1] == 0xB0)
         j += 2;  // UTF-8 degree sign
       if (j < s.size() && std::isalpha((unsigned char) s[j])) {
@@ -121,6 +140,8 @@ int probe_idx(const std::string &w, const std::vector<std::string> &probes) {
   return -1;
 }
 
+bool is_temp_tok(const Tok &t) { return t.kind == Tok::NUM && (t.unit == 0 || t.unit == 'F' || t.unit == 'C'); }
+
 float temp_value(const Tok &t, bool f) {
   if (t.unit == 'F')
     return to_c(t.num, true);
@@ -130,7 +151,7 @@ float temp_value(const Tok &t, bool f) {
 }
 
 bool duration_min(const Tok &t, float &out) {
-  if (t.kind != Tok::NUM)
+  if (t.kind != Tok::NUM || t.unit == 'F' || t.unit == 'C' || t.unit == 't')
     return false;
   out = t.unit == 'h' ? t.num * 60.0f : t.num;  // default minutes
   return true;
@@ -143,8 +164,8 @@ bool parse_step(const std::string &text, const std::vector<std::string> &probes,
     return false;
   size_t i = 0;
   auto need_num = [&](const char *what) -> bool {
-    if (t[i].kind != Tok::NUM) {
-      err = std::string("expected a number after '") + what + "'";
+    if (!is_temp_tok(t[i])) {
+      err = std::string("expected a temperature after '") + what + "'";
       return false;
     }
     return true;
@@ -257,14 +278,14 @@ bool parse_step(const std::string &text, const std::vector<std::string> &probes,
         err = "expected >=, <=, 'done' or 'stall' after '" + w + "'";
         return false;
       }
-      if (t[i].kind == Tok::WORD && t[i].text == "for") {
-        i++;
-        if (!duration_min(t[i], c.hold_min)) {
-          err = "for needs a duration, e.g. 'for 30m'";
-          return false;
-        }
-        i++;
+    }
+    if (t[i].kind == Tok::WORD && t[i].text == "for") {
+      i++;
+      if (!duration_min(t[i], c.hold_min)) {
+        err = "for needs a duration, e.g. 'for 30m'";
+        return false;
       }
+      i++;
     }
     step.until.push_back(c);
     if (t[i].kind == Tok::WORD && t[i].text == "or") {
@@ -492,18 +513,26 @@ RunnerOutputs ProgramRunner::start(double now_min, size_t step) {
   return enter_step_(step, now_min);
 }
 
-void ProgramRunner::pause(const char *reason) {
+void ProgramRunner::pause(double now_min, const char *reason) {
   if (state_ != State::RUNNING)
     return;
   state_ = State::PAUSED;
-  paused_at_min_ = 0;
+  paused_at_min_ = now_min;
   pause_reason_ = reason ? reason : "";
 }
 
-RunnerOutputs ProgramRunner::resume(double /*now_min*/) {
+RunnerOutputs ProgramRunner::resume(double now_min) {
   RunnerOutputs out;
   if (state_ != State::PAUSED)
     return out;
+  // Paused time doesn't count towards 'after' or 'for' timers.
+  double paused_for = now_min - paused_at_min_;
+  if (paused_for > 0) {
+    step_start_min_ += paused_for;
+    for (auto &h : held_since_)
+      if (h >= 0)
+        h += paused_for;
+  }
   state_ = State::RUNNING;
   pause_reason_.clear();
   // Re-assert this step's setpoint (it may have been overridden).
@@ -545,6 +574,7 @@ void ProgramRunner::restore(size_t step, double step_elapsed_min, double now_min
   for (int i = int(step); i >= 0 && std::isnan(commanded_pit_); i--)
     commanded_pit_ = prog_.steps[i].pit_c;
   state_ = running ? State::RUNNING : State::PAUSED;
+  paused_at_min_ = now_min;
   if (!running)
     pause_reason_ = "restored after restart";
 }
@@ -586,6 +616,11 @@ RunnerOutputs ProgramRunner::tick(double now_min, const RunnerInputs &in) {
   for (size_t i = 0; i < s.until.size(); i++) {
     const Condition &c = s.until[i];
     bool ok = condition_true_(c, in, now_min);
+    // A probe that is briefly unavailable (e.g. a Bluetooth dropout) freezes its timer instead of resetting it.
+    bool probe_cond = c.type == Condition::PROBE_GTE || c.type == Condition::PROBE_LTE;
+    if (probe_cond && (c.probe < 0 || size_t(c.probe) >= in.temp_c.size() || std::isnan(in.temp_c[c.probe]))) {
+      continue;
+    }
     // Stall events and clock times are momentary: latch them.
     bool momentary = c.type == Condition::STALL_START || c.type == Condition::STALL_END ||
                      c.type == Condition::AT_CLOCK;
@@ -678,6 +713,7 @@ std::vector<PlanSegment> ProgramRunner::plan_for_probe(int probe, double now_min
       seg.elapsed_min = float(step_elapsed_min(now_min));
     }
     if (st.shutdown) {
+      seg.pit_c = 40.0f;  // fire out: the forecast sees the pit cooling off
       seg.until = PlanSegment::FOREVER;
       plan.push_back(seg);
       break;

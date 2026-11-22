@@ -7,8 +7,10 @@ substitutions:
   project_version: "0.1.0"
   name: gravity980
   friendly_name: Smoker
-  temperature_unit: "F"            # F or C (HA converts for display anyway)
+  temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
   weather_entity: weather.forecast_home
+  weather_temperature_unit: "F"    # the unit your HA weather entity reports (HA unit system)
+  wind_speed_unit: "mph"           # mph, km/h or m/s
   ntfy_server: https://ntfy.sh
   update_manifest: https://legal-copy7045.github.io/gravity-controller/firmware/manifest.json
   # Govee H5198 (via HA's Govee BLE integration, through this device's Bluetooth proxy).
@@ -292,9 +294,11 @@ cook_assistant:
   ambient_temperature: outdoor_temp
   ambient_humidity: outdoor_humidity
   wind_speed: outdoor_wind
+  ambient_temperature_unit: ${weather_temperature_unit}
+  wind_speed_unit: ${wind_speed_unit}
   time_id: ha_time
   on_set_pit:
-    - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, x);
+    - lambda: id(smoker).pit_write_result(id(grill).request_target(esphome::gravity980::PROBE_PIT, x));
   on_notify:
     - homeassistant.event:
         event: esphome.smoker_notify
@@ -322,15 +326,15 @@ cook_assistant:
           summary: !lambda return json;
   presets:
     - name: Pork shoulder (Texas crutch)
-      program: "name: Pork shoulder; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify \"Pork is done - rest it\""
+      program: "name: Pork shoulder; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify \"Pork is done - rest it\""
     - name: Brisket
-      program: "name: Brisket; pit 250 until food1 >= 165; pit 275 until food1 >= 203; hold 160 notify \"Brisket done - rest 1-2h\""
+      program: "name: Brisket; pit 250 until food1 >= 165; pit 275 until food1 >= 203; hold 200 notify \"Brisket done - rest 1-2h\""
     - name: Ribs
-      program: "name: Ribs; pit 250 until after 3h; pit 250 notify \"Wrap the ribs now\" until after 2h; pit 275 until after 1h; hold 160 notify \"Ribs done\""
+      program: "name: Ribs; pit 250 until after 3h; pit 250 notify \"Wrap the ribs now\" until after 2h; pit 275 until after 1h; hold 200 notify \"Ribs done\""
     - name: Chicken (hot & fast)
       program: "name: Chicken; pit 325 until food1 >= 160; hold 200 notify \"Chicken is done\""
     - name: Hold warm
-      program: "name: Hold; hold 160"
+      program: "name: Hold warm; hold 200"
   probes:
     - key: food1
       name: Food 1

@@ -83,6 +83,7 @@ STATES = dict([
     st("sensor.smoker_cooks_learned", 3, "Smoker Cooks learned"),
     st("sensor.smoker_grill_heat_factor", 1.08, "Smoker Grill heat factor"),
     st("input_number.smoker_ai_eta_minutes", 330, "Smoker AI ETA (minutes)"),
+    st("sensor.smoker_ai_finish", "2099-01-01T15:30:00+00:00", "Smoker AI finish", device_class="timestamp"),
     st("input_text.smoker_ai_summary", "Stall began 70 min ago at 157°F; typical for an 8 lb butt at 250°F.", "Smoker AI summary"),
     st("input_text.smoker_ai_suggestion", "Wrap in butcher paper now to finish by 6:30 pm.", "Smoker AI suggestion"),
     st("input_boolean.smoker_ai_advisor", "on", "Smoker AI advisor"),
@@ -175,6 +176,18 @@ def main():
                     calls = pg.evaluate("window.calls")
                     if not any(c[0] == "number" and c[1] == "set_value" and c[2]["value"] == 255 for c in calls):
                         failures.append(f"pit + did not call number.set_value 255: {calls}")
+                    # Typed text survives a live re-render of its section.
+                    fr.fill("#progtext", "pit 300 until food1 >= 190")
+                    fr.evaluate("document.activeElement.blur()")  # keyboard dismissed
+                    pg.evaluate("""() => { const st = window.__smHass.states;
+                        st['sensor.smoker_program_status'] = Object.assign({}, st['sensor.smoker_program_status'], {state: 'Step 2/3 (changed)'});
+                        window.__smHass = Object.assign({}, window.__smHass, {states: Object.assign({}, st)});
+                        document.getElementById('f').contentWindow.__smOnHass(); }""")
+                    time.sleep(0.6)
+                    if "changed" not in fr.inner_text("#progcard"):
+                        failures.append("program card did not re-render on state change")
+                    if fr.input_value("#progtext") != "pit 300 until food1 >= 190":
+                        failures.append("typed program text was lost on re-render")
                     r = fr.evaluate("window.hdHA.call('lock','unlock','lock.front_door').then(()=>'ok',e=>e.message)")
                     if "not allowed" not in r:
                         failures.append("shim allowed lock.unlock")

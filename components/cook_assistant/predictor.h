@@ -175,6 +175,10 @@ class Predictor {
   double stall_start_min_{-1};
   double stall_end_min_{-1};
   double cook_start_min_{-1};
+  double done_since_min_{-1};
+  float done_target_c_{NAN};
+  bool done_from_cook_{false};
+  float deficit_setpoint_{NAN};
   float stall_onset_temp_{NAN};
   double pit_sum_{0};
   int pit_n_{0};

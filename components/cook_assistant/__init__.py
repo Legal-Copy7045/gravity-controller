@@ -126,6 +126,12 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("ambient_temperature"): _ref(sensor.Sensor),
         cv.Optional("ambient_humidity"): _ref(sensor.Sensor),
         cv.Optional("wind_speed"): _ref(sensor.Sensor),
+        # Units of the weather sensors (Home Assistant's unit system), independent of temperature_unit.
+        cv.Optional("ambient_temperature_unit"): cv.one_of("F", "C", upper=True),
+        cv.Optional("wind_speed_unit", default="mph"): cv.one_of("mph", "km/h", "m/s", lower=True),
+        # The grill's accepted pit range (programs outside it are refused). Default: the stock controller, 200-700 °F.
+        cv.Optional("pit_min", default=93.3): cv.float_,
+        cv.Optional("pit_max", default=371.1): cv.float_,
         cv.Optional(CONF_TIME_ID): _time_schema(),
         cv.Required(CONF_PROBES): cv.All(cv.ensure_list(PROBE_SCHEMA), cv.Length(min=1, max=8)),
         cv.Optional(CONF_PRESETS, default=[]): cv.ensure_list(PRESET_SCHEMA),
@@ -183,6 +189,10 @@ async def to_code(config):
     ]:
         if key in config:
             cg.add(getattr(var, setter)(await cg.get_variable(config[key])))
+    amb = config.get("ambient_temperature_unit", config[CONF_TEMPERATURE_UNIT])
+    cg.add(var.set_ambient_fahrenheit(amb == "F"))
+    cg.add(var.set_wind_to_kmh({"mph": 1.609344, "km/h": 1.0, "m/s": 3.6}[config["wind_speed_unit"]]))
+    cg.add(var.set_pit_range(config["pit_min"], config["pit_max"]))
     if CONF_TIME_ID in config:
         cg.add(var.set_time(await cg.get_variable(config[CONF_TIME_ID])))
 

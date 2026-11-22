@@ -195,7 +195,7 @@ static CookResult run_cook(float weight_kg, float pit_c, float target_c, int pro
     if (m.core >= target_c && std::isnan(r.actual_total_min)) {
       r.actual_total_min = float(t * 60);
     }
-    if (!std::isnan(r.actual_total_min) && t * 60 > r.actual_total_min + 3) {
+    if (!std::isnan(r.actual_total_min) && t * 60 > r.actual_total_min + 7) {
       r.have_record = p.take_completed(r.record);
       break;
     }
@@ -433,7 +433,7 @@ static void test_program() {
   cook::ProgramRunner r2;
   r2.load(prog);
   r2.start(0);
-  r2.pause("manual setpoint change");
+  r2.pause(1, "manual setpoint change");
   CHECK(r2.state() == cook::ProgramRunner::State::PAUSED);
   auto ro = r2.resume(5);
   CHECK(ro.set_pit && r2.state() == cook::ProgramRunner::State::RUNNING);
@@ -441,9 +441,74 @@ static void test_program() {
   CHECK(so.step_changed && r2.step() == 1);
 }
 
+// Regression tests for review findings.
+static void test_regressions() {
+  std::printf("regressions\n");
+  std::vector<std::string> probes = {"pit", "food1", "food2"};
+  std::string err;
+  cook::Program p;
+  // Pause doesn't count towards 'after'; step elapsed stays correct while paused.
+  CHECK(cook::parse_program("pit 250 until after 2h; pit 275", probes, true, p, err));
+  cook::ProgramRunner r;
+  r.load(p);
+  r.start(300);
+  r.pause(400, "test");
+  NEAR(r.step_elapsed_min(450), 100.0, 0.01);
+  r.resume(500);
+  cook::RunnerInputs in;
+  in.temp_c = {120, 60, NAN};
+  in.done = in.stall_started = in.stall_ended = {false, false, false};
+  CHECK(!r.tick(519, in).step_changed);  // 100 + 19 = 119 min elapsed
+  CHECK(r.tick(521, in).step_changed);   // 121 min
+  // A probe dropout freezes a 'for' timer instead of resetting it.
+  CHECK(cook::parse_program("pit 250 until food1 >= 165 for 30m; pit 275", probes, true, p, err));
+  cook::ProgramRunner r2;
+  r2.load(p);
+  r2.start(0);
+  in.temp_c[1] = cook::profiles()[0].stall_onset_c + 20;  // well above 165F
+  for (int m = 0; m < 29; m++)
+    r2.tick(m, in);
+  in.temp_c[1] = NAN;
+  r2.tick(29, in);
+  in.temp_c[1] = 80;
+  CHECK(r2.tick(30, in).step_changed);
+  // 'for' after every condition type round-trips; units with a space; mismatched units rejected.
+  CHECK(cook::parse_program("pit 250 until food1 stall ends for 30m or after 2 h", probes, true, p, err));
+  CHECK(p.steps[0].until[0].hold_min == 30 && p.steps[0].until[1].value == 120);
+  cook::Program p3;
+  CHECK(cook::parse_program(cook::format_program(p, probes, true), probes, true, p3, err));
+  CHECK(cook::parse_program("pit 250 until food1 >= 165 F", probes, true, p, err));
+  NEAR(p.steps[0].until[0].value, 73.89f, 0.01f);
+  CHECK(!cook::parse_program("pit 30m", probes, true, p, err));
+  CHECK(!cook::parse_program("pit 250 until after 2F", probes, true, p, err));
+  CHECK(!cook::parse_program("pit 250 until after 17:30", probes, true, p, err));
+
+  // Briefly stepping the target below the current temperature doesn't record a cook.
+  {
+    cook::Predictor pr;
+    pr.set_target(93.0f);
+    double t = 0;
+    float core = 20;
+    for (int i = 0; i < 300; i++, t += 1.0 / 60) {
+      core += 0.15f;
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    }
+    pr.set_target(40.0f);  // stepped below for 2 minutes
+    for (int i = 0; i < 2; i++, t += 1.0 / 60)
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    pr.set_target(93.0f);
+    for (int i = 0; i < 10; i++, t += 1.0 / 60)
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    cook::CookRecord rec;
+    CHECK(!pr.take_completed(rec));
+    CHECK(pr.phase() != cook::Phase::DONE);
+  }
+}
+
 int main() {
   test_protocol();
   test_program();
+  test_regressions();
   test_predictor();
   if (failures) {
     std::printf("\n%d check(s) FAILED\n", failures);

@@ -113,10 +113,12 @@ size_t FrameAssembler::next_frame_len_() {
 }
 
 bool FrameAssembler::take_lone_frame(Status &out) {
-  if (frame_size_ != 0 || buf_.size() < FRAME_MIN)
+  // Only once per buffered frame: a quiet grill must not look alive by re-delivering the same bytes.
+  if (lone_delivered_ || frame_size_ != 0 || buf_.size() < FRAME_MIN)
     return false;
-  if (!parse_status(buf_.data(), buf_.size() >= FRAME_EXT ? FRAME_EXT : FRAME_MIN, out))
+  if (!parse_status(buf_.data(), FRAME_MIN, out))
     return false;
+  lone_delivered_ = true;
   return true;
 }
 

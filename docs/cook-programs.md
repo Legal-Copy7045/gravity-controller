@@ -8,13 +8,13 @@ Assistant drop (conditions on Govee probes pause while their data is unavailable
 name: Pork butt
 pit 250 until food1 >= 165 for 30m
 pit 275 until food1 >= 203
-hold 160 notify "Pork is done - rest it"
+hold 200 notify "Pork is done - rest it"
 ```
 
 | Actions | |
 |---|---|
 | `pit N` | set the pit target |
-| `hold N` | set the pit target and stay (final step) |
+| `hold N` | set the pit target and stay (final step). The stock controller's pit range is 200–700 °F, so the lowest hold is 200 |
 | `notify "text"` | send a notification when the step starts |
 | `shutdown` | end the program |
 

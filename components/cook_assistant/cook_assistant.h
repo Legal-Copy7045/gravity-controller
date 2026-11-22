@@ -124,6 +124,7 @@ struct FoodProbe {
   bool stall_started_tick{false};
   bool stall_ended_tick{false};
   float last_priors_pit{NAN};
+  float last_target_c{NAN};
 };
 
 class NotifyTrigger;
@@ -143,6 +144,8 @@ class CookAssistant : public Component {
   void set_ambient_temperature(sensor::Sensor *s) { this->ambient_ = s; }
   void set_ambient_humidity(sensor::Sensor *s) { this->humidity_ = s; }
   void set_wind_speed(sensor::Sensor *s) { this->wind_ = s; }
+  void set_ambient_fahrenheit(bool f) { this->ambient_fahrenheit_ = f; }
+  void set_wind_to_kmh(float k) { this->wind_to_kmh_ = k; }
 #ifdef USE_TIME
   void set_time(time::RealTimeClock *t) { this->time_ = t; }
 #endif
@@ -173,7 +176,13 @@ class CookAssistant : public Component {
 
   // ---- API (buttons, HA actions, lambdas) ----
   /// Load a program from text. Returns false and publishes the error if invalid.
-  bool load_program(const std::string &text);
+  bool load_program(const std::string &text, bool persist = true);
+  /// Report the outcome of an on_set_pit write (call from the on_set_pit automation).
+  void pit_write_result(bool ok);
+  void set_pit_range(float min_c, float max_c) {
+    this->pit_min_c_ = min_c;
+    this->pit_max_c_ = max_c;
+  }
   void start_program();
   void pause_program();
   void resume_program();
@@ -226,6 +235,8 @@ class CookAssistant : public Component {
   sensor::Sensor *ambient_{nullptr};
   sensor::Sensor *humidity_{nullptr};
   sensor::Sensor *wind_{nullptr};
+  bool ambient_fahrenheit_{true};
+  float wind_to_kmh_{1.609344f};
 #ifdef USE_TIME
   time::RealTimeClock *time_{nullptr};
 #endif
@@ -272,6 +283,14 @@ class CookAssistant : public Component {
   double override_since_{-1};
   float last_commanded_c_{NAN};
   uint32_t last_set_pit_ms_{0};
+  float rep_at_write_c_{NAN};
+  bool pit_write_failed_{false};
+  int write_retries_{0};
+  float alert_sp_c_{NAN};
+  std::vector<float> pit_hist_;
+  double pit_hist_last_min_{-1e9};
+  float pit_min_c_{93.3f};   // 200 °F: the stock controller's minimum
+  float pit_max_c_{371.1f};  // 700 °F
   ESPPreferenceObject history_pref_;
   ESPPreferenceObject program_pref_;
   ESPPreferenceObject state_pref_;

@@ -11,7 +11,7 @@ Bluetooth, and adds:
   corrected for how your grill actually holds temperature. Finish time with an early/late range, before the probe is
   even in the meat.
 - **Stall detection** and stall-remaining estimates; "wrapped" switch that the model takes into account.
-- **Cook programs** you can type on a phone: `pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 160 notify "Rest it"`.
+- **Cook programs** you can type on a phone: `pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"`.
 - **Alerts**: done / almost done, stall start and end, probe slipped out, pit off target, fire may be out, lid open,
   grill connection lost. Through Home Assistant (actionable notifications), with **ntfy** as a direct path for
   critical alarms when Home Assistant is down.

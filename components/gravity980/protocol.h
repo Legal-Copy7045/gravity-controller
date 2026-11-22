@@ -5,6 +5,7 @@
 // Protocol credit: github.com/grzbiet/cg980app (MIT). Summary in docs/protocol.md.
 
 #include <cstddef>
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -75,8 +76,12 @@ class FrameAssembler {
       size_t n = next_frame_len_();
       if (n == 0)
         break;
-      on_frame(buf_.data(), n);
+      // Copy out and consume first: the callback may reset this assembler (re-entrancy).
+      uint8_t frame[FRAME_EXT];
+      std::copy(buf_.begin(), buf_.begin() + n, frame);
       buf_.erase(buf_.begin(), buf_.begin() + n);
+      lone_delivered_ = false;
+      on_frame(frame, n);
     }
   }
   /// Return a single buffered frame when only one has arrived (stride unknown).
@@ -84,6 +89,7 @@ class FrameAssembler {
   void reset() {
     buf_.clear();
     frame_size_ = 0;
+    lone_delivered_ = false;
   }
   size_t frame_size() const { return frame_size_; }
   uint32_t errors() const { return errors_; }
@@ -94,6 +100,7 @@ class FrameAssembler {
   std::vector<uint8_t> buf_;
   size_t frame_size_{0};
   uint32_t errors_{0};
+  bool lone_delivered_{false};
 };
 
 inline float f_to_c(float f) { return (f - 32.0f) * 5.0f / 9.0f; }

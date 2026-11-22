@@ -46,7 +46,10 @@ float Gravity980Component::to_unit_(uint16_t f) const {
 }
 
 uint16_t Gravity980Component::from_unit_(float v) const {
-  return uint16_t(lroundf(this->fahrenheit_ ? v : c_to_f(v)));
+  float f = this->fahrenheit_ ? v : c_to_f(v);
+  if (!(f > 0.0f) || f > 2000.0f)
+    return 0;  // out of any valid range; build_target_command rejects 0
+  return uint16_t(lroundf(f));
 }
 
 void Gravity980Component::set_host(const std::string &host) {
@@ -104,14 +107,16 @@ void Gravity980Component::loop() {
       case TcpState::CONNECTED:
         this->tcp_flush_();
         this->tcp_read_();
-        if (this->tcp_state_ == TcpState::CONNECTED && now - this->tcp_last_frame_ > this->stale_timeout_)
-          this->tcp_close_("no status frames (stale)");
+        if (this->tcp_state_ == TcpState::CONNECTED &&
+            int32_t(millis() - this->tcp_last_frame_) > int32_t(this->stale_timeout_))
+          this->tcp_close_(this->tcp_got_frame_ ? "no status frames (stale)" : "connected but no data");
         break;
     }
   }
-  if (this->ble_connected_ && now - this->ble_last_frame_ > this->stale_timeout_ && this->active_ == Transport::BLE) {
+  if (this->ble_connected_ && int32_t(now - this->ble_last_frame_) > int32_t(this->stale_timeout_) &&
+      int32_t(now - this->ble_warned_) > 60000) {
     ESP_LOGW(TAG, "BLE connected but no status notifications");
-    this->ble_last_frame_ = now;
+    this->ble_warned_ = now;
   }
   this->check_pending_();
   this->update_active_();
@@ -125,6 +130,17 @@ void Gravity980Component::tcp_start_connect_() {
   addr.sin_family = AF_INET;
   addr.sin_port = htons(this->port_);
   if (inet_pton(AF_INET, this->host_.c_str(), &addr.sin_addr) != 1) {
+    // Hostname: resolving blocks the main loop, so do it rarely (an IP address / DHCP reservation is better).
+    if (this->resolved_host_ == this->host_ && this->resolved_addr_ != 0 &&
+        int32_t(millis() - this->resolved_at_) < 600000) {
+      addr.sin_addr.s_addr = this->resolved_addr_;
+      goto have_addr;
+    }
+    if (this->resolved_host_ == this->host_ && int32_t(millis() - this->resolved_at_) < 60000)
+      return;  // failed recently: back off
+    this->resolved_host_ = this->host_;
+    this->resolved_at_ = millis();
+    this->resolved_addr_ = 0;
     struct addrinfo hints {};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -134,8 +150,10 @@ void Gravity980Component::tcp_start_connect_() {
       return;
     }
     addr.sin_addr = reinterpret_cast<struct sockaddr_in *>(res->ai_addr)->sin_addr;
+    this->resolved_addr_ = addr.sin_addr.s_addr;
     freeaddrinfo(res);
   }
+have_addr:
   int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (fd < 0) {
     ESP_LOGW(TAG, "socket() failed: %d", errno);
@@ -172,14 +190,16 @@ void Gravity980Component::tcp_check_connect_() {
   }
   int err = 0;
   socklen_t len = sizeof(err);
-  getsockopt(this->fd_, SOL_SOCKET, SO_ERROR, &err, &len);
+  if (getsockopt(this->fd_, SOL_SOCKET, SO_ERROR, &err, &len) != 0)
+    err = errno ? errno : -1;
   if (err != 0) {
     this->tcp_close_("connect refused/unreachable");
     return;
   }
   ESP_LOGI(TAG, "TCP connected to %s:%u", this->host_.c_str(), this->port_);
   this->tcp_state_ = TcpState::CONNECTED;
-  this->tcp_since_ = this->tcp_last_frame_ = millis();
+  this->tcp_since_ = this->tcp_last_frame_ = millis();  // starts the "no data" timer; not "alive" until a frame
+  this->tcp_got_frame_ = false;
   this->assembler_.reset();
 }
 
@@ -194,6 +214,7 @@ void Gravity980Component::tcp_read_() {
         Status s;
         if (parse_status(f, len, s)) {
           this->tcp_last_frame_ = millis();
+          this->tcp_got_frame_ = true;
           this->handle_status_(s, Transport::TCP);
         }
       });
@@ -210,9 +231,9 @@ void Gravity980Component::tcp_read_() {
   }
   // First frame after connect: show data before the stride is known.
   Status lone;
-  if (this->assembler_.frame_size() == 0 && millis() - this->tcp_since_ > 2500 &&
-      millis() - this->tcp_last_frame_ > 2500 && this->assembler_.take_lone_frame(lone)) {
-    this->tcp_last_frame_ = millis();
+  if (this->tcp_state_ == TcpState::CONNECTED && this->assembler_.frame_size() == 0 &&
+      int32_t(millis() - this->tcp_since_) > 2500 && this->assembler_.take_lone_frame(lone)) {
+    this->tcp_got_frame_ = true;  // shows data early; doesn't refresh the stale timer
     this->handle_status_(lone, Transport::TCP);
   }
 }
@@ -251,6 +272,8 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
   if (ble_status_payload(data, len, &payload, &plen)) {
     Status s;
     if (parse_status(payload, plen, s)) {
+      this->ble_connected_ = true;
+      this->ble_got_frame_ = true;
       this->ble_last_frame_ = millis();
       this->handle_status_(s, Transport::BLE);
     }
@@ -269,12 +292,14 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
 
 void Gravity980Component::on_ble_connected() {
   this->ble_connected_ = true;
-  this->ble_last_frame_ = millis();
+  this->ble_got_frame_ = false;  // active only once status notifications arrive
+  this->ble_last_frame_ = this->ble_warned_ = millis();
   ESP_LOGI(TAG, "BLE connected");
 }
 
 void Gravity980Component::on_ble_disconnected() {
   this->ble_connected_ = false;
+  this->ble_got_frame_ = false;
   ESP_LOGI(TAG, "BLE disconnected");
   this->update_active_();
 }
@@ -285,9 +310,11 @@ void Gravity980Component::update_active_() {
   const uint32_t now = millis();
   Transport t = Transport::NONE;
   // Prefer TCP when it is delivering data; fall back to BLE.
-  if (this->tcp_state_ == TcpState::CONNECTED && now - this->tcp_last_frame_ < this->stale_timeout_)
+  if (this->tcp_state_ == TcpState::CONNECTED && this->tcp_got_frame_ &&
+      int32_t(now - this->tcp_last_frame_) < int32_t(this->stale_timeout_))
     t = Transport::TCP;
-  else if (this->ble_connected_ && now - this->ble_last_frame_ < this->stale_timeout_)
+  else if (this->ble_connected_ && this->ble_got_frame_ &&
+           int32_t(now - this->ble_last_frame_) < int32_t(this->stale_timeout_))
     t = Transport::BLE;
   if (t == this->active_)
     return;
@@ -302,8 +329,11 @@ void Gravity980Component::update_active_() {
   if (this->transport_ts_ != nullptr)
     this->transport_ts_->publish_state(NAMES[int(t)]);
 #endif
-  if (t == Transport::NONE)
+  if (t == Transport::NONE) {
     this->publish_unknown_();
+  } else if (t == Transport::BLE && this->ble_writes_ == false) {
+    ESP_LOGI(TAG, "Bluetooth link is read-only (bluetooth: writes: false): target changes need Wi-Fi");
+  }
 }
 
 void Gravity980Component::handle_status_(const Status &s, Transport via) {
@@ -379,6 +409,17 @@ void Gravity980Component::publish_unknown_() {
   if (this->connected_bs_ != nullptr)
     this->connected_bs_->publish_state(false);
 #endif
+#ifdef USE_TEXT_SENSOR
+  if (this->raw_ts_ != nullptr && !this->last_raw_.empty()) {
+    this->last_raw_.clear();
+    this->raw_ts_->publish_state("");
+  }
+#endif
+#ifdef USE_NUMBER
+  for (auto *n : this->target_numbers_)
+    if (n != nullptr && n->has_state() && !std::isnan(n->state))
+      n->publish_state(NAN);
+#endif
   this->have_status_ = false;
 }
 
@@ -389,6 +430,8 @@ float Gravity980Component::reported_target(Probe probe) const {
 }
 
 bool Gravity980Component::request_target(Probe probe, float value) {
+  if (probe >= PROBE_COUNT)
+    return false;
   if (this->read_only_) {
     ESP_LOGW(TAG, "Read-only: not changing %s target", PROBE_NAME[probe]);
     return false;
@@ -397,10 +440,11 @@ bool Gravity980Component::request_target(Probe probe, float value) {
     return false;
   uint16_t f = this->from_unit_(value);
   std::vector<uint8_t> cmd;
-  bool use_tcp = this->tcp_state_ == TcpState::CONNECTED;
+  // Write over the link that is actually delivering data.
+  bool use_tcp = this->active_ == Transport::TCP;
   bool use_ble = false;
 #ifdef USE_GRAVITY980_BLE
-  use_ble = !use_tcp && this->ble_writes_ && this->ble_ != nullptr && this->ble_->ready();
+  use_ble = !use_tcp && this->active_ == Transport::BLE && this->ble_writes_ && this->ble_ != nullptr && this->ble_->ready();
 #endif
   if (!use_tcp && !use_ble) {
     ESP_LOGW(TAG, "No writable link to the grill (TCP down%s)",
@@ -500,7 +544,8 @@ bool Gravity980BLE::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
     return false;
   switch (event) {
     case ESP_GATTC_OPEN_EVT:
-      if (param->open.status == ESP_GATT_OK)
+      if ((param->open.status == ESP_GATT_OK || param->open.status == ESP_GATT_ALREADY_OPEN) &&
+          this->state() != esp32_ble_tracker::ClientState::IDLE)
         this->parent_->on_ble_connected();
       break;
     case ESP_GATTC_DISCONNECT_EVT:

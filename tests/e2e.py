@@ -102,8 +102,15 @@ async def main():
         check(await wait_for(lambda: "food9" in (val("program_error") or ""), 5, "program error"),
               f"program error reported: {val('program_error')!r}")
         # Valid program: step 1 sets pit 260, advances when food1 >= 100 F (quick with the fast sim).
-        await cli.execute_service(svc["load_program"], {"program": "name: Test; pit 260 until food1 >= 110; pit 275 until food1 >= 203; hold 170 notify \"done\""})
-        check(await wait_for(lambda: (val("program_state") or "") == "Idle", 5, "program idle"), "program loaded")
+        await cli.execute_service(svc["load_program"], {"program": "name: Test; pit 260 until food1 >= 110; pit 275 until food1 >= 203; hold 200 notify \"done\""})
+        check(await wait_for(lambda: (val("program_error") or "") == "" and "Ready" in (val("program_status") or ""), 5, "program loaded"),
+              f"program loaded ({val('program_status')!r}, error {val('program_error')!r})")
+        # A program outside the grill's 200-700 F range is refused.
+        await cli.execute_service(svc["load_program"], {"program": "pit 250 until after 1h; hold 160"})
+        check(await wait_for(lambda: "outside the grill" in (val("program_error") or ""), 5, "range error"),
+              f"hold below 200 F refused: {val('program_error')!r}")
+        await cli.execute_service(svc["load_program"], {"program": "name: Test; pit 260 until food1 >= 110; pit 275 until food1 >= 203; hold 200 notify \"done\""})
+        await asyncio.sleep(1)
         await cli.execute_service(svc["start_program"], {})
         check(await wait_for(lambda: val("pit_target_reported") == 260.0, 10, "program pit 260"), "program step 1 set pit to 260")
         check(await wait_for(lambda: val("pit_target_reported") == 275.0, 90, "program pit 275"),

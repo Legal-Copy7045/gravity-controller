@@ -86,7 +86,7 @@ class ProgramRunner {
 
   /// Start from step 0 (or `step`).
   RunnerOutputs start(double now_min, size_t step = 0);
-  void pause(const char *reason);
+  void pause(double now_min, const char *reason);
   RunnerOutputs resume(double now_min = 0);
   RunnerOutputs skip(double now_min);
   void stop();

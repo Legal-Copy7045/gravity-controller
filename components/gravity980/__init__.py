@@ -21,7 +21,8 @@ CONF_WRITES = "writes"
 
 
 def AUTO_LOAD(config=None):
-    if not config or CONF_BLUETOOTH in config:
+    # None = tooling probe for the maximal set; a real config only loads BLE when it's configured.
+    if config is None or CONF_BLUETOOTH in config:
         return ["esp32_ble_client", "esp32_ble_tracker"]
     return []
 

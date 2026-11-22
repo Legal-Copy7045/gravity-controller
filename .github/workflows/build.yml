@@ -101,10 +101,12 @@ jobs:
           python-version: "3.13"
       - name: Install Home Assistant and Playwright
         run: |
-          pip install homeassistant playwright
+          pip install "homeassistant==2026.2.3" "home-assistant-frontend==20260128.6" "colorlog==6.10.1" playwright
           python -m playwright install --with-deps chromium
       - name: Check the HA package and integration load
         run: python3 tests/ha_check.py
+      - name: Render the package's templates with Home Assistant
+        run: python3 tests/ha_templates.py
       - name: Dashboard render test
         run: python3 tests/render_page.py _screens
       - name: Upload screenshots
