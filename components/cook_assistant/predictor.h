@@ -1,0 +1,183 @@
+#pragma once
+// Cook-time predictor for one food probe. Pure C++ (no ESPHome), unit tested in tests/.
+//
+// Model (all temperatures in °C, time in hours):
+//
+//   Warming / finishing:   dT/dt = k · (T_pit − T)                    (lumped heat transfer)
+//   Stall:                 dT/dt ≈ small, for a duration D            (evaporative plateau)
+//
+// * k is fitted online from the probe's own history (weighted least squares
+//   with exponential forgetting, seeded by a per-profile prior). Pre- and
+//   post-stall k are tracked separately (wrapping / bark formation changes it).
+// * Starting assumptions (k, stall length, stall onset) come from Priors built
+//   by CookHistory from similar past cooks (protein, weight, pit, wrapped) –
+//   see history.h. The online fit then takes over as the cook's own data
+//   accumulates; the more similar cooks there are, the longer the prior holds.
+// * The stall is detected from the measured rate; its remaining length is
+//   predicted from the priors, adjusted for the pit temperature, the fitted k
+//   (bigger cuts stall longer) and wrapping.
+// * When the probe reaches its target, a CookRecord is produced for the history.
+// * The ETA comes from simulating that model forward minute by minute, with the
+//   pit temperature following the active cook program's plan when one exists,
+//   so "pit 250 until 165 for 30 min, then 300" is taken into account.
+// * Optimistic and pessimistic variants give an ETA range.
+
+#include <cmath>
+#include <cstdint>
+#include <vector>
+
+#include "history.h"
+
+namespace cook {
+
+enum class Phase : uint8_t { NO_PROBE, WAITING, WARMING, STALL, FINISHING, DONE };
+const char *phase_name(Phase p);
+
+struct Profile {
+  const char *name;
+  bool stalls;           // expect an evaporative stall
+  float stall_onset_c;   // where the forward model enters the stall
+  float stall_hours;     // typical stall duration at a 107 °C (225 °F) pit
+  float k_prior;         // typical warming coefficient, 1/h
+};
+
+/// Built-in profiles. Index 0 is "Auto".
+const Profile *profiles();
+int profile_count();
+int profile_index(const char *name);  // -1 if unknown
+
+/// One segment of a pit-temperature plan used by the forward simulation.
+struct PlanSegment {
+  enum Until : uint8_t { FOREVER, FOOD_GTE, FOOD_LTE, AFTER_MIN, UNKNOWN };
+  float pit_c{NAN};       // NAN = keep the previous pit temperature
+  Until until{FOREVER};
+  float value{0};         // °C for FOOD_*, minutes for AFTER_MIN
+  float hold_min{0};      // condition must hold this long
+  float elapsed_min{0};   // for the first (current) segment: time already spent
+  float held_min{0};      // for the first segment: time the condition has already held
+};
+
+struct Prediction {
+  bool valid{false};
+  float minutes{NAN};       // best estimate, from now
+  float minutes_low{NAN};   // optimistic
+  float minutes_high{NAN};  // pessimistic
+  float stall_start_in_min{NAN};  // predicted start of the stall (if still warming)
+  float stall_remaining_min{NAN}; // predicted remaining stall (if in stall)
+  const char *reason{""};   // why invalid, e.g. "pit below target"
+};
+
+class Predictor {
+ public:
+  void set_profile(int index);
+  int profile() const { return profile_; }
+  void set_target(float target_c) { target_c_ = target_c; }
+  float target() const { return target_c_; }
+  /// Priors from CookHistory::priors() for this cook (refresh when profile,
+  /// weight, pit setpoint or wrap state change).
+  void set_priors(const Priors &p) { priors_ = p; }
+  const Priors &priors() const { return priors_; }
+  void set_weight(float kg) { weight_kg_ = kg; }
+  /// Mark the food as wrapped (foil / butcher paper). Shortens the remaining stall.
+  void set_wrapped(bool w);
+  bool wrapped() const { return wrapped_; }
+
+  /// Feed a sample. `now_h` is a monotonic time in hours. Call at any rate;
+  /// samples are bucketed to one per minute internally.
+  /// `food_c` NAN means the probe is absent; `pit_c` NAN means unknown.
+  void add_sample(double now_h, float food_c, float pit_c);
+
+  /// Compute the prediction. `plan` describes the pit temperature from now on
+  /// (first element = current state). If empty, the current pit temperature
+  /// (setpoint if `pit_setpoint_c` given, else measured average) is assumed.
+  Prediction predict(const std::vector<PlanSegment> &plan, float pit_setpoint_c) const;
+
+  /// Whole-cook estimate before (or regardless of) live data: from `start_c`
+  /// (e.g. fridge temperature) to the target at `pit_c`, using only the priors.
+  float estimate_total_minutes(float start_c, float pit_c, const std::vector<PlanSegment> &plan) const;
+
+  Phase phase() const { return phase_; }
+  float rate_c_per_h() const { return rate_; }        // °C/h over the rate window
+  float k_pre() const { return k_estimate_(false); }
+  float k_post() const { return k_estimate_(true); }
+  float stall_elapsed_h() const;
+  float stall_duration_prior_h(float pit_c) const;     // at a given pit temperature
+  float current_temp() const { return last_food_; }
+  /// True when the probe looks like it slipped out of the meat (sudden jump towards pit temp).
+  bool probe_suspect() const { return suspect_; }
+  /// Stall events since the last call (for notifications).
+  bool take_stall_started() { bool r = ev_stall_start_; ev_stall_start_ = false; return r; }
+  bool take_stall_ended() { bool r = ev_stall_end_; ev_stall_end_ = false; return r; }
+  bool take_done() { bool r = ev_done_; ev_done_ = false; return r; }
+  /// A completed cook (probe reached target). Returns true once per cook.
+  bool take_completed(CookRecord &out);
+  /// Fitted k from this cook's data only (NAN if not enough data).
+  float k_data(bool post) const;
+
+  void reset();
+
+  // Tunables (°C, °C/h, minutes)
+  float stall_band_low{57.0f};
+  float stall_band_high{82.0f};
+  float stall_enter_rate{1.7f};   // 3 °F/h
+  float stall_exit_rate{3.3f};    // 6 °F/h
+  float stall_enter_min{20.0f};
+  float stall_exit_min{10.0f};
+  float min_rise_before_stall{10.0f};
+  int rate_window_min{20};
+
+ protected:
+  struct Sample {
+    float food;
+    float pit;
+  };
+  void process_minute_(float food, float pit);
+  void update_rate_();
+  void update_fit_();
+  void update_phase_();
+  float k_estimate_(bool post) const;
+  float pit_average_(int minutes) const;
+  float simulate_(float start_t, Phase start_phase, const std::vector<PlanSegment> &plan, float pit_now,
+                  float k_scale, float stall_scale, float *stall_start_in) const;
+  float stall_left_h_(float stall_scale) const;
+  double cook_minutes_() const;
+
+  int profile_{0};
+  float target_c_{NAN};
+  Priors priors_{};
+  float weight_kg_{NAN};
+  bool wrapped_{false};
+  bool wrapped_in_stall_{false};
+
+  std::vector<Sample> hist_;   // one per minute, capped
+  static constexpr size_t HIST_MAX = 24 * 60;
+  double bucket_start_h_{-1};
+  double bucket_food_sum_{0}, bucket_pit_sum_{0};
+  int bucket_food_n_{0}, bucket_pit_n_{0};
+  double minutes_{0};          // minutes of history since the probe appeared
+
+  Phase phase_{Phase::NO_PROBE};
+  float rate_{NAN};
+  float last_food_{NAN};
+  float start_food_{NAN};
+  float below_min_{0};         // minutes the stall-entry condition has held
+  float above_min_{0};         // minutes the stall-exit condition has held
+  double stall_start_min_{-1};
+  double stall_end_min_{-1};
+  double cook_start_min_{-1};
+  float stall_onset_temp_{NAN};
+  double pit_sum_{0};
+  int pit_n_{0};
+  bool completed_pending_{false};
+  bool completed_taken_{false};
+  CookRecord completed_{};
+  bool stalled_once_{false};
+  bool suspect_{false};
+
+  // Weighted least squares sums for k (pre / post stall), with forgetting.
+  double sxy_[2]{0, 0}, sxx_[2]{0, 0};
+
+  bool ev_stall_start_{false}, ev_stall_end_{false}, ev_done_{false};
+};
+
+}  // namespace cook
