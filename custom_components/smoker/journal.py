@@ -364,6 +364,30 @@ class IdentifyView(HomeAssistantView):
         return self.json({"items": items, "draft": j.data["draft"]})
 
 
+class GrillPhotoView(HomeAssistantView):
+    """Whether the user put a photo of their grill in Home Assistant's www folder (www/smoker/grill.png or .jpg).
+
+    The dashboard shows it, with the live readings pinned on it, instead of the drawing. It's served by Home
+    Assistant's own /local/ path; this only says whether it's there (so the page doesn't log a 404 when it isn't).
+    """
+
+    url = "/api/smoker/grill_photo"
+    name = "api:smoker:grill_photo"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+
+        def find():
+            for ext in ("png", "jpg", "jpeg", "webp"):
+                f = Path(hass.config.path("www", "smoker", f"grill.{ext}"))
+                if f.is_file():
+                    return f"/local/smoker/grill.{ext}?v={int(f.stat().st_mtime)}"
+            return None
+
+        return self.json({"url": await hass.async_add_executor_job(find)})
+
+
 class PhotoView(HomeAssistantView):
     url = "/api/smoker/photo/{name}"
     name = "api:smoker:photo"
@@ -387,7 +411,7 @@ async def async_setup_journal(hass: HomeAssistant) -> Journal:
     j = Journal(hass)
     await j.async_load()
     hass.data[DATA] = j
-    for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView()):
+    for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView(), GrillPhotoView()):
         hass.http.register_view(view)
     j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
     return j

@@ -78,6 +78,12 @@ appears in the sidebar.
 
 (Without HACS: copy `custom_components/smoker` to `/config/custom_components/smoker` and restart.)
 
+**Your grill's photo (optional):** save a front-on photo of the grill as `/config/www/smoker/grill.png` (or `.jpg`,
+`.webp`) in Home Assistant (e.g. through the File editor or Samba add-on). The dashboard then shows it at the top
+with the live readings pinned on it (pit on the barrel, target and link on the controller, food on the front shelf,
+charcoal on the hopper, fan on the ash box); without it, a drawing of the grill is used. The pins are placed for a
+straight front view like the one in Char-Griller's product photos.
+
 ## 5. Food probes: grill, H5198 or anything in Home Assistant
 
 The controller has six food slots, **Food 1** to **Food 6**. Each slot reads one thermometer, chosen with its

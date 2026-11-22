@@ -192,6 +192,7 @@ def main():
                     "controlcard": fr.inner_text("#controlcard"),
                     "heronext": fr.inner_text("#heronext"),
                     "grill": fr.inner_html("#grillpic"),
+                    "topbar": fr.inner_text("#topbar"),
                     "secbar": fr.eval_on_selector_all("#secbar a", "as => as.map(a => a.textContent)"),
                 }
                 if errors:
@@ -223,6 +224,21 @@ def main():
                 g = checks["grill"]
                 if "<svg" not in g or "251°" not in g or "62%" not in g or "F1 " not in g or "F3 171°" not in g:
                     failures.append(f"{scheme}/{name}: grill drawing missing live values: {[k for k in ('<svg', '251°', '62%', 'F1 ', 'F3 171°') if k not in g]}")
+                if "Grill connected" not in checks["topbar"] or "Wi-Fi" not in checks["topbar"]:
+                    failures.append(f"{scheme}/{name}: status strip: {checks['topbar'][:160]!r}")
+                # Photo mode: the readings are pinned on the user's own photo (a tiny synthetic image here).
+                photo = fr.evaluate("""async () => {
+                    const c = document.createElement('canvas'); c.width = 400; c.height = 292;
+                    const x = c.getContext('2d'); x.fillStyle = '#888'; x.fillRect(0, 0, 400, 292);
+                    window.setGrillPhoto(c.toDataURL('image/png'));
+                    await new Promise(r => setTimeout(r, 300));
+                    const g = document.getElementById('grillpic');
+                    const r = { img: !!g.querySelector('.gphoto img'), pins: g.querySelectorAll('.pin').length, text: g.innerText };
+                    window.setGrillPhoto(null); await new Promise(r => setTimeout(r, 300));
+                    r.back = !!document.querySelector('#grillpic svg');
+                    return r; }""")
+                if not photo["img"] or photo["pins"] < 6 or "251" not in photo["text"] or "62%" not in photo["text"] or not photo["back"]:
+                    failures.append(f"{scheme}/{name}: photo mode {photo}")
                 if checks["secbar"] != ["Now", "Food", "Pit & program", "Charcoal", "Chart", "Plan", "Journal", "Setup"]:
                     failures.append(f"{scheme}/{name}: section bar {checks['secbar']}")
                 if "Pork shoulder" not in checks["heronext"] or "Poultry" not in checks["heronext"]:

@@ -40,6 +40,31 @@ h2.sec .seg{margin-left:auto}
 .secbar a:hover,.secbar a:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
 .secbar a[aria-current="true"]{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
 @media (max-width:560px){.secbar a{padding:4px 11px;font-size:12.5px}}
+/* status strip (top of the page) */
+.topbar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.topbar .conn{display:flex;align-items:center;gap:9px;font:700 15px "Instrument Sans",system-ui,sans-serif}
+.topbar .conn .dot{width:12px;height:12px}
+.topbar .conn small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2)}
+.topbar .alerts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.topbar .alerts .chip{font-size:12.5px;padding:3px 10px}
+.topbar.bad{border-color:color-mix(in srgb,var(--bad) 55%,var(--line));background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
+.topbar.warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
+@media (max-width:560px){.topbar .alerts{margin-left:0}}
+/* your own grill photo (from Home Assistant's /local/smoker/grill.png) with live readings pinned on it */
+.gphoto{position:relative;width:100%;max-width:640px;margin:0 auto}
+.gphoto img{width:100%;height:auto;display:block}
+.gphoto .pin{position:absolute;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer;
+  font:700 clamp(11px,1.7vw,15px) "Instrument Sans",system-ui,sans-serif;color:var(--ink);background:color-mix(in srgb,var(--surface) 92%,transparent);
+  border:2px solid var(--line);border-radius:999px;padding:3px 10px;box-shadow:0 2px 8px rgba(0,0,0,.25);text-decoration:none}
+.gphoto .pin .m{font-family:"JetBrains Mono",ui-monospace,monospace}
+.gphoto .pin.big{font-size:clamp(15px,2.8vw,24px);padding:4px 14px;border-color:var(--page)}
+.gphoto .pin.warn{background:var(--warn);border-color:var(--warn);color:#fff}
+.gphoto .pin:hover,.gphoto .pin:focus-visible{border-color:var(--page);outline:none}
+.gphoto .shelf{position:absolute;left:49.5%;top:38%;transform:translate(-50%,-50%);display:flex;gap:5px}
+.gphoto .shelf .pin{position:static;transform:none}
+@keyframes hd-spin2{to{transform:rotate(360deg)}}
+.gphoto .spin{display:inline-block;animation:hd-spin2 1.1s linear infinite}
+@media (prefers-reduced-motion:reduce){.gphoto .spin{animation:none}}
 /* hero: "Coming up" */
 .hero-next{display:flex;flex-direction:column;gap:6px;margin-top:14px}
 .hero-next .l{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
@@ -144,6 +169,8 @@ footer{color:var(--muted);font-size:12px;text-align:center}
 </head>
 <body>
 <div class="wrap">
+  <!-- the important things first: is the grill connected, can the app control it, anything wrong -->
+  <div class="topbar" id="topbar" role="status" aria-live="polite"><span class="conn"><span class="dot"></span>Connecting…</span></div>
   <header class="hero wide">
     <div>
       <div class="eyebrow">Smoker · live</div>
@@ -373,13 +400,8 @@ function renderHero() {
   const cook = val(E('Cook active', ['binary_sensor'])) === 'on';
   put('pitbig', fmt(pit) + `<small>${esc(TU())} pit${tgt != null ? ' → ' + fmt(tgt) + esc(TU()) : ''}</small>`);
   const chips = [];
-  if (link === 'on') chips.push(`<span class="chip ok">Grill via ${esc(via || 'link')}</span>`);
-  else chips.push('<span class="chip bad">Grill not connected</span>');
   if (cook) chips.push('<span class="chip hot">Cooking</span>');
-  if (lid === 'on') chips.push('<span class="chip warn">Lid open</span>');
   if (fan === 'on') chips.push('<span class="chip">Fan on</span>');
-  if (val(E('Grill alarm', ['binary_sensor'])) === 'on') chips.push('<span class="chip bad">Grill alarm</span>');
-  if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) chips.push(`<span class="chip warn">${pit > tgt ? 'Running hot' : 'Running cold'}</span>`);
   put('chips', chips.join(''));
   put('gstatus', esc(val(E('Program status', ['sensor'])) || ''));
   // Coming up: the food on the grill, soonest finish first.
@@ -479,14 +501,61 @@ function renderGrill() {
     <text x="930" y="544" text-anchor="middle" font-size="20" class="lbl" fill="var(--ink-2)" font-weight="600">fan ${fan ? 'on' : 'off'}</text>
   </g>
 </svg>`;
-  put('grillpic', svg);
+  put('grillpic', grillPhoto ? photoView() : svg);
+
+  function photoView() {
+    const pin = (x, y, go, html, cls) => `<a class="pin ${cls || ''}" style="left:${x}%;top:${y}%" data-go="${go}" tabindex="0" role="link">${html}</a>`;
+    return `<div class="gphoto"><img src="${esc(grillPhoto)}" alt="The grill">
+      ${pin(50, 17, foods.length ? 'food' : 'pit', `<span class="m">${fmt(pit)}${deg}${esc(u)}</span>${tgt != null ? `<small>→ ${fmt(tgt)}${deg}</small>` : ''}`, 'big')}
+      ${lid ? pin(50, 6, 'pit', 'Lid open', 'warn') : ''}
+      ${pin(14.5, 35, 'pit', `<span class="m">${tgt != null ? fmt(tgt) + deg : '---'}</span> <span style="color:${link[1]}">● ${esc(link[0].replace('via ', ''))}</span>`)}
+      <span class="shelf">${foods.map(({ p, s }) => `<a class="pin" data-go="food" tabindex="0" role="link" style="border-color:${p.color}"><span class="m">${esc(p.label.replace('Food ', 'F'))} ${fmt(s.t)}${deg}</span></a>`).join('')}</span>
+      ${pin(82, 30, 'charcoal', `<span class="m">${lvl == null ? '?' : fmt(lvl) + '%'}</span>${hrs != null ? `<small>${fmt(hrs, 1)} h</small>` : ''}`)}
+      ${pin(82, 58, 'pit', `<span class="${fan ? 'spin' : ''}">✱</span> fan ${fan ? 'on' : 'off'}`)}</div>`;
+  }
+}
+// Your own grill photo: put it in Home Assistant at /config/www/smoker/grill.png (or .jpg / .webp). The live readings are
+// pinned where the parts are on a front view of a Gravity 980; without a photo the drawing is used.
+let grillPhoto = null;
+const rerender = () => { try { if (H() && H().live()) render(); } catch (e) { /* not connected yet: the next update draws it */ } };
+window.setGrillPhoto = url => { grillPhoto = url || null; rerender(); };
+let photoAsked = false;
+function findPhoto() {  // asked once Home Assistant is connected (see render)
+  if (photoAsked) return; photoAsked = true;
+  H().api('GET', '/api/smoker/grill_photo').then(r => { if (r && r.url) { grillPhoto = r.url; rerender(); } }).catch(() => {});
 }
 document.addEventListener('click', e => {  // a part of the grill → its section
   const g = e.target.closest && e.target.closest('#grillpic [data-go]'); if (!g) return;
+  e.preventDefault();
   const el = $(g.dataset.go), bar = $('secbar');
   if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - (bar ? bar.offsetHeight : 0) - 10, behavior: 'smooth' });
 });
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('#grillpic [data-go]')) { e.preventDefault(); e.target.closest('[data-go]').dispatchEvent(new MouseEvent('click', { bubbles: true })); } });
+
+// Status strip: connection and control first, then anything that needs attention.
+function renderTop() {
+  const conn = val(E('Grill connected', ['binary_sensor'])) === 'on', via = val(E('Grill link', ['sensor'])) || 'none';
+  const ble = val(E('Control over Bluetooth (experimental)', ['switch'])) === 'on';
+  const pit = num(E('Pit temperature', ['sensor'])), tgt = num(E('Pit target', ['number']));
+  const a = [];
+  const add = (cls, t) => a.push(`<span class="chip ${cls}">${esc(t)}</span>`);
+  if (val(E('Grill alarm', ['binary_sensor'])) === 'on') add('bad', 'Grill alarm');
+  if (val(E('Lid', ['binary_sensor'])) === 'on') add('warn', 'Lid open');
+  if (pit != null && tgt != null && Math.abs(pit - tgt) > (isF() ? 25 : 14)) add('warn', pit > tgt ? 'Running hot' : 'Running cold');
+  PROBES.forEach(p => { if (val(E(p.label + ' probe warning', ['binary_sensor'])) === 'on') add('warn', p.label + ': check the probe'); });
+  const hrs = num(E('Charcoal hours left', ['sensor']));
+  if (hrs != null && hrs < 1.5 && val(E('Cook active', ['binary_sensor'])) === 'on') add(hrs < 0.75 ? 'bad' : 'warn', 'Charcoal ~' + fmt(hrs, 1) + ' h left');
+  const pst = val(E('Program state', ['sensor']));
+  if (pst === 'Paused') add('warn', 'Program paused');
+  let head, cls;
+  if (!conn || via === 'none') { head = 'Grill not connected'; cls = 'bad';
+    head += `<small>${val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : 'is the grill on and in range?'}</small>`; }
+  else { const how = via === 'wifi' ? 'Wi-Fi' : 'Bluetooth', ctl = via === 'wifi' || ble;
+    head = `Grill connected · ${how}<small>${ctl ? 'the app controls it' : 'read-only: turn on Bluetooth control in Setup'}</small>`; cls = ctl ? '' : 'warn'; }
+  const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
+  put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span>${head}</span>
+    <span class="alerts">${a.join('') || '<span class="chip ok">All good</span>'}</span>`);
+}
 
 function renderKpis() {
   const k = [];
@@ -876,7 +945,7 @@ function renderRange() {
 
 // ---------------------------------------------------------------- loop
 function render() {
-  renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
+  findPhoto(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
   loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }

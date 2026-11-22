@@ -1,3 +1,4 @@
+from pathlib import Path
 """Smoker integration: panel, journal, draft from scanned packages, photo identification (AI mocked)."""
 
 import json
@@ -125,6 +126,13 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     big = aiohttp.FormData()
     big.add_field("photo", b"\xff" * (jmod.MAX_PHOTO_BYTES + 1), filename="c.jpg", content_type="image/jpeg")
     assert (await client.post("/api/smoker/identify", data=big)).status == 413
+
+    # The user's own grill photo (www/smoker/grill.*): reported only when it's there.
+    assert (await (await client.get("/api/smoker/grill_photo")).json()) == {"url": None}
+    (Path(hass.config.path("www", "smoker"))).mkdir(parents=True, exist_ok=True)
+    Path(hass.config.path("www", "smoker", "grill.jpg")).write_bytes(b"\xff\xd8\xff fake jpeg")
+    url = (await (await client.get("/api/smoker/grill_photo")).json())["url"]
+    assert url.startswith("/local/smoker/grill.jpg?v="), url
 
     # A garbled summary is ignored.
     hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": "not json"})
