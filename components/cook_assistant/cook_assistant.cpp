@@ -1,5 +1,6 @@
 #include "cook_assistant.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -28,6 +29,37 @@ struct StateBlob {
 struct HistoryBlob {
   cook::CookRecord r[cook::CookHistory::CAPACITY];
 };
+
+// Large blobs are stored as 240-byte chunks: some preference backends (e.g. the host platform used by the
+// end-to-end tests) cap a single entry at 255 bytes.
+static const size_t CHUNK = 240;
+struct Chunk {
+  uint8_t d[CHUNK];
+};
+static bool chunked_save(uint32_t base, const void *data, size_t len) {
+  const uint8_t *p = static_cast<const uint8_t *>(data);
+  bool ok = true;
+  for (size_t off = 0, i = 0; off < len; off += CHUNK, i++) {
+    Chunk c{};
+    std::memcpy(c.d, p + off, std::min(CHUNK, len - off));
+    auto pref = global_preferences->make_preference<Chunk>(base + uint32_t(i), true);
+    ok = pref.save(&c) && ok;
+  }
+  return ok;
+}
+static bool chunked_load(uint32_t base, void *data, size_t len) {
+  uint8_t *p = static_cast<uint8_t *>(data);
+  for (size_t off = 0, i = 0; off < len; off += CHUNK, i++) {
+    Chunk c{};
+    auto pref = global_preferences->make_preference<Chunk>(base + uint32_t(i), true);
+    if (!pref.load(&c))
+      return false;
+    std::memcpy(p + off, c.d, std::min(CHUNK, len - off));
+  }
+  return true;
+}
+static const uint32_t HISTORY_KEY = 0x5C0C0100;  // + chunk index
+static const uint32_t PROGRAM_KEY = 0x5C0C0200;
 
 // JSON helpers: escaped strings, NaN as null.
 static std::string json_str(const std::string &v) {
@@ -164,19 +196,17 @@ std::vector<std::string> CookAssistant::probe_keys() const {
 
 void CookAssistant::setup() {
   // History
-  this->history_pref_ = global_preferences->make_preference<HistoryBlob>(fnv1_hash("cook_history_v1"), true);
   {
     auto *blob = new HistoryBlob();  // NOLINT: 1.9 kB, keep off the stack
-    if (this->history_pref_.load(blob))
+    if (chunked_load(HISTORY_KEY, blob, sizeof(HistoryBlob)))
       this->history_.load(blob->r, cook::CookHistory::CAPACITY);
     delete blob;
   }
   // Program
-  this->program_pref_ = global_preferences->make_preference<ProgramBlob>(fnv1_hash("cook_program_v1"), true);
   this->state_pref_ = global_preferences->make_preference<StateBlob>(fnv1_hash("cook_program_state_v1"));
   {
     auto *blob = new ProgramBlob();  // NOLINT
-    if (this->program_pref_.load(blob)) {
+    if (chunked_load(PROGRAM_KEY, blob, sizeof(ProgramBlob))) {
       blob->text[PROGRAM_MAX - 1] = 0;
       if (blob->text[0] != 0)
         this->load_program(blob->text, false);  // don't overwrite the saved run state before restoring it
@@ -335,7 +365,7 @@ void CookAssistant::tick_second_() {
       this->notify(p->name + " stall over", p->name + " is climbing again (" + this->fmt_temp_(t) + ").", 0,
                    "stall_" + p->key);
     }
-    if ((done_ev || p->predictor.phase() == cook::Phase::DONE) && !p->done_notified) {
+    if (done_ev && !p->done_notified) {
       p->done_notified = true;
       this->notify(p->name + " is done", p->name + " reached " + this->fmt_temp_(t) + ".", 1, "done_" + p->key);
     }
@@ -352,8 +382,6 @@ void CookAssistant::tick_second_() {
                      0, "done_" + p->key);
       } else if (t < target - 6.0f) {
         p->approach_notified = false;
-        p->done_notified = false;
-      } else if (t < target - 1.0f) {
         p->done_notified = false;
       }
     }
@@ -445,8 +473,12 @@ void CookAssistant::tick_second_() {
       }
     } else {
       this->override_since_ = -1;
-      if (!std::isnan(cmd) && !std::isnan(rep) && std::fabs(cmd - rep) <= 2.0f)
+      if (!std::isnan(cmd) && !std::isnan(rep) && std::fabs(cmd - rep) <= 2.0f) {
+        // Accepted: forget the pre-write value, so a later manual change to it counts as an override.
         this->write_retries_ = 0;
+        this->rep_at_write_c_ = NAN;
+        this->pit_write_failed_ = false;
+      }
     }
     auto out = this->runner_.tick(now, in);
     this->apply_outputs_(out);
@@ -465,7 +497,7 @@ void CookAssistant::tick_second_() {
   this->check_alerts_();
   if (millis() - this->last_state_save_ > 300000) {
     this->last_state_save_ = millis();
-    this->save_program_state_();
+    this->save_program_state_(false);
   }
 }
 
@@ -666,13 +698,17 @@ void CookAssistant::notify(const std::string &title, const std::string &message,
 void CookAssistant::set_pit_(float c) {
   if (std::isnan(c))
     return;
+  if (std::isnan(this->last_commanded_c_) || std::fabs(c - this->last_commanded_c_) > 0.5f)
+    this->write_retries_ = 0;  // a new target gets its own retry count and notice
   this->last_set_pit_ms_ = millis();
   this->pit_write_failed_ = false;
   this->rep_at_write_c_ = this->pit_setpoint_ != nullptr && this->pit_setpoint_->has_state()
                               ? this->to_c_(this->pit_setpoint_->state)
                               : NAN;
   this->last_commanded_c_ = c;
-  float v = std::round(this->from_c_(c));
+  // Round inside the grill's range (in °C a rounded value could land just outside it).
+  float lo = std::ceil(this->from_c_(this->pit_min_c_) - 0.01f), hi = std::floor(this->from_c_(this->pit_max_c_) + 0.01f);
+  float v = std::max(lo, std::min(hi, std::round(this->from_c_(c))));
   for (auto *t : this->set_pit_triggers_)
     t->trigger(v);
   for (auto *p : this->probes_)
@@ -726,9 +762,16 @@ bool CookAssistant::load_program(const std::string &text, bool persist) {
     float pc = prog.steps[i].pit_c;
     if (std::isnan(pc))
       continue;
-    if (pc < this->pit_min_c_ - 0.3f || pc > this->pit_max_c_ + 0.3f)
+    if (pc < this->pit_min_c_ - 0.3f || pc > this->pit_max_c_ + 0.3f) {
+      if (!persist) {
+        // A program saved before an update: keep it, clamped, rather than lose a running cook.
+        prog.steps[i].pit_c = std::max(this->pit_min_c_, std::min(this->pit_max_c_, pc));
+        ESP_LOGW(TAG, "Saved program step %u: pit clamped into the grill's range", unsigned(i + 1));
+        continue;
+      }
       return fail("step " + std::to_string(i + 1) + ": pit " + this->fmt_temp_(pc) + " is outside the grill's range " +
                   this->fmt_temp_(this->pit_min_c_) + "-" + this->fmt_temp_(this->pit_max_c_));
+    }
   }
   if (persist && (this->runner_.state() == cook::ProgramRunner::State::RUNNING ||
                   this->runner_.state() == cook::ProgramRunner::State::PAUSED))
@@ -740,7 +783,7 @@ bool CookAssistant::load_program(const std::string &text, bool persist) {
   if (persist) {
     auto *blob = new ProgramBlob();  // NOLINT
     std::strncpy(blob->text, text.c_str(), PROGRAM_MAX - 1);
-    this->program_pref_.save(blob);
+    chunked_save(PROGRAM_KEY, blob, sizeof(ProgramBlob));
     delete blob;
   }
   ESP_LOGI(TAG, "Loaded program '%s' with %u steps", prog.name.c_str(), (unsigned) prog.steps.size());
@@ -792,7 +835,7 @@ void CookAssistant::stop_program() {
   this->save_program_state_();
 }
 
-void CookAssistant::save_program_state_() {
+void CookAssistant::save_program_state_(bool sync) {
   StateBlob s{};
   auto st = this->runner_.state();
   s.running = st == cook::ProgramRunner::State::RUNNING ? 1 : st == cook::ProgramRunner::State::PAUSED ? 2 : 0;
@@ -801,6 +844,10 @@ void CookAssistant::save_program_state_() {
   s.pit_c = this->runner_.commanded_pit();
   s.saved_at_s = millis() / 1000;
   this->state_pref_.save(&s);
+  // Program events are rare: write them through now so a power cut right after doesn't lose them
+  // (ESPHome otherwise batches preference writes for up to a minute).
+  if (sync)
+    global_preferences->sync();
 }
 
 void CookAssistant::restore_program_state_() {
@@ -836,7 +883,7 @@ void CookAssistant::set_wrapped(size_t probe, bool wrapped) {
 void CookAssistant::save_history_() {
   auto *blob = new HistoryBlob();  // NOLINT
   this->history_.save(blob->r, cook::CookHistory::CAPACITY);
-  this->history_pref_.save(blob);
+  chunked_save(HISTORY_KEY, blob, sizeof(HistoryBlob));
   delete blob;
   global_preferences->sync();
 }

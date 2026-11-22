@@ -71,6 +71,8 @@ jobs:
         run: esphome compile host-bridge.yaml
       - name: End-to-end test against the simulated grill
         run: python3 tests/e2e.py
+      - name: Failure scenarios (idle grill, silent link, manual override, done alert, restart)
+        run: python3 tests/e2e_scenarios.py
       - name: Assemble site
         run: python3 .github/scripts/make_site.py _site firmware/.esphome/build/gravity980/build firmware/core.yaml
       - name: Attest the published firmware

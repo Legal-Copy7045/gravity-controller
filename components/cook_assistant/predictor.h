@@ -146,6 +146,7 @@ class Predictor {
                   float k_scale, float stall_scale, float *stall_start_in) const;
   float stall_left_h_(float stall_scale) const;
   double cook_minutes_() const;
+  void commit_candidate_();
 
   int profile_{0};
   float target_c_{NAN};
@@ -175,8 +176,10 @@ class Predictor {
   double stall_start_min_{-1};
   double stall_end_min_{-1};
   double cook_start_min_{-1};
-  double done_since_min_{-1};
-  float done_target_c_{NAN};
+  bool cand_valid_{false};
+  CookRecord cand_{};
+  double cand_since_min_{0};
+  float cand_target_c_{NAN};
   bool done_from_cook_{false};
   float deficit_setpoint_{NAN};
   float stall_onset_temp_{NAN};

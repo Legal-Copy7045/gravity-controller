@@ -74,13 +74,13 @@ void Predictor::reset() {
   stall_end_min_ = -1;
   cook_start_min_ = -1;
   stall_onset_temp_ = NAN;
-  done_since_min_ = -1;
   ev_stall_start_ = ev_stall_end_ = ev_done_ = false;
   pit_sum_ = 0;
   pit_n_ = 0;
   wrapped_in_stall_ = false;
-  completed_pending_ = false;
+  // (a committed record that hasn't been taken yet survives the reset)
   completed_taken_ = false;
+  cand_valid_ = false;
 }
 
 void Predictor::set_wrapped(bool w) {
@@ -94,6 +94,7 @@ void Predictor::add_sample(double now_h, float food_c, float pit_c, float pit_se
   if (std::isnan(food_c)) {
     // Probe unplugged: a gap of more than a few minutes resets the cook.
     if (phase_ != Phase::NO_PROBE && bucket_start_h_ >= 0 && now_h - bucket_start_h_ > 5.0 / 60.0) {
+      commit_candidate_();  // probe unplugged after done: keep the cook
       reset();
     }
     if (hist_.empty())
@@ -295,6 +296,16 @@ void Predictor::update_phase_() {
   float t = last_food_;
   if (phase_ == Phase::NO_PROBE)
     phase_ = Phase::WAITING;
+  // A captured finish is committed after 5 minutes, or discarded if the target moved within those minutes
+  // (stepping the target on the grill panel past the current temperature isn't a finished cook). Pulling or
+  // unplugging the probe after the finish keeps it.
+  if (cand_valid_) {
+    if (!std::isnan(target_c_) && std::fabs(target_c_ - cand_target_c_) > 0.5f && minutes_ - cand_since_min_ < 5) {
+      cand_valid_ = false;
+    } else if (minutes_ - cand_since_min_ >= 5) {
+      commit_candidate_();
+    }
+  }
   if (!std::isnan(target_c_) && t >= target_c_) {
     if (phase_ != Phase::DONE) {
       if (phase_ == Phase::STALL) {
@@ -304,40 +315,34 @@ void Predictor::update_phase_() {
       done_from_cook_ = phase_ != Phase::WAITING;
       phase_ = Phase::DONE;
       ev_done_ = true;
-      done_since_min_ = minutes_;
-      done_target_c_ = target_c_;
-    }
-    if (std::fabs(target_c_ - done_target_c_) > 0.5f) {
-      done_since_min_ = minutes_;  // target moved while done: restart the stability window
-      done_target_c_ = target_c_;
-    }
-    // Record the cook once the target has been reached and left alone for 5 minutes (so stepping the target on the
-    // grill panel past the current temperature doesn't produce a bogus record).
-    if (done_from_cook_ && !completed_taken_ && !completed_pending_ && minutes_ - done_since_min_ >= 5) {
-      const Profile &pp = profiles()[profile_];
-      CookRecord r;
-      r.profile = uint8_t(profile_);
-      r.flags = (wrapped_ ? 1 : 0) | (stalled_once_ ? 2 : 0);
-      r.weight_kg = weight_kg_;
-      r.pit_c = pit_n_ ? float(pit_sum_ / pit_n_) : NAN;
-      r.start_c = start_food_;
-      r.target_c = target_c_;
-      r.k_pre = k_data(false);
-      r.k_post = k_data(true);
-      r.stall_h = stalled_once_ && stall_end_min_ > stall_start_min_
-                      ? float((stall_end_min_ - stall_start_min_) / 60.0)
-                      : (pp.stalls ? 0.0f : NAN);
-      r.total_h = float((done_since_min_ - cook_start_min_) / 60.0);
-      r.stall_onset_c = stall_onset_temp_;
-      if (env_n_[0])
-        r.ambient_c = float(env_sum_[0] / env_n_[0]);
-      if (env_n_[1])
-        r.humidity = uint8_t(std::max(0.0, std::min(100.0, env_sum_[1] / env_n_[1])));
-      if (env_n_[2])
-        r.wind_kmh = uint8_t(std::max(0.0, std::min(254.0, env_sum_[2] / env_n_[2])));
-      if (cook_start_min_ >= 0 && r.total_h > 0) {
-        completed_ = r;
-        completed_pending_ = true;
+      if (done_from_cook_ && !completed_taken_ && !cand_valid_ && cook_start_min_ >= 0) {
+        const Profile &pp = profiles()[profile_];
+        CookRecord r;
+        r.profile = uint8_t(profile_);
+        r.flags = (wrapped_ ? 1 : 0) | (stalled_once_ ? 2 : 0);
+        r.weight_kg = weight_kg_;
+        r.pit_c = pit_n_ ? float(pit_sum_ / pit_n_) : NAN;
+        r.start_c = start_food_;
+        r.target_c = target_c_;
+        r.k_pre = k_data(false);
+        r.k_post = k_data(true);
+        r.stall_h = stalled_once_ && stall_end_min_ > stall_start_min_
+                        ? float((stall_end_min_ - stall_start_min_) / 60.0)
+                        : (pp.stalls ? 0.0f : NAN);
+        r.total_h = float((minutes_ - cook_start_min_) / 60.0);
+        r.stall_onset_c = stall_onset_temp_;
+        if (env_n_[0])
+          r.ambient_c = float(env_sum_[0] / env_n_[0]);
+        if (env_n_[1])
+          r.humidity = uint8_t(std::max(0.0, std::min(100.0, env_sum_[1] / env_n_[1])));
+        if (env_n_[2])
+          r.wind_kmh = uint8_t(std::max(0.0, std::min(254.0, env_sum_[2] / env_n_[2])));
+        if (r.total_h > 0) {
+          cand_ = r;
+          cand_valid_ = true;
+          cand_since_min_ = minutes_;
+          cand_target_c_ = target_c_;
+        }
       }
     }
     return;
@@ -392,11 +397,19 @@ void Predictor::update_phase_() {
   }
 }
 
+void Predictor::commit_candidate_() {
+  if (!cand_valid_)
+    return;
+  cand_valid_ = false;
+  completed_ = cand_;
+  completed_pending_ = true;
+  completed_taken_ = true;  // one record per cook
+}
+
 bool Predictor::take_completed(CookRecord &out) {
   if (!completed_pending_)
     return false;
   completed_pending_ = false;
-  completed_taken_ = true;
   out = completed_;
   return true;
 }
@@ -449,7 +462,7 @@ float Predictor::simulate_(float start_t, Phase start_phase, const std::vector<P
       seg++;
       if (!std::isnan(plan[seg].pit_c))
         pit = plan[seg].pit_c;
-      seg_elapsed = 0;
+      seg_elapsed = 1;  // the next simulated minute is the first minute of the new step
       seg_held = 0;
     } else {
       seg_held = cond ? seg_held + 1 : 0;

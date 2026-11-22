@@ -221,7 +221,7 @@ class CookAssistant : public Component {
   float pit_setpoint_c_() const;
   cook::Environment environment_() const;
   void publish_program_();
-  void save_program_state_();
+  void save_program_state_(bool sync = true);
   void restore_program_state_();
   void save_history_();
   void update_cook_session_();
@@ -291,8 +291,6 @@ class CookAssistant : public Component {
   double pit_hist_last_min_{-1e9};
   float pit_min_c_{93.3f};   // 200 °F: the stock controller's minimum
   float pit_max_c_{371.1f};  // 700 °F
-  ESPPreferenceObject history_pref_;
-  ESPPreferenceObject program_pref_;
   ESPPreferenceObject state_pref_;
 };
 

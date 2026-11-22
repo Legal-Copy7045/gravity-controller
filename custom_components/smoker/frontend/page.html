@@ -185,8 +185,9 @@ window.act = {
   profile(key, v) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' protein', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
   weight(key, v) { const p = PROBES.find(x => x.key === key); setNum(E(p.label + ' weight', ['number']), parseFloat(v) || 0); },
   wrap(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' wrapped', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
-  preset(v) { const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
-  load() { const t = $('progtext').value.trim(); if (!t) return; esph('load_program', { program: t }).then(() => { clean('progtext'); toast('Program sent'); }); },
+  preset(v) { clean('progtext'); const e = E('Program preset', ['select']); e && H().call('select', 'select_option', e, { option: v }).then(() => toast('Preset loaded')).catch(fail); },
+  // The typed text stays until the controller shows it as its program (a refused program keeps your text).
+  load() { const t = $('progtext').value.trim(); if (!t) return; esph('load_program', { program: t }).then(() => toast('Program sent')); },
   prog(svc) { esph(svc).then(() => toast(svc.replace('_', ' '))); },
   plan() {
     const t = $('plantext').value.trim(); if (!t) return toast('Describe the cook first');
@@ -283,6 +284,7 @@ function renderPit() {
 
 function renderProgram() {
   const st = val(E('Program state', ['sensor'])) || 'Idle', status = val(E('Program status', ['sensor'])) || '';
+  const pt = $('progtext'); if (pt && pt.dataset.dirty && pt.value.trim() === (val(E('Program', ['text'])) || '').trim()) clean('progtext');
   const preset = S(E('Program preset', ['select'])), err = val(E('Program error', ['sensor']));
   const prog = val(E('Program', ['text'])) || '';
   const opts = preset ? (preset.attributes.options || []) : [];

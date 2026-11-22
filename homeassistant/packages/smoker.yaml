@@ -535,6 +535,11 @@ automation:
           {% set s = states('sensor.smoker_start_cooking_by') %}
           {{ s not in ['unknown', 'unavailable', 'None', ''] and now() >= as_datetime(s) }}
     conditions:
+      # Once per plan: the estimate moves every minute, so the trigger can re-arm.
+      - condition: template
+        value_template: >
+          {{ this.attributes.last_triggered is none or
+             (now() - this.attributes.last_triggered).total_seconds() > 6 * 3600 }}
       - condition: state
         entity_id: binary_sensor.smoker_cook_active
         state: "off"

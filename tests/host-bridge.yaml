@@ -16,6 +16,9 @@ api:
     - action: start_program
       then:
         - lambda: id(smoker).start_program();
+    - action: resume_program
+      then:
+        - lambda: id(smoker).resume_program();
 external_components:
   - source:
       type: local

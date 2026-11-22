@@ -121,6 +121,7 @@ class ProgramRunner {
   size_t step_{0};
   double step_start_min_{0};
   double paused_at_min_{0};
+  double last_tick_min_{-1};
   std::vector<double> held_since_;  // per condition of the current step, -1 = not holding
   float commanded_pit_{NAN};
   std::string pause_reason_;

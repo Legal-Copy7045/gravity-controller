@@ -471,7 +471,8 @@ static void test_regressions() {
   in.temp_c[1] = NAN;
   r2.tick(29, in);
   in.temp_c[1] = 80;
-  CHECK(r2.tick(30, in).step_changed);
+  CHECK(!r2.tick(30, in).step_changed);  // the dropout minute doesn't count towards the 30
+  CHECK(r2.tick(31, in).step_changed);
   // 'for' after every condition type round-trips; units with a space; mismatched units rejected.
   CHECK(cook::parse_program("pit 250 until food1 stall ends for 30m or after 2 h", probes, true, p, err));
   CHECK(p.steps[0].until[0].hold_min == 30 && p.steps[0].until[1].value == 120);
@@ -502,6 +503,28 @@ static void test_regressions() {
     cook::CookRecord rec;
     CHECK(!pr.take_completed(rec));
     CHECK(pr.phase() != cook::Phase::DONE);
+  }
+  // Pulling the probe 2 minutes after done still records the cook (once), and unplugging too.
+  for (int mode = 0; mode < 2; mode++) {
+    cook::Predictor pr;
+    pr.set_target(70.0f);
+    double t = 0;
+    float core = 20;
+    for (int i = 0; i < 400 && core < 72; i++, t += 1.0 / 60) {
+      core += 0.15f;
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    }
+    for (int i = 0; i < 2; i++, t += 1.0 / 60)
+      pr.add_sample(t, core, 110.0f, 110.0f);
+    int records = 0;
+    cook::CookRecord rec;
+    for (int i = 0; i < 20; i++, t += 1.0 / 60) {
+      pr.add_sample(t, mode == 0 ? 25.0f : NAN, 110.0f, 110.0f);  // pulled to room temp / unplugged
+      if (pr.take_completed(rec))
+        records++;
+    }
+    CHECK(records == 1);
+    CHECK(records == 0 || (rec.total_h > 5.0f && rec.total_h < 6.5f));
   }
 }
 

@@ -8,6 +8,8 @@ bridge and Home Assistant setup without the grill.
     python3 tools/fake_grill.py                 # real time
     python3 tools/fake_grill.py --speed 60      # 1 s = 1 simulated minute
     python3 tools/fake_grill.py --idle          # ignore writes, like an idle grill
+    python3 tools/fake_grill.py --control-port 13334   # tests change behaviour at runtime:
+        echo '{"idle": true}' | nc 127.0.0.1 13334     # also "silent" (connected, no frames), "food1_f": 150, "drop": true
 
 The pit follows its setpoint with some lag; food probes warm with a two-node
 heat model with an evaporative stall (same model as tests/test_core.cpp).
@@ -34,6 +36,8 @@ class Grill:
         self.door = False
         self.lock = threading.Lock()
         self.sim_h = 0.0
+        self.silent = False
+        self.drop = False
 
     def step(self, dt_h):
         with self.lock:
@@ -88,9 +92,46 @@ class Grill:
             print(f"  set target id {cid:#04x} = {val} F")
 
 
+def control(g, port):
+    """Line-based JSON control socket for tests."""
+    import json
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", port))
+    srv.listen(4)
+    while True:
+        c, _ = srv.accept()
+        with c:
+            data = b""
+            while not data.endswith(b"\n"):
+                d = c.recv(1024)
+                if not d:
+                    break
+                data += d
+            try:
+                cmd = json.loads(data.decode() or "{}")
+            except ValueError:
+                c.sendall(b"bad json\n")
+                continue
+            with g.lock:
+                if "idle" in cmd:
+                    g.args.idle = bool(cmd["idle"])
+                if "silent" in cmd:
+                    g.silent = bool(cmd["silent"])
+                if "drop" in cmd:
+                    g.drop = True
+                if "food1_f" in cmd:
+                    g.food[0]["core"] = g.food[0]["surf"] = (float(cmd["food1_f"]) - 32) * 5 / 9
+            print(f"  control: {cmd}")
+            c.sendall(b"ok\n")
+
+
 def serve(args):
     g = Grill(args)
     stop = threading.Event()
+    if args.control_port:
+        threading.Thread(target=control, args=(g, args.control_port), daemon=True).start()
 
     def sim():
         last = time.monotonic()
@@ -116,7 +157,10 @@ def serve(args):
             try:
                 while True:
                     now = time.monotonic()
-                    if now >= next_frame:
+                    if g.drop:
+                        g.drop = False
+                        break
+                    if now >= next_frame and not g.silent:
                         conn.sendall(g.frame())
                         next_frame = now + 1.0
                         if args.verbose:
@@ -146,5 +190,6 @@ if __name__ == "__main__":
     ap.add_argument("--speed", type=float, default=1.0, help="simulation speed multiplier")
     ap.add_argument("--idle", action="store_true", help="drop setpoint writes like an idle grill")
     ap.add_argument("--pit-bias", type=float, default=0.0, help="steady pit offset in C (negative = cold day)")
+    ap.add_argument("--control-port", type=int, default=0, help="JSON control socket for tests")
     ap.add_argument("-v", "--verbose", action="store_true")
     serve(ap.parse_args())

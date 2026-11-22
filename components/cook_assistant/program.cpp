@@ -607,8 +607,15 @@ bool ProgramRunner::condition_true_(const Condition &c, const RunnerInputs &in, 
 
 RunnerOutputs ProgramRunner::tick(double now_min, const RunnerInputs &in) {
   RunnerOutputs out;
-  if (state_ != State::RUNNING)
+  if (state_ != State::RUNNING) {
+    last_tick_min_ = -1;
     return out;
+  }
+  struct TickMark {  // remember when this tick ran, for the dropout freeze
+    double &ref;
+    double v;
+    ~TickMark() { ref = v; }
+  } mark{last_tick_min_, now_min};
   const Step &s = prog_.steps[step_];
   if (s.until.empty())
     return out;  // hold step
@@ -619,6 +626,8 @@ RunnerOutputs ProgramRunner::tick(double now_min, const RunnerInputs &in) {
     // A probe that is briefly unavailable (e.g. a Bluetooth dropout) freezes its timer instead of resetting it.
     bool probe_cond = c.type == Condition::PROBE_GTE || c.type == Condition::PROBE_LTE;
     if (probe_cond && (c.probe < 0 || size_t(c.probe) >= in.temp_c.size() || std::isnan(in.temp_c[c.probe]))) {
+      if (held_since_[i] >= 0 && last_tick_min_ >= 0 && now_min > last_tick_min_)
+        held_since_[i] += now_min - last_tick_min_;  // the dropout doesn't count towards the hold
       continue;
     }
     // Stall events and clock times are momentary: latch them.
