@@ -225,7 +225,7 @@ void Standalone::loop() {
     this->save_();
   // Weather: every 30 min while a location is set (and straight away after it changes).
   if (this->weather_here() && (this->wx_fetched_ == 0 || now - this->wx_fetched_ > 30 * 60 * 1000)) {
-    this->wx_fetched_ = now | 1;
+    this->wx_fetched_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     this->fetch_weather_();
   }
   bool ready;

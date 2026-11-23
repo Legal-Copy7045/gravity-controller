@@ -304,7 +304,7 @@ void Standalone::loop_ai_(uint32_t now) {
   // The AI pitmaster every N minutes during a cook (when turned on).
   if (this->ai_.auto_advise && this->ai_ready_() && this->cook_ != nullptr && this->cook_->cook_active() &&
       (this->ai_last_auto_ == 0 || now - this->ai_last_auto_ > uint32_t(this->ai_.interval_min) * 60000)) {
-    this->ai_last_auto_ = now | 1;
+    this->ai_last_auto_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     std::lock_guard<std::recursive_mutex> g(this->lock_);
     this->ai_advise_();
   }
@@ -437,12 +437,12 @@ void Standalone::loop_ha_watch_(uint32_t now) {
     return;
   }
   if (!(this->ha_state_ & 1) || now < 120000) return;  // never used with Home Assistant, or just started
-  if (this->ha_lost_at_ == 0) { this->ha_lost_at_ = now | 1; return; }
+  if (this->ha_lost_at_ == 0) { this->ha_lost_at_ = now ? now : 1; return; }
   const uint32_t lost = now - this->ha_lost_at_;
 #ifdef USE_WIFI
   if (lost > 10 * 60000 && (this->ha_bounced_at_ == 0 || now - this->ha_bounced_at_ > 30 * 60000) &&
       wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected()) {
-    this->ha_bounced_at_ = now | 1;
+    this->ha_bounced_at_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     ESP_LOGW(TAG, "Home Assistant hasn't reconnected for %u min: reconnecting Wi-Fi", unsigned(lost / 60000));
     wifi::global_wifi_component->disable();
     this->set_timeout("ha_wifi_back", 3000, []() { wifi::global_wifi_component->enable(); });

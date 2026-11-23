@@ -75,7 +75,7 @@ void Standalone::setup_cook_() {
 
 void Standalone::loop_cook_(uint32_t now) {
   if (now - this->hist_last_ >= 60000 || this->hist_last_ == 0) {
-    this->hist_last_ = now | 1;
+    this->hist_last_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     this->sample_history_();
   }
   this->loop_ai_(now);
@@ -149,14 +149,14 @@ void Standalone::loop_cook_(uint32_t now) {
                         int(g["n"] | 0));
           this->community_.push_back({g["cut"] | "", line});
         }
-        this->community_at_ = now | 1;
+        this->community_at_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
       }
     }
   }
   // Averages: once at start-up, then twice a day.
   static uint32_t community_asked = 0;
   if (network_ready_() && (community_asked == 0 || now - community_asked > 12UL * 3600 * 1000)) {
-    community_asked = now | 1;
+    community_asked = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     this->queue_({"aggregates", "GET", AGGREGATES_URL, "", "", {}});
   }
   // Flash: journal entries changed in the web handler are saved here (in the main loop).

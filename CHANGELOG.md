@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.35] - 2026-11-23
+
+- **Fix: the controller restarted itself after a short drop in Home Assistant's connection** (from 0.2.32). The
+  "restart once after an hour without Home Assistant" timer could misread a few milliseconds as hours. The same
+  slip could also fetch the weather, record the chart, check the shared averages or ask the AI one extra time.
+
 ## [0.2.34] - 2026-11-23
 
 - **Fix: the controller restarted when its page was used, and kept asking for the PIN.** Since 0.2.31 the controller
