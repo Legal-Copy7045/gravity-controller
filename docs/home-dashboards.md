@@ -14,7 +14,7 @@ From `custom_components/smoker/frontend/` (on Home Assistant: `/config/custom_co
 1. `page.html`: replace `/*COMMON*/` with **this folder's `common.js`**. Don't also load another `common.js`-style
    helper that declares `$`, `esc`, `H`, `S`, `val`, `num`, `live`, `hist`… with `const`: loading both is a syntax
    error.
-2.css` + `</style>` just before `</head>` (after the page's own `<style>`,
+2. Insert `<style>` + `style.css` + `</style>` just before `</head>` (after the page's own `<style>`,
    as `panel.py` `build_page()` does). style.css carries its own colour tokens plus the ember accent `--page`
    #c2410c / #fb8a3c; your site's CSS may follow it. (In the Smoker panel, `shim.js` goes first in `<head>`; in your
    project, your own shim takes that place.)
