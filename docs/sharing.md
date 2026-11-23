@@ -35,7 +35,7 @@ that doesn't match it exactly.
   one*.
 - With **Share automatically**, ready cooks go without asking. That covers only cooks that end after you turn it on,
   never your history.
-- The service holds every cook back for a random 1-3 days before it joins the public data.
+- Shared cooks join the public data at the next nightly build, in one shuffled batch.
 
 ## Removing what you've shared
 
