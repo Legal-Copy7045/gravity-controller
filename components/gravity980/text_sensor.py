@@ -27,6 +27,10 @@ CONFIG_SCHEMA = GRAVITY980_CHILD_SCHEMA.extend(
         cv.Optional("wifi_networks"): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:wifi-star"
         ),
+        # Capture mode: the newest writes the Char-Griller app made (the full list is on the device page).
+        cv.Optional("captured_commands"): text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:cellphone-arrow-down"
+        ),
     }
 )
 
@@ -41,5 +45,7 @@ async def to_code(config):
         cg.add(parent.set_link_status_text_sensor(await text_sensor.new_text_sensor(config["link_status"])))
     if "wifi_networks" in config:
         cg.add(parent.set_wifi_networks_text_sensor(await text_sensor.new_text_sensor(config["wifi_networks"])))
+    if "captured_commands" in config:
+        cg.add(parent.capture().set_text_sensor(await text_sensor.new_text_sensor(config["captured_commands"])))
     if "grill_wifi" in config:
         cg.add(parent.set_wifi_text_sensor(await text_sensor.new_text_sensor(config["grill_wifi"])))

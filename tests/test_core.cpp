@@ -12,6 +12,7 @@
 #include "../components/cook_assistant/history.h"
 #include "../components/cook_assistant/predictor.h"
 #include "../components/cook_assistant/program.h"
+#include "../components/gravity980/capture.h"
 #include "../components/gravity980/protocol.h"
 #include "../components/standalone/pin_auth.h"
 
@@ -1249,3 +1250,119 @@ static void test_link_security() {
   std::printf("link security ok\n");
 }
 static const bool link_security_ran = (test_link_security(), true);
+
+// ---------------------------------------------------------------- capture mode (what the Char-Griller app writes)
+
+static void test_capture() {
+  std::printf("capture\n");
+  using namespace g980proto;
+  auto w = [](std::vector<uint8_t> v, uint32_t ms = 1234) { return capture_write(ms, CAPTURE_WRITE_UUID, v.data(), v.size()); };
+
+  // Known commands get a guess; the bytes are kept as written.
+  CaptureRecord r = w({0xFF, 0x00, 0x00, 0xE1});
+  CHECK(capture_hex(r) == "FF 00 00 E1");
+  CHECK(capture_guess(r) == "pit target 225°F");
+  CHECK(capture_guess(w({0xFF, 0x02, 0x00, 0xA0})) == "food 1 target 160°F");
+  CHECK(capture_guess(w({0xFF, 0x03, 0x10, 0x00})) == "food 2 target off");
+  CHECK(capture_guess(w({0xFF, 0x04, 0x00, 0x01})).rfind("power?", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x01, 0x00, 0x0A})).rfind("timer?", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x05, 0x00, 0x00})).rfind("silence", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x06, 0x00, 0x02})).rfind("fan speed?", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x0B, 0x00, 0x01})).rfind("unknown command FF 0B", 0) == 0);
+  CHECK(capture_guess(w({0x00, 0x19, 0x04, 0x00, 0xFF, 0x04, 0x00, 0x00})) == "power? (FF 04, value 0) (Bluetooth framing)");
+  CHECK(capture_guess(w({0x06, 0x00, 0x00, 0x00})) == "Wi-Fi: join the saved network");
+  CHECK(capture_guess(w({0x00, 0x00, 0x02, 0x00, 0x01, 0x02})) == "Wi-Fi: scan");
+  CHECK(capture_guess(w({0x12, 0x34})).empty());  // unknown: no guess, bytes kept
+  CHECK(capture_hex(w({0x12, 0x34})) == "12 34");
+  { CaptureRecord o = capture_write(0, CAPTURE_NOTIFY_UUID, r.data, 4); CHECK(capture_guess(o).empty()); }
+  CHECK(capture_line(w({0xFF, 0x04, 0x00, 0x01}, 12345)) == "+12.3 s BBB0 4 bytes: FF 04 00 01 (power? (FF 04, value 1))");
+  CHECK(capture_line(capture_event(500, CaptureEvent::CONNECT)) == "+0.5 s phone connected");
+
+  // Wi-Fi credentials: only the type bytes are kept, never the password (alone or in the Bluetooth framing).
+  std::vector<uint8_t> creds;
+  const uint8_t bssid[6] = {1, 2, 3, 4, 5, 6};
+  CHECK(build_wifi_credentials(bssid, "hunter2secret", creds));
+  r = capture_write(0, CAPTURE_WRITE_UUID, creds.data(), creds.size());
+  CHECK(r.redacted == CaptureRedaction::CREDENTIALS && r.kept == 2 && r.len == creds.size());
+  CHECK(capture_hex(r) == "01 00 …");
+  CHECK(capture_guess(r) == "(Wi-Fi credentials: not recorded)");
+  CHECK(std::memchr(r.data, 'h', sizeof r.data) == nullptr);  // the slack bytes stay zero
+  CHECK(capture_line(r).find("hunter") == std::string::npos);
+  std::vector<uint8_t> framed = {0x00, 0x19, uint8_t(creds.size()), 0x00};
+  framed.insert(framed.end(), creds.begin(), creds.end());
+  r = capture_write(0, CAPTURE_WRITE_UUID, framed.data(), framed.size());
+  CHECK(r.redacted == CaptureRedaction::CREDENTIALS && r.kept == 6);
+  CHECK(capture_is_credentials(creds.data(), 2));                       // even a truncated one
+  { const uint8_t s[] = {0x01, 0x04, 0x00, 0x01}; CHECK(!capture_is_credentials(s, 4)); }  // short, not 01 00: kept
+  { const uint8_t s[] = {0x01, 0x04, 0x00, 0x01, 0, 0, 0}; CHECK(capture_is_credentials(s, 7)); }
+  { const uint8_t s[] = {0xFF, 0x01, 0x00, 0x05}; CHECK(!capture_is_credentials(s, 4)); }  // the timer command
+
+  // Long writes keep their first 4 bytes; a huge one is fine.
+  std::vector<uint8_t> big(600, 0x5A);
+  big[0] = 0x02;
+  r = capture_write(0, CAPTURE_WRITE_UUID, big.data(), big.size());
+  CHECK(r.redacted == CaptureRedaction::LONG && r.kept == 4 && r.len == 600);
+  CHECK(capture_hex(r) == "02 5A 5A 5A …");
+  r = capture_write(0, CAPTURE_WRITE_UUID, nullptr, 0);
+  CHECK(r.kept == 0 && capture_hex(r).empty());
+
+  // The ring buffer: the last 64, newest first; summary fits 255 characters; JSON is well formed.
+  CaptureLog log;
+  CHECK(log.summary() == "No writes from the app yet" && log.json() == "[]");
+  log.add(capture_event(0, CaptureEvent::STARTED));
+  for (uint32_t i = 0; i < 100; i++) {
+    uint8_t c[4] = {0xFF, 0x04, uint8_t(i >> 8), uint8_t(i)};
+    log.add(capture_write(1000 * i, CAPTURE_WRITE_UUID, c, 4));
+  }
+  CHECK(log.size() == CAPTURE_SLOTS && log.total() == 101);
+  CHECK(log.newest(0).data[3] == 99 && log.newest(CAPTURE_SLOTS - 1).data[3] == 36);
+  std::string sum = log.summary(255);
+  CHECK(sum.size() <= 255 && sum.rfind("+99s FF 04 00 63 = power?", 0) == 0);
+  std::string j = log.json();
+  CHECK(j.front() == '[' && j.back() == ']' && j.find("\"ev\":\"write\"") != std::string::npos);
+  CHECK(j.find("\"t\":99000,\"ev\":\"write\",\"uuid\":\"BBB0\",\"len\":4,\"hex\":\"FF 04 00 63\"") != std::string::npos);
+  size_t opens = 0;
+  for (char ch : j) opens += ch == '{';
+  CHECK(opens == CAPTURE_SLOTS);
+  log.add(capture_write(1, CAPTURE_WRITE_UUID, creds.data(), creds.size()));
+  CHECK(log.json().find("\"redacted\":\"credentials\"") != std::string::npos);
+  log.clear();
+  CHECK(log.size() == 0 && log.total() == 0 && log.json() == "[]");
+
+  // The fake grill: looks on (the default frame, or the last real one while it was on); targets follow the app.
+  FakeGrill g;
+  uint8_t n[FakeGrill::NOTIFY_LEN];
+  g.notification(n);
+  const uint8_t want[] = {0x00, 0x19, 0x10, 0x00, 0x00, 0x41, 0x00, 0xC8, 0x10, 0x00, 0x03, 0xE8,
+                          0x10, 0x00, 0x03, 0xE8, 0x10, 0x00, 0x10, 0x00};
+  CHECK(std::memcmp(n, want, sizeof want) == 0);
+  Status st;
+  CHECK(parse_status(g.frame(), FRAME_MIN, st));
+  CHECK(st.probe[PROBE_PIT].temp_f == 65 && st.probe[PROBE_PIT].target_f == 200 && st.fan_on && !st.alarm_firing &&
+        !st.probe[PROBE_FOOD1].present && !st.door_open);
+  const uint8_t pit250[] = {0xFF, 0x00, 0x00, 0xFA};
+  CHECK(g.apply_write(pit250, 4));
+  CHECK(!g.apply_write(pit250, 4));  // no change
+  CHECK(parse_status(g.frame(), FRAME_MIN, st) && st.probe[PROBE_PIT].target_f == 250);
+  const uint8_t food[] = {0x00, 0x19, 0x04, 0x00, 0xFF, 0x02, 0x00, 0xCB};
+  CHECK(g.apply_write(food, sizeof food));
+  CHECK(parse_status(g.frame(), FRAME_MIN, st) && st.probe[PROBE_FOOD1].target_f == 203);
+  const uint8_t hot[] = {0xFF, 0x00, 0x03, 0x20};   // 800°F: out of range
+  const uint8_t power[] = {0xFF, 0x04, 0x00, 0x00};  // unknown: the grill stays "on"
+  CHECK(!g.apply_write(hot, 4) && !g.apply_write(power, 4));
+  CHECK(!g.apply_write(power, 2) && !g.apply_write(nullptr, 0));
+  CHECK(parse_status(g.frame(), FRAME_MIN, st) && st.probe[PROBE_PIT].target_f == 250 && st.fan_on);
+  // A real frame from a grill that was on is used; one that was off (no pit target) isn't.
+  auto on = frame(230, 250, 150, 203, TEMP_ABSENT, TARGET_NONE, false, true, false);
+  CHECK(parse_status(on.data(), on.size(), st));
+  g.reset(&st);
+  CHECK(std::memcmp(g.frame(), on.data(), FRAME_MIN) == 0);
+  auto off = frame(70, TARGET_NONE, TEMP_ABSENT, TARGET_NONE, TEMP_ABSENT, TARGET_NONE, false, false, false);
+  CHECK(parse_status(off.data(), off.size(), st));
+  g.reset(&st);
+  CHECK(std::memcmp(g.frame(), CAPTURE_DEFAULT_FRAME, FRAME_MIN) == 0);
+  g.reset(nullptr);
+  CHECK(std::memcmp(g.frame(), CAPTURE_DEFAULT_FRAME, FRAME_MIN) == 0);
+  std::printf("capture ok\n");
+}
+static const bool capture_ran = (test_capture(), true);

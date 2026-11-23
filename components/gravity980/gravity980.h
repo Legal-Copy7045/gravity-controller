@@ -13,6 +13,7 @@
 #include "esphome/core/preferences.h"
 
 #include "protocol.h"
+#include "capture_ble.h"
 
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
@@ -110,6 +111,7 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   uint32_t link_rssi_at_{0};
   int adv_rssi_{0};
   uint32_t any_adv_at_{0};
+  uint64_t own_address_{0};  // this controller's own Bluetooth address (its capture mode advertises as a grill)
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
   bool enabled_{true};
@@ -213,6 +215,20 @@ class Gravity980Component : public Component {
   /// Last reported setpoint in the configured unit (NAN if none).
   float reported_target(Probe probe) const;
   const Status &last_status() const { return this->status_; }
+  bool has_status() const { return this->have_status_; }
+
+  // Capture mode (capture_ble.h): the controller poses as the grill so the Char-Griller app's commands can be recorded.
+  AppCapture &capture() { return this->capture_; }
+  std::string capture_json() { return this->capture_.json(); }  // for GET /local/capture (any task)
+  void capture_clear() { this->capture_.clear(); }
+  /// While capturing, the Bluetooth link to the real grill is paused (and the link recovery leaves Bluetooth alone).
+  void set_capture_pause(bool paused);
+  bool capture_paused() const { return this->capture_pause_; }
+#ifdef USE_GRAVITY980_CAPTURE
+  void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
+    this->capture_.gatts_event_handler(event, gatts_if, param);
+  }
+#endif
   void add_on_status_callback(std::function<void(const Status &)> cb) { this->status_cbs_.push_back(std::move(cb)); }
 
   // Called by the BLE client.
@@ -267,6 +283,8 @@ class Gravity980Component : public Component {
   uint32_t test_until_{0};  // when command tests were switched on (0: off)
   uint32_t test_last_{0};
   bool enabled_{true};
+  bool capture_pause_{false};
+  AppCapture capture_{this};
   uint32_t reconnect_interval_{10000};
   uint32_t stale_timeout_{15000};
 

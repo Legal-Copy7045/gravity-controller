@@ -22,8 +22,9 @@ CONF_WRITES = "writes"
 
 def AUTO_LOAD(config=None):
     # None = tooling probe for the maximal set; a real config only loads BLE when it's configured.
+    # esp32_ble_server: capture mode (capture_ble.h) poses as the grill so the Char-Griller app's commands can be seen.
     if config is None or CONF_BLUETOOTH in config:
-        return ["esp32_ble_client", "esp32_ble_tracker"]
+        return ["esp32_ble_client", "esp32_ble_tracker", "esp32_ble_server"]
     return []
 
 
@@ -38,12 +39,13 @@ PROBES = {
 
 
 def _ble_schema(value):
-    from esphome.components import esp32_ble_client, esp32_ble_tracker
+    from esphome.components import esp32_ble, esp32_ble_client, esp32_ble_tracker
 
     Gravity980BLE = gravity980_ns.class_("Gravity980BLE", esp32_ble_client.BLEClientBase)
     schema = cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(Gravity980BLE),
+            cv.GenerateID(esp32_ble.CONF_BLE_ID): cv.use_id(esp32_ble.ESP32BLE),
             cv.Optional(CONF_MAC_ADDRESS): cv.mac_address,
             cv.Optional(CONF_NAME_PREFIX, default="Gravity980"): cv.string,
             # Sending setpoints over BLE is unverified on the 980: off by default.
@@ -97,4 +99,9 @@ async def to_code(config):
         if CONF_MAC_ADDRESS in ble:
             cg.add(b.set_fixed_address(ble[CONF_MAC_ADDRESS].as_hex))
         cg.add(var.set_ble(b))
+        # Capture mode: the app's writes and connections arrive as GATT server events.
+        from esphome.components import esp32_ble
+
+        cg.add_define("USE_GRAVITY980_CAPTURE")
+        esp32_ble.register_gatts_event_handler(await cg.get_variable(ble[esp32_ble.CONF_BLE_ID]), var)
         cg.add(var.set_ble_writes(ble[CONF_WRITES]))

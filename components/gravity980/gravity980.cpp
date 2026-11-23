@@ -238,10 +238,24 @@ void Gravity980Component::set_enabled(bool enabled) {
   this->tcp_last_attempt_ = 0;
 #ifdef USE_GRAVITY980_BLE
   if (this->ble_ != nullptr)
-    this->ble_->set_enabled(enabled);
+    this->ble_->set_enabled(enabled && !this->capture_pause_);
 #endif
   ESP_LOGI(TAG, "Bridge %s", enabled ? "enabled" : "disabled (official app can connect)");
   this->update_active_();
+}
+
+void Gravity980Component::set_capture_pause(bool paused) {
+  if (paused == this->capture_pause_)
+    return;
+  this->capture_pause_ = paused;
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr)
+    this->ble_->set_enabled(this->enabled_ && !paused);
+#endif
+  // Recovery starts from scratch afterwards (no Bluetooth restart for a link that was paused on purpose).
+  this->down_since_ = 0;
+  this->recover_stage_ = 0;
+  ESP_LOGI(TAG, "Bluetooth link to the grill %s", paused ? "paused (capturing the app's commands)" : "resumed");
 }
 
 void Gravity980Component::wifi_status_(const std::string &msg) {
@@ -398,6 +412,7 @@ void Gravity980Component::loop() {
     this->wifi_rejoin();
   }
   const uint32_t now = millis();
+  this->capture_.loop(now);
   if (this->enabled_ && !this->host_for_tcp_().empty()) {
     switch (this->tcp_state_) {
       case TcpState::IDLE:
@@ -865,6 +880,13 @@ void Gravity980Component::supervise_(uint32_t now) {
   std::string why = this->last_drop_.empty() ? "" : " · last drop: " + this->last_drop_;
 #ifdef USE_GRAVITY980_BLE
   if (this->ble_ != nullptr && esp32_ble::global_ble != nullptr) {
+    if (this->capture_pause_) {
+      // Paused on purpose: no recovery (restarting Bluetooth would end the capture).
+      this->down_since_ = 0;
+      this->recover_stage_ = 0;
+      this->set_link_status_("Bluetooth link paused: the controller is capturing the Char-Griller app's commands");
+      return;
+    }
     if (!esp32_ble::global_ble->is_active()) {
       this->set_link_status_("Restarting Bluetooth…" + why);
       return;
@@ -1367,11 +1389,19 @@ static const uint16_t WRITE_UUID = 0xBBB0;
 static const uint16_t NOTIFY_UUID = 0xBBB1;
 
 bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
+  const uint32_t now = millis();
+  this->any_adv_at_ = now;  // the scanner is alive (counted while paused too, so the watchdog doesn't fire after)
   if (!this->enabled_)
     return false;
-  const uint32_t now = millis();
   uint64_t a = device.address_uint64();
-  this->any_adv_at_ = now;
+  // Never this controller itself: in capture mode it advertises as a Gravity 980.
+  if (this->own_address_ == 0 && esp32_ble::global_ble != nullptr) {
+    uint8_t mac[6]{};
+    esp32_ble::global_ble->get_mac_msb_first(mac);
+    this->own_address_ = esp32_ble::ble_addr_to_uint64(mac);
+  }
+  if (a != 0 && a == this->own_address_)
+    return false;
   if (a != 0 && a == this->get_address())
     this->seen_at_ = now;
   if (a != 0 && (a == this->fixed_address_ || (this->fixed_address_ == 0 && a == this->get_address())))

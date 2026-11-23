@@ -90,6 +90,7 @@ text_sensor:
   - platform: gravity980
     link: {name: Grill link}
     link_status: {name: Grill link status}
+    captured_commands: {name: Captured app commands}
 number:
   # A kitchen timer, like the Char-Griller app's: set minutes to start (0 stops), "Timer remaining" counts down and
   # a notification says when it's done. Kept in the controller, so it works without Home Assistant (not across a
@@ -178,6 +179,9 @@ text:
     initial_value: ""
 
 switch:
+  # Capture mode: no Bluetooth on the host, so turning it on is refused (the device page's card is still drawn).
+  - platform: gravity980
+    app_capture: {name: Capture the app's commands}
   # Boost: the panel's turbo has no remote command, so the pit target goes up 100 °F (fan hard) until the pit reaches
   # the real target or 15 minutes pass, then back. The pit target entities keep showing the real target.
   - platform: template
@@ -195,6 +199,10 @@ switch:
       - lambda: id(grill).set_test_mode(true);
     turn_off_action:
       - lambda: id(grill).set_test_mode(false);
+
+button:
+  - platform: gravity980
+    clear_capture: {name: Clear captured app commands}
 
 globals:
   - id: timer_end_ms

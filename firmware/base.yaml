@@ -35,6 +35,8 @@ esphome:
           id(local).migrate_ntfy_topic(id(ntfy_topic).state);
           if (!id(ntfy_topic).state.empty())
             id(ntfy_topic).make_call().set_value("").perform();
+          // Capture mode's records for the device page (GET /local/capture, POST /local/capture/clear).
+          id(local).set_capture([]() { return id(grill).capture_json(); }, []() { id(grill).capture_clear(); });
 
 esp32:
   variant: esp32s3
@@ -421,6 +423,8 @@ text_sensor:
       name: Grill Wi-Fi
     wifi_networks:
       name: Grill Wi-Fi networks
+    captured_commands:
+      name: Captured app commands
   - platform: version
     name: Firmware version
     hide_timestamp: true
@@ -514,6 +518,9 @@ button:
     entity_category: config
     on_press:
       - lambda: id(grill).forget_grill();
+  - platform: gravity980
+    clear_capture:
+      name: Clear captured app commands
   # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
   - platform: restart
     name: Restart
@@ -547,6 +554,12 @@ switch:
   - platform: gravity980
     bridge_enabled:
       name: Bridge enabled
+    # Capture mode (docs/protocol.md, "Capturing the app's commands"): the controller poses as the grill over
+    # Bluetooth so the Char-Griller app connects to it, and records every byte the app writes (looking for its Power
+    # and Turbo commands). Nothing is sent to the real grill, whose Bluetooth link is paused meanwhile. Off at boot
+    # (it never advertises as a grill otherwise) and off again after 10 minutes.
+    app_capture:
+      name: Capture the app's commands
   # Log every raw TCP/BLE byte from the grill (for protocol investigation; logs at DEBUG level).
   # Target changes over Bluetooth, for grills whose Wi-Fi is unreliable (it is on some mesh/UniFi networks). On by
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
