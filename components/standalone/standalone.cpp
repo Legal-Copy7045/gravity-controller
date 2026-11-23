@@ -1162,9 +1162,10 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     this->save_pending_ = true;
     return this->status_json_(true);
   }
-  if (path.rfind("ai/", 0) == 0)
+  if (path.rfind("ai/", 0) == 0) {
     this->ai_req_authed_ = authed;
     return this->api_ai_(path, in, status);
+  }
   if (path == "plan" || path == "fuel" || path.rfind("journal/", 0) == 0 || path.rfind("share/", 0) == 0)
     return this->api_cook_(path, in, authed, status);
   if (path == "test-notify") {

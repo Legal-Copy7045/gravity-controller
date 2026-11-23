@@ -7,3 +7,10 @@ external_components:
   - source:
       type: local
       path: ../components
+
+# A statement indented as if it were inside an `if` without braces fails the build (it would run unconditionally:
+# the 1.0.0 device page's plan/fuel/journal/sharing routes were broken by exactly that).
+esphome:
+  platformio_options:
+    build_flags:
+      - -Werror=misleading-indentation
