@@ -168,15 +168,14 @@ void Gravity980Component::setup() {
   if (!this->grill_pref_.load(&this->remembered_grill_))
     this->remembered_grill_ = 0;
   this->remembered_at_boot_ = this->remembered_grill_ != 0;  // trusted with the Wi-Fi password (see credentials_refusal)
-  // A boost interrupted by a restart: put the target back as soon as the grill reports the boosted one.
-  this->boost_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("gravity980_boost_v1"));
+  // Firmware before 1.0 had a Boost that raised the pit target 100 °F and saved the real one here. Updated in the
+  // middle of one: put the target back once (see old_boost_restore_), then forget it.
+  this->old_boost_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("gravity980_boost_v1"));
   uint32_t b = 0;
-  if (this->boost_pref_.load(&b) && b != 0) {
-    this->boost_base_f_ = b >> 16;
-    this->boost_f_ = b & 0xFFFF;
-    this->boost_start_ = 1;
-    this->boost_ms_ = 0;  // over: restore
-    ESP_LOGW(TAG, "Boost was running at the restart: restoring the pit target to %u°F", this->boost_base_f_);
+  if (this->old_boost_pref_.load(&b) && b != 0) {
+    this->old_boost_base_f_ = b >> 16;
+    this->old_boost_f_ = b & 0xFFFF;
+    ESP_LOGW(TAG, "A boost was running before the update: restoring the pit target to %u°F", this->old_boost_base_f_);
   }
 #ifdef USE_GRAVITY980_BLE
   if (this->ble_ != nullptr && !this->ble_->has_fixed_address() && this->remembered_grill_ != 0 &&
@@ -245,24 +244,10 @@ void Gravity980Component::set_enabled(bool enabled) {
   this->tcp_last_attempt_ = 0;
 #ifdef USE_GRAVITY980_BLE
   if (this->ble_ != nullptr)
-    this->ble_->set_enabled(enabled && !this->capture_pause_);
+    this->ble_->set_enabled(enabled);
 #endif
   ESP_LOGI(TAG, "Bridge %s", enabled ? "enabled" : "disabled (official app can connect)");
   this->update_active_();
-}
-
-void Gravity980Component::set_capture_pause(bool paused) {
-  if (paused == this->capture_pause_)
-    return;
-  this->capture_pause_ = paused;
-#ifdef USE_GRAVITY980_BLE
-  if (this->ble_ != nullptr)
-    this->ble_->set_enabled(this->enabled_ && !paused);
-#endif
-  // Recovery starts from scratch afterwards (no Bluetooth restart for a link that was paused on purpose).
-  this->down_since_ = 0;
-  this->recover_stage_ = 0;
-  ESP_LOGI(TAG, "Bluetooth link to the grill %s", paused ? "paused (capturing the app's commands)" : "resumed");
 }
 
 void Gravity980Component::wifi_status_(const std::string &msg) {
@@ -420,17 +405,12 @@ void Gravity980Component::loop() {
   }
   const uint32_t now = millis();
   // Deadlines that have passed are cleared, so millis() wrapping (49.7 days) can't bring them back.
-  if (this->test_until_ != 0 && now - this->test_until_ >= TEST_MODE_MS) {
-    this->test_until_ = 0;
-    ESP_LOGI(TAG, "Command tests switched themselves off (30 minutes)");
-  }
   if (this->wifi_info_req_at_ != 0 && now - this->wifi_info_req_at_ >= WIFI_INFO_WINDOW_MS)
     this->wifi_info_req_at_ = 0;
   if (this->power_armed_ != 0 && now - this->power_armed_ >= POWER_CONFIRM_MS) {
     this->power_armed_ = 0;
     this->power_prompt_.clear();
   }
-  this->capture_.loop(now);
   if (this->enabled_ && !this->host_for_tcp_().empty()) {
     switch (this->tcp_state_) {
       case TcpState::IDLE:
@@ -585,7 +565,7 @@ void Gravity980Component::tcp_read_() {
     if (n > 0) {
       total += size_t(n);
       if (this->log_raw_)
-        ESP_LOGD(TAG, "TCP rx: %s", hex_dump(buf, n).c_str());
+        ESP_LOGI(TAG, "TCP rx: %s", hex_dump(buf, n).c_str());
       this->assembler_.feed(buf, size_t(n), [this](const uint8_t *f, size_t len) {
         Status s;
         if (parse_status(f, len, s)) {
@@ -645,7 +625,7 @@ void Gravity980Component::tcp_close_(const char *reason) {
 
 void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
   if (this->log_raw_)
-    ESP_LOGD(TAG, "BLE notify (%u): %s", (unsigned) len, hex_dump(data, len).c_str());
+    ESP_LOGI(TAG, "BLE notify (%u): %s", (unsigned) len, hex_dump(data, len).c_str());
   const uint8_t *payload;
   size_t plen;
   if (ble_status_payload(data, len, &payload, &plen)) {
@@ -756,7 +736,8 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
     }
     return;
   }
-  ESP_LOGD(TAG, "Unrecognised BLE notification: %s", hex_dump(data, len).c_str());
+  if (this->log_raw_)
+    ESP_LOGI(TAG, "Unrecognised BLE notification: %s", hex_dump(data, len).c_str());
 }
 
 void Gravity980Component::on_ble_connected() {
@@ -898,13 +879,6 @@ void Gravity980Component::supervise_(uint32_t now) {
   std::string why = this->last_drop_.empty() ? "" : " · last drop: " + this->last_drop_;
 #ifdef USE_GRAVITY980_BLE
   if (this->ble_ != nullptr && esp32_ble::global_ble != nullptr) {
-    if (this->capture_pause_) {
-      // Paused on purpose: no recovery (restarting Bluetooth would end the capture).
-      this->down_since_ = 0;
-      this->recover_stage_ = 0;
-      this->set_link_status_("Bluetooth link paused: the controller is capturing the Char-Griller app's commands");
-      return;
-    }
     if (!esp32_ble::global_ble->is_active()) {
       this->set_link_status_("Restarting Bluetooth…" + why);
       return;
@@ -1098,10 +1072,9 @@ void Gravity980Component::handle_status_(const Status &s, Transport via) {
     }
   }
 #endif
-  this->boost_step_(s);
+  this->old_boost_restore_(s);
   for (int p = 0; p < PROBE_COUNT; p++) {
     const auto &r = s.probe[p];
-    const uint16_t shown = this->shown_target_f_(p, r);
 #ifdef USE_SENSOR
     auto pub = [](sensor::Sensor *sn, float v) {
       if (sn == nullptr)
@@ -1111,7 +1084,7 @@ void Gravity980Component::handle_status_(const Status &s, Transport via) {
         sn->publish_state(v);
     };
     pub(this->temp_sensors_[p], r.present ? this->to_unit_(r.temp_f) : NAN);
-    pub(this->target_sensors_[p], r.has_target ? this->to_unit_(shown) : NAN);
+    pub(this->target_sensors_[p], r.has_target ? this->to_unit_(r.target_f) : NAN);
 #endif
     if (this->pending_f_[p] != 0 && r.has_target && r.target_f == this->pending_f_[p]) {
       ESP_LOGI(TAG, "Grill accepted %s target %u°F", PROBE_NAME[p], r.target_f);
@@ -1120,7 +1093,7 @@ void Gravity980Component::handle_status_(const Status &s, Transport via) {
 #ifdef USE_NUMBER
     auto *n = this->target_numbers_[p];
     if (n != nullptr && r.has_target && this->pending_f_[p] == 0) {
-      float v = this->to_unit_(shown);
+      float v = this->to_unit_(r.target_f);
       if (!n->has_state() || n->state != v)
         n->publish_state(v);
     }
@@ -1173,7 +1146,7 @@ void Gravity980Component::publish_unknown_() {
 float Gravity980Component::reported_target(Probe probe) const {
   if (!this->have_status_ || probe >= PROBE_COUNT || !this->status_.probe[probe].has_target)
     return NAN;
-  return this->to_unit_(this->shown_target_f_(probe, this->status_.probe[probe]));
+  return this->to_unit_(this->status_.probe[probe].target_f);
 }
 
 bool Gravity980Component::request_target(Probe probe, float value) {
@@ -1186,8 +1159,8 @@ bool Gravity980Component::request_target(Probe probe, float value) {
   if (std::isnan(value) || probe >= PROBE_COUNT)
     return false;
   uint16_t f = this->from_unit_(value);
-  if (probe == PROBE_PIT && this->boosting())
-    this->boost_end_("the pit target was changed");
+  if (probe == PROBE_PIT)
+    this->old_boost_done_();  // a new target stands
   return this->write_target_(probe, f);
 }
 
@@ -1285,145 +1258,32 @@ const std::string &Gravity980Component::power_prompt() {
 bool Gravity980Component::grill_on() const { return this->have_status_ && this->status_.fan_on; }
 bool Gravity980Component::turbo() const { return this->have_status_ && this->status_.fan_turbo; }
 
-std::string Gravity980Component::send_test_command(int id, int value) {
-  if (!this->test_mode())
-    return "command tests are off (turn on \"Command tests\")";
-  if (id < 0 || id > 0xFF || value < 0 || value > 0xFFFF)
-    return "id must be 0-255 and value 0-65535";
-  // 0x04 sets the grill's flags (the Char-Griller app, v2.0.8): four hex digits, F = leave alone, 0/1 = set. Only
-  // one flag at a time, as the app does (FF 04 0F FF power off, FF 04 FF 1F/0F turbo); 00 00 crashed the Wi-Fi side.
-  if (id == 0x04 && !g980proto::one_flag_command(uint16_t(value)))
-    return "0x04 takes one flag at a time: like 0FFF, F1FF, FF1F (F = leave alone)";
-  if (id == 0x01 || id == 0x05)
-    return "ids 0x01 and 0x05 are never sent (0x01 crashed the grill's Wi-Fi side; 0x05 shows a pairing code)";
-  for (uint8_t t : CMD_TARGET_ID)
-    if (id == t)
-      return "use the target entities for setpoints";  // they check the grill's range
-  if (this->read_only_)
-    return "the bridge is read-only";
-  const uint32_t now = millis();
-  if (this->test_last_ != 0 && now - this->test_last_ < 15000)
-    return "wait 15 s between test commands";
-  bool use_tcp = this->active_ == Transport::TCP, use_ble = false;
-#ifdef USE_GRAVITY980_BLE
-  use_ble = !use_tcp && this->active_ == Transport::BLE && this->ble_writes_ && this->ble_ != nullptr && this->ble_->ready();
-#endif
-  if (!use_tcp && !use_ble)
-    return this->ble_writes_ ? "no writable link to the grill" : "no writable link (turn on \"Control over Bluetooth\")";
-  std::vector<uint8_t> cmd;
-  if (use_ble)
-    cmd.insert(cmd.end(), {0x00, 0x19, 0x04, 0x00});
-  cmd.insert(cmd.end(), {0xFF, uint8_t(id), uint8_t(value >> 8), uint8_t(value & 0xFF)});
-  ESP_LOGW(TAG, "TEST command via %s: %s (last status: %s)", use_tcp ? "TCP" : "BLE", hex_dump(cmd).c_str(),
-           this->have_status_ ? hex_dump(this->status_.raw, this->status_.raw_len).c_str() : "none");
-  this->test_last_ = now ? now : 1;
-  if (use_tcp) {
-    this->tx_.insert(this->tx_.end(), cmd.begin(), cmd.end());
-    this->tcp_flush_();
-  }
-#ifdef USE_GRAVITY980_BLE
-  else if (!this->ble_->write(cmd)) {
-    return "the Bluetooth write failed";
-  }
-#endif
-  return "";
-}
-
-std::string Gravity980Component::start_boost(uint32_t minutes) {
-  auto refuse = [this](const char *why) {
-    this->boost_msg_ = std::string("Boost didn't start: ") + why;
-    ESP_LOGW(TAG, "%s", this->boost_msg_.c_str());
-    return std::string(why);
-  };
-  if (this->boosting())
-    return "";
-  if (this->read_only_)
-    return refuse("the bridge is read-only");
-  if (!this->have_status_ || !this->status_.probe[PROBE_PIT].has_target || !this->status_.probe[PROBE_PIT].present)
-    return refuse("no pit reading or target from the grill");
-  const uint16_t base = this->pending_f_[PROBE_PIT] ? this->pending_f_[PROBE_PIT] : this->status_.probe[PROBE_PIT].target_f;
-  const uint16_t pit = this->status_.probe[PROBE_PIT].temp_f;
-  if (pit + 10 >= base)
-    return refuse("the pit is already at its target");
-  const uint16_t to = std::min<uint16_t>(TARGET_MAX_F[PROBE_PIT], base + 100);
-  if (to <= base)
-    return refuse("the target is already the grill's maximum");
-  if (!this->write_target_(PROBE_PIT, to))
-    return refuse("no writable link to the grill (over Bluetooth, turn on \"Control over Bluetooth\")");
-  const uint32_t now = millis();
-  this->boost_base_f_ = base;
-  this->boost_f_ = to;
-  this->boost_start_ = now ? now : 1;
-  this->boost_ms_ = std::max<uint32_t>(1, std::min<uint32_t>(minutes, 30)) * 60000u;
-  this->boost_restore_at_ = 0;
-  uint32_t b = (uint32_t(base) << 16) | to;
-  this->boost_pref_.save(&b);
-  global_preferences->sync();
-  ESP_LOGI(TAG, "Boost: pit target %u°F -> %u°F for up to %u min", base, to, unsigned(this->boost_ms_ / 60000));
-  return "";
-}
-
-void Gravity980Component::stop_boost() {
-  if (!this->boosting())
-    return;
-  this->boost_ms_ = 0;  // restored on the next status (or below, now)
-  if (this->have_status_)
-    this->boost_step_(this->status_);
-}
-
-uint32_t Gravity980Component::boost_minutes_left() const {
-  if (!this->boosting() || this->boost_ms_ == 0)
-    return 0;
-  uint32_t el = millis() - this->boost_start_;
-  return el >= this->boost_ms_ ? 0 : (this->boost_ms_ - el + 59999) / 60000;
-}
-
-void Gravity980Component::boost_end_(const char *why) {
-  ESP_LOGI(TAG, "Boost ended: %s", why);
-  this->boost_base_f_ = this->boost_f_ = 0;
-  this->boost_msg_.clear();
-  uint32_t zero = 0;
-  this->boost_pref_.save(&zero);
-  global_preferences->sync();
-}
-
-void Gravity980Component::boost_step_(const Status &s) {
-  if (!this->boosting())
+void Gravity980Component::old_boost_restore_(const Status &s) {
+  if (this->old_boost_f_ == 0)
     return;
   const auto &r = s.probe[PROBE_PIT];
-  const uint32_t now = millis();
-  if (this->pending_f_[PROBE_PIT] == this->boost_f_)
-    return;  // the boost target isn't confirmed yet
-  if (this->boost_restore_at_ != 0) {
-    // Restoring: done when the grill reports the base target again.
-    if (r.has_target && r.target_f == this->boost_base_f_)
-      return this->boost_end_("the pit target is back");
-    if (now - this->boost_restore_at_ < 10000)
-      return;
-  } else if (r.has_target && r.target_f == this->boost_base_f_ && now - this->boost_start_ < 30000) {
-    // The grill never took the boosted target (it only accepts targets while cooking).
-    this->boost_end_("the grill didn't take the boosted target");
-    this->boost_msg_ = "Boost didn't start: the grill didn't take the higher target (start a cook on its panel)";
+  if (!r.has_target)
     return;
-  } else if (!r.has_target || r.target_f != this->boost_f_) {
-    // Someone set another target (the panel, the app): theirs stands.
-    return this->boost_end_("the target was changed on the grill");
-  }
-  const bool reached = r.present && r.temp_f + 5 >= this->boost_base_f_;
-  const bool over = this->boost_ms_ == 0 || now - this->boost_start_ >= this->boost_ms_;
-  if (!reached && !over) {
-    char b[96];
-    snprintf(b, sizeof b, "Boosting to %u°F until the pit reaches %u°F (%u min left)", this->boost_f_, this->boost_base_f_,
-             unsigned(this->boost_minutes_left()));
-    this->boost_msg_ = b;
+  if (r.target_f == this->old_boost_f_ && this->old_boost_tries_ < 3) {
+    const uint32_t now = millis();
+    if (this->old_boost_at_ != 0 && now - this->old_boost_at_ < 10000)
+      return;  // waiting for the grill to confirm the last try
+    this->old_boost_at_ = now ? now : 1;
+    this->old_boost_tries_++;
+    this->write_target_(PROBE_PIT, this->old_boost_base_f_);
     return;
   }
-  ESP_LOGI(TAG, "Boost: %s, putting the pit target back to %u°F", reached ? "pit reached its target" : "time's up",
-           this->boost_base_f_);
-  this->boost_msg_ = "Putting the pit target back";
-  this->boost_ms_ = 0;
-  if (this->write_target_(PROBE_PIT, this->boost_base_f_))
-    this->boost_restore_at_ = now ? now : 1;  // confirmed by a later status, or retried after 10 s
+  // Back at the real target, changed by someone else, or given up after 3 tries: never again.
+  this->old_boost_done_();
+}
+
+void Gravity980Component::old_boost_done_() {
+  if (this->old_boost_f_ == 0)
+    return;
+  this->old_boost_f_ = this->old_boost_base_f_ = 0;
+  uint32_t zero = 0;
+  this->old_boost_pref_.save(&zero);
+  global_preferences->sync();
 }
 
 void Gravity980Component::check_pending_() {
@@ -1476,14 +1336,6 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
   if (!this->enabled_)
     return false;
   uint64_t a = device.address_uint64();
-  // Never this controller itself: in capture mode it advertises as a Gravity 980.
-  if (this->own_address_ == 0 && esp32_ble::global_ble != nullptr) {
-    uint8_t mac[6]{};
-    esp32_ble::global_ble->get_mac_msb_first(mac);
-    this->own_address_ = esp32_ble::ble_addr_to_uint64(mac);
-  }
-  if (a != 0 && a == this->own_address_)
-    return false;
   if (a != 0 && a == this->get_address())
     this->seen_at_ = now;
   if (a != 0 && (a == this->fixed_address_ || (this->fixed_address_ == 0 && a == this->get_address())))
@@ -1566,8 +1418,8 @@ bool Gravity980BLE::reconnect(const char *why) {
 }
 
 void Gravity980BLE::set_enabled(bool enabled) {
-  // Paused (capture mode) or switched off: the scanner heard nothing meanwhile, which isn't the grill being quiet.
-  // Resuming restarts its 10 minutes, so a look-alike can't take over the moment capture ends.
+  // Switched off: the scanner heard nothing meanwhile, which isn't the grill being quiet. Resuming restarts its
+  // 10 minutes, so a look-alike can't take over the moment the bridge is enabled again.
   if (enabled && !this->enabled_) {
     const uint32_t n = millis();
     this->seen_at_ = n ? n : 1;

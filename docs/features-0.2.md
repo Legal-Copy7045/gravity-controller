@@ -8,8 +8,8 @@ The same on the Home Assistant dashboard and the controller's own page
 - **Basic / Advanced** (the switch above the section bar; each browser remembers its choice). **Basic** is what the
   Char-Griller app does: pit and food temperatures and targets, a timer, Turbo, turning the grill on or off, the fan,
   lid and turbo state, the chart and Setup. **Advanced** is everything: programs, AI, charcoal, planning, the journal,
-  estimates and Boost. **A browser new to the page starts in Basic, where Plan, AI, Journal and Charcoal are hidden:
-  switch to Advanced to use them.** The mode only changes the page; alerts, programs and Boost run either way.
+  estimates. **A browser new to the page starts in Basic, where Plan, AI, Journal and Charcoal are hidden:
+  switch to Advanced to use them.** The mode only changes the page; alerts and programs run either way.
 - **Timer:** type the minutes and press **Start**; a notification when it's done. Kept by the controller, so it works
   without Home Assistant (a restart clears it). Entities: *Timer*, *Timer remaining*.
 - **Turbo:** the grill's own Turbo (the panel's fan button), confirmed on a 980. The *Turbo* switch shows the grill's
@@ -18,8 +18,6 @@ The same on the Home Assistant dashboard and the controller's own page
   it). The controller enforces the two presses, so a single press from Home Assistant, an automation or the page does
   nothing. Turning on works while the grill is in standby with its Bluetooth awake. Entities: *Turn the grill on*,
   *Turn the grill off* (buttons), *Grill on* (the grill's on flag), *Grill power* (what's armed).
-- **Boost** (Advanced): raises the pit target by 100 °F (at most 700 °F) until the pit reaches yours, for up to 15
-  minutes, then puts it back. A running program isn't disturbed; changing the target ends it.
 - **Chips:** *Fan on*, *Turbo (panel)* and *Lid open* show the grill's state at a glance.
 
 

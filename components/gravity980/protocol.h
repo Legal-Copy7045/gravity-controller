@@ -24,9 +24,10 @@ constexpr size_t FRAME_EXT = 20;         // newer firmware / Auto Akorn
 
 enum Probe : uint8_t { PROBE_PIT = 0, PROBE_FOOD1 = 1, PROBE_FOOD2 = 2, PROBE_COUNT = 3 };
 
-// Command ids. ONLY the setpoint ids are ever sent by this project. 0x01
-// (timer), 0x04 (power) and 0x05 (silence) are reported to crash the stock
-// controller's Wi-Fi side and need re-provisioning; they are deliberately absent.
+// Command ids. This project sends the setpoint ids below and 0x04, the grill's
+// flags (turbo, power), one flag at a time only (one_flag_command): several at
+// once crashed the stock controller's Wi-Fi side. 0x01 (timer) is never sent;
+// 0x05 only shows a pairing code and isn't used. See docs/protocol.md.
 constexpr uint8_t CMD_TARGET_ID[PROBE_COUNT] = {0x00, 0x02, 0x03};
 constexpr uint16_t TARGET_MIN_F[PROBE_COUNT] = {200, 50, 50};
 constexpr uint16_t TARGET_MAX_F[PROBE_COUNT] = {700, 350, 350};

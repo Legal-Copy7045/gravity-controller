@@ -8,17 +8,6 @@ logger:
 api:
   port: 6053
   actions:
-    - action: test_command
-      variables:
-        command_id: int
-        value: int
-      then:
-        - lambda: |-
-            std::string why = id(grill).send_test_command(command_id, value);
-            char b[160];
-            snprintf(b, sizeof b, "%s FF %02X %02X %02X%s%s", why.empty() ? "sent" : "refused", command_id & 0xFF,
-                     (value >> 8) & 0xFF, value & 0xFF, why.empty() ? "" : ": ", why.c_str());
-            id(test_result).publish_state(b);
     - action: load_program
       variables:
         program: string
@@ -86,19 +75,9 @@ text_sensor:
     name: Grill power
     update_interval: 1s
     lambda: return id(grill).power_prompt();
-  - platform: template
-    name: Boost status
-    icon: mdi:fan-plus
-    update_interval: 5s
-    lambda: return id(grill).boost_status();
-  - platform: template
-    id: test_result
-    name: Command test
-    update_interval: never
   - platform: gravity980
     link: {name: Grill link}
     link_status: {name: Grill link status}
-    captured_commands: {name: Captured app commands}
 number:
   # A kitchen timer, like the Char-Griller app's: set minutes to start (0 stops), "Timer remaining" counts down and
   # a notification says when it's done. Kept in the controller, so it works without Home Assistant (not across a
@@ -194,26 +173,6 @@ switch:
       - lambda: id(grill).set_turbo(true);
     turn_off_action:
       - lambda: id(grill).set_turbo(false);
-  # Capture mode: no Bluetooth on the host, so turning it on is refused (the device page's card is still drawn).
-  - platform: gravity980
-    app_capture: {name: Capture the app's commands}
-  # Boost: the panel's turbo has no remote command, so the pit target goes up 100 °F (fan hard) until the pit reaches
-  # the real target or 15 minutes pass, then back. The pit target entities keep showing the real target.
-  - platform: template
-    name: Boost
-    icon: mdi:fan-plus
-    lambda: return id(grill).boosting();
-    turn_on_action:
-      - lambda: id(grill).start_boost(15);
-    turn_off_action:
-      - lambda: id(grill).stop_boost();
-  - platform: template
-    name: Command tests
-    lambda: return id(grill).test_mode();
-    turn_on_action:
-      - lambda: id(grill).set_test_mode(true);
-    turn_off_action:
-      - lambda: id(grill).set_test_mode(false);
 
 button:
   - platform: template
@@ -224,8 +183,6 @@ button:
     name: Turn the grill on
     on_press:
       - lambda: id(grill).power_press(true);
-  - platform: gravity980
-    clear_capture: {name: Clear captured app commands}
 
 globals:
   - id: timer_end_ms

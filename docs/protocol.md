@@ -62,40 +62,15 @@ in the Char-Griller app's code (v2.0.8) and confirmed on a 980:
 | `FF 04 1F FF` | Power on | the app never sends it; works while the grill is in standby with its Bluetooth awake |
 
 The bridge sends only one flag at a time, as the app does. A value that sets several flags at once (like `00 00`)
-crashed the grill's Wi-Fi side in early tests (panel `0040`, re-provisioning needed), so the `test_command` action
-refuses it. Power needs two presses within 10 s, enforced by the controller (*Turn the grill on/off* buttons; *Grill
+crashed the grill's Wi-Fi side in early tests (panel `0040`, re-provisioning needed), so the bridge never sends
+one. Power needs two presses within 10 s, enforced by the controller (*Turn the grill on/off* buttons; *Grill
 power* shows what's armed).
 
-**Superseded:** earlier versions of this page said no remote turbo command was known and that `0x04`/`0x05` are never
-sent. Before the app's code was read, a search over Bluetooth (23 Nov 2026: `0x06` with eight values, ids
-`0x07`-`0x1F` with value 1) found nothing, and the bridge's **Boost** (raise the pit target by 100 °F for up to 15
-minutes) was added to stand in for turbo. Boost is still there, in Advanced. The `test_command` action and the
-*Command tests* switch remain for research: one command at a time, never the setpoint ids `0x00`/`0x02`/`0x03` (use the
-target entities, which check the range), and `0x04` only with a single flag.
-
-### Capturing the app's commands (developer build)
-
-Capture mode is **not in the released firmware**: it's the developer config `firmware/dev-capture.yaml` (CI still
-builds it), which you build yourself in the ESPHome dashboard. The controller poses as the grill for the app and records
-what it writes, for checking commands like Power and Turbo (now known, above). It is off unless you turn it on (the controller never advertises as a grill otherwise), turns itself off after
-10 minutes, and never sends anything it captures to the real grill: its own Bluetooth link to the grill is paused while it runs.
-
-1. Switch the real grill **off**, so the app finds the controller instead.
-2. Turn on **Capture the app's commands** (on a controller running the developer build: device page Setup → *Find the
-   app's commands*, or the config switch in Home Assistant). It needs the device page's PIN when one is set, like every other switch.
-3. Open the Char-Griller app and add or connect the grill it finds: **Gravity980-XXXX** (the last 4 hex digits of the
-   controller's Bluetooth address). The app sees a grill that is switched on and running: pit 65 °F, target 200 °F,
-   fan on (a real frame from a 980 that was on; the bridge's last status instead if its grill was on), sent every 2 s
-   as `00 19 10 00` + the 16-byte frame. Target changes from the app show up in it. Anything else, a Power press
-   included, leaves it looking on, so you can press it again.
-4. Press **Power** a couple of times, a few seconds apart, then **Turbo** the same way.
-5. Read the list on the card (newest first: time since the start, the bytes, a guess where the command is known), or
-   the *Captured app commands* sensor, or the log (tag `CAPTURE`). Then turn capture off.
-
-What is kept: the last 64 writes and events (connect, disconnect, notifications on/off), each write's characteristic,
-length and bytes (only the first 4 of anything over 16 bytes). A Wi-Fi credentials message (type `0x01`) is recorded as
-*(Wi-Fi credentials: not recorded)* with its first 2 bytes only: the password is never stored or logged. One phone
-at a time. The list is at `GET /local/capture` (behind the PIN when one is set) and *Clear* empties it.
+**History:** earlier versions of this page said no remote turbo command was known and that `0x04`/`0x05` are never
+sent. A search over Bluetooth (23 Nov 2026: `0x06` with eight values, ids `0x07`-`0x1F` with value 1) found nothing.
+Recording what the Char-Griller app writes while the controller posed as the grill, and reading the app's code, then
+found the `0x04` flags above, and that the app pairs by showing a 4-digit code on the grill's display with `FF 05`.
+Those research tools (a command-test action and a capture mode) are not in the 1.0 firmware.
 
 The bridge confirms every target change against the next status frames and reverts the HA entity (with a log
 warning) if the grill didn't take it.

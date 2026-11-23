@@ -29,19 +29,6 @@ api:
     - action: stop_program
       then:
         - lambda: id(smoker).stop_program();
-    # Protocol research: send one FF <id> <hi> <lo> command (only while the "Command tests" switch is on; never
-    # 0x01/0x04/0x05). The outcome goes to the "Command test" text sensor and the log.
-    - action: test_command
-      variables:
-        command_id: int
-        value: int
-      then:
-        - lambda: |-
-            std::string why = id(grill).send_test_command(command_id, value);
-            char b[160];
-            snprintf(b, sizeof b, "%s FF %02X %02X %02X%s%s", why.empty() ? "sent" : "refused", command_id & 0xFF,
-                     (value >> 8) & 0xFF, value & 0xFF, why.empty() ? "" : ": ", why.c_str());
-            id(test_result).publish_state(b);
     - action: set_pit_target
       variables:
         value: float

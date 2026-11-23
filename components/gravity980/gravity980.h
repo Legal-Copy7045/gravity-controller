@@ -13,7 +13,6 @@
 #include "esphome/core/preferences.h"
 
 #include "protocol.h"
-#include "capture_ble.h"
 
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
@@ -111,7 +110,6 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   uint32_t link_rssi_at_{0};
   int adv_rssi_{0};
   uint32_t any_adv_at_{0};
-  uint64_t own_address_{0};  // this controller's own Bluetooth address (its capture mode advertises as a grill)
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
   bool enabled_{true};
@@ -195,10 +193,6 @@ class Gravity980Component : public Component {
   Transport active_transport() const { return this->active_; }
   /// Request a setpoint in the configured unit. Returns false if rejected locally.
   bool request_target(Probe probe, float value);
-  // Protocol research (off by default): send one `FF <id> <hi> <lo>` command to look for commands the grill accepts,
-  // such as turbo. Only while command tests are on (they switch themselves off after 30 minutes), at most one every
-  // 15 s, and never ids 0x01, 0x04 or 0x05 (known to crash the grill's Wi-Fi side). Returns why not, or "".
-  std::string send_test_command(int id, int value);
   /// The Char-Griller app's own controls (command 0x04, one flag at a time). Return why not, or "".
   std::string set_turbo(bool on);
   /// Turn the grill on or off: needs two presses within 10 s (the first arms it). "armed", "" (sent) or why not.
@@ -208,36 +202,11 @@ class Gravity980Component : public Component {
   /// The grill's "on" flag (byte 14 bit 4: off after power off, on again after power on).
   bool grill_on() const;
   bool turbo() const;
-  void set_test_mode(bool on) { const uint32_t n = millis(); this->test_until_ = on ? (n ? n : 1) : 0; }
-  bool test_mode() const { return this->test_until_ != 0 && millis() - this->test_until_ < TEST_MODE_MS; }
-  // Boost: the panel's turbo has no remote command (tested), so this raises the grill's pit target by 100 °F (to at
-  // most 700 °F) to run the fan hard, and puts the target back when the pit reaches it, after `minutes`, on Stop, or
-  // after a restart. Meanwhile the pit target entities show the real target. Changing the target ends the boost.
-  /// Start a boost; returns why not, or "".
-  std::string start_boost(uint32_t minutes);
-  void stop_boost();
-  bool boosting() const { return this->boost_base_f_ != 0; }
-  /// Whole minutes left (0 when not boosting).
-  uint32_t boost_minutes_left() const;
-  /// One line for the dashboards: what the boost is doing, or why it didn't start ("" when idle).
-  const std::string &boost_status() const { return this->boost_msg_; }
   /// Last reported setpoint in the configured unit (NAN if none).
   float reported_target(Probe probe) const;
   const Status &last_status() const { return this->status_; }
   bool has_status() const { return this->have_status_; }
 
-  // Capture mode (capture_ble.h): the controller poses as the grill so the Char-Griller app's commands can be recorded.
-  AppCapture &capture() { return this->capture_; }
-  std::string capture_json() { return this->capture_.json(); }  // for GET /local/capture (any task)
-  void capture_clear() { this->capture_.clear(); }
-  /// While capturing, the Bluetooth link to the real grill is paused (and the link recovery leaves Bluetooth alone).
-  void set_capture_pause(bool paused);
-  bool capture_paused() const { return this->capture_pause_; }
-#ifdef USE_GRAVITY980_CAPTURE
-  void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
-    this->capture_.gatts_event_handler(event, gatts_if, param);
-  }
-#endif
   void add_on_status_callback(std::function<void(const Status &)> cb) { this->status_cbs_.push_back(std::move(cb)); }
 
   // Called by the BLE client.
@@ -288,12 +257,7 @@ class Gravity980Component : public Component {
   bool read_only_{false};
   bool ble_writes_{false};
   bool log_raw_{false};
-  static constexpr uint32_t TEST_MODE_MS = 30u * 60u * 1000u;
-  uint32_t test_until_{0};  // when command tests were switched on (0: off)
-  uint32_t test_last_{0};
   bool enabled_{true};
-  bool capture_pause_{false};
-  AppCapture capture_{this};
   uint32_t reconnect_interval_{10000};
   uint32_t stale_timeout_{15000};
 
@@ -333,25 +297,20 @@ class Gravity980Component : public Component {
   Status status_{};
   bool have_status_{false};
   uint16_t pending_f_[PROBE_COUNT]{0, 0, 0};
-  // Boost (0: none). The base target is restored when it ends; the pref keeps both across a restart.
-  uint16_t boost_base_f_{0};
-  uint16_t boost_f_{0};
-  uint32_t boost_start_{0};
-  uint32_t boost_ms_{0};
-  uint32_t boost_restore_at_{0};
-  std::string boost_msg_;
-  ESPPreferenceObject boost_pref_;
+  // A boost left running by firmware before 1.0 (0: none): its real pit target is put back once after the update.
+  uint16_t old_boost_base_f_{0};
+  uint16_t old_boost_f_{0};
+  uint32_t old_boost_at_{0};
+  uint8_t old_boost_tries_{0};
+  ESPPreferenceObject old_boost_pref_;
+  void old_boost_restore_(const Status &s);
+  void old_boost_done_();
   bool write_target_(Probe probe, uint16_t f);
   std::string send_flags_(uint16_t flags, const char *what);
   static constexpr uint32_t POWER_CONFIRM_MS = 10000;
   uint32_t power_armed_{0};
   bool power_armed_on_{false};
   std::string power_prompt_;
-  void boost_step_(const Status &s);
-  void boost_end_(const char *why);
-  uint16_t shown_target_f_(int p, const ProbeReading &r) const {
-    return p == PROBE_PIT && this->boost_base_f_ != 0 && r.target_f == this->boost_f_ ? this->boost_base_f_ : r.target_f;
-  }
   uint32_t pending_since_[PROBE_COUNT]{0, 0, 0};
   std::string last_raw_;
   std::vector<std::function<void(const Status &)>> status_cbs_;

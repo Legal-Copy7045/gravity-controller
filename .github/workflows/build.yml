@@ -129,8 +129,6 @@ jobs:
         run: esphome config tests/configs/wired-check.yaml
       - name: Validate the controller without Home Assistant (base.yaml alone, no API)
         run: esphome config tests/configs/no-ha.yaml
-      - name: Validate the developer build with capture mode (not released)
-        run: esphome config tests/configs/dev-capture.yaml
       - name: Assemble site
         run: python3 .github/scripts/make_site.py _site firmware/.esphome/build/gravity980/build firmware/base.yaml
       - name: Upload Pages artifact

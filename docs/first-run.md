@@ -7,7 +7,7 @@ target, and it never sends the commands known to upset the stock controller.
 
 - Flash the board ([install.md](install.md)) and add it to Home Assistant within 15 minutes of plugging it in (or
   [use it without Home Assistant](standalone.md)).
-- On the device page turn on **Log raw grill data** (useful for the next steps), and open the controller's log: the
+- On the device page (Setup → *This controller*) turn on **Log raw grill data** (useful for the next steps), and open the controller's log: the
   [web installer](https://legal-copy7045.github.io/gravity-controller/)'s **Logs & console** with a laptop on USB, or
   the ESPHome dashboard's *Logs* if you build it yourself (the controller's page doesn't show the log).
 - Open the controller's page, `http://gravity980.local` (on a phone, Android especially, use the board's IP instead:
@@ -50,7 +50,7 @@ on the device page, and **Grill link** switches to `wifi`.
 | Start a cook on the panel at 225 °F | **Pit target (reported)** = 225 |
 | Dashboard → Pit target **+** | grill display changes to 230 within a few seconds |
 | Turbo (dashboard or page) | the grill's turbo indicator comes on within a few seconds |
-| Raw status frame | changes as values change; if anything looks wrong, [open an issue](https://github.com/Legal-Copy7045/gravity-controller/issues/new/choose) (template: *Grill data*) with a few lines |
+| Raw status frame (a diagnostic entity, disabled by default: enable it in Home Assistant) | changes as values change; if anything looks wrong, [open an issue](https://github.com/Legal-Copy7045/gravity-controller/issues/new/choose) (template: *Grill data*) with a few lines |
 
 If the target change is ignored, the grill is probably idle: it only accepts targets while cooking (start the cook
 on its panel). Targets go over Wi-Fi or Bluetooth (see [Control over Bluetooth](#control-over-bluetooth)).

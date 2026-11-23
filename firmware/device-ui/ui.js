@@ -40,7 +40,6 @@ function start() {
     <input id="aicam" type="file" accept="image/*" capture="environment" hidden><input id="aifile" type="file" accept="image/*" hidden></section>
   <section class="sect" id="s-journal" data-sect="journal"><h2 class="sec">${ic('book')}Cook journal</h2><div class="grid g-2-1"><div class="card" id="journal"></div><div class="card" id="share"></div></div></section>
   <section class="sect" id="s-setup" data-sect="setup"><h2 class="sec">${ic('setup')}Setup</h2><h3 class="sub">Grill connection</h3><div class="grid g-pair"><div class="card" id="conn"></div><div class="card" id="sources"></div></div>
-    <div class="card" id="capture" hidden></div>
     <h3 class="sub">Phone and weather</h3><div class="grid g-pair"><div class="card" id="notif"></div><div class="card" id="place"></div></div>
     <h3 class="sub">AI</h3><div class="card" id="aisetup"></div>
     <h3 class="sub">This controller</h3><div class="grid g-pair"><div class="card" id="lock"></div><div class="card" id="dev"></div></div></section>
@@ -214,8 +213,6 @@ const ACT = {
   heroset() { const i = $('heropit'), v = parseFloat(i && i.value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete i.dataset.dirty; i.blur(); setNum('Pit target', v); },
   tgt(el) { const n = el.dataset.n, c = cur(n); if (c == null) return toast(n + ' not known yet'); setNum(n, c + Number(el.dataset.d) * stepOf(n, isF() ? 1 : 0.5)); },
   toggle(el) { post('switch', el.dataset.n, 'toggle'); },
-  async capclear() { try { CAP = await local('capture/clear', {}); renderCapture(); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); } },
-  capload() { loadCapture(); },
   fwinstall() {  // the Firmware update entity (http_request: this project's GitHub release), after a second tap
     const k = 'fw';
     if (!armed[k]) { armed[k] = setTimeout(() => { delete armed[k]; render(); }, 4000); return render(); }
@@ -425,11 +422,9 @@ function heroTarget(u, tgt, L) {
     <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(n.min_value || '')}" max="${esc(n.max_value || '')}" step="${esc(n.step || 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target"${dis}><span>${esc(u)}</span></span>
     <button class="btn" data-a="pit" data-d="1" aria-label="Raise pit target"${dis}>+</button>
     <button class="btn pri" data-a="heroset"${dis}>Set</button>
-    ${E('switch', 'Turbo') ? `<button class="btn boost${on(E('switch', 'Turbo')) ? ' on' : ''}" data-a="toggle" data-n="Turbo" aria-pressed="${on(E('switch', 'Turbo'))}" title="The panel's Turbo: the fan runs flat out"${dis}>Turbo</button>` : ''}
-    ${E('switch', 'Boost') ? `<button class="btn boost adv${on(E('switch', 'Boost')) ? ' on' : ''}" data-a="toggle" data-n="Boost" title="Raises the target 100°F until the pit reaches yours, for up to 15 minutes"${dis}>${on(E('switch', 'Boost')) ? 'Stop boost' : 'Boost'}</button>` : ''}
+    ${E('switch', 'Turbo') ? `<button class="btn turbo${on(E('switch', 'Turbo')) ? ' on' : ''}" data-a="toggle" data-n="Turbo" aria-pressed="${on(E('switch', 'Turbo'))}" title="The panel's Turbo: the fan runs flat out"${dis}>Turbo</button>` : ''}
     ${powerBtn(dis)}
-    ${T('Grill power') ? `<p class="small hero-boost warn-text" role="status">${esc(T('Grill power'))}</p>` : ''}
-    ${T('Boost status') ? `<p class="small muted hero-boost adv">${esc(T('Boost status'))}</p>` : ''}</div>`;
+    ${T('Grill power') ? `<p class="small hero-msg warn-text" role="status">${esc(T('Grill power'))}</p>` : ''}</div>`;
 }
 // Turn the grill on/off: never one tap. The first tap arms it (the controller waits 10 s for a second press of the
 // same button), the button then says so, and a second tap does it.
@@ -1124,46 +1119,6 @@ function wifiSetup() {
     <p class="note">The password goes to the controller and on to the grill; it isn't stored.</p></details>`;
 }
 
-// Capture mode: the controller poses as the grill over Bluetooth so the Char-Griller app connects to it, and records what
-// the app writes (to find its Power and Turbo commands). Nothing is sent to the grill. The list comes from /local/capture
-// (behind the PIN when one is set); it's fetched every 3 s while capture is on.
-const CAP_SW = 'Capture the app\'s commands';
-let CAP = null, capPoll = 0, capWas = null;
-function capWatch() {
-  const sw = E('switch', CAP_SW); if (!sw) return renderCapture();
-  const o = on(sw); if (o !== capWas) { capWas = o; loadCapture(); } else renderCapture();
-}
-async function loadCapture() {
-  clearTimeout(capPoll);
-  try { CAP = await local('capture'); } catch (e) { CAP = /PIN/.test(e.message) ? { locked: true } : CAP; }
-  renderCapture();
-  if (on(E('switch', CAP_SW)) || (CAP && CAP.active)) capPoll = setTimeout(loadCapture, 3000);
-}
-function renderCapture() {
-  const box = $('capture'), sw = E('switch', CAP_SW); if (!box) return;
-  box.hidden = !sw; if (!sw) return;
-  const c = CAP || {}, live = on(sw) || c.active, recs = c.records || [];
-  const t = ms => '+' + (ms / 1000).toFixed(1) + ' s';
-  const left = c.left_s > 0 ? Math.ceil(c.left_s / 60) + ' min left' : '';
-  const state = !live ? '' : !c.advertising ? 'Starting…' : c.connected ? 'App connected' + (c.subscribed ? ', reading status' : '') : `Waiting for the app: look for <b>${esc(c.name || 'Gravity980-…')}</b>`;
-  const list = c.locked ? `<p class="note">${LOCAL && LOCAL.pin ? 'Unlock this page (This page\'s PIN, below) to see what was captured.' : ''}</p>`
-    : recs.length ? `<div class="caplist" role="log" aria-label="Captured from the app, newest first">${recs.map(r => r.ev === 'write'
-      ? `<div class="row"><span><span class="muted small">${t(r.t)}</span> <code>${esc(r.hex || '(empty)')}</code>${r.len > 16 && r.redacted !== 'credentials' ? ` <span class="muted small">${fmt(r.len)} bytes</span>` : ''}</span><span class="r small">${esc(r.guess || 'unknown')}</span></div>`
-      : `<div class="row muted small"><span>${t(r.t)}</span><span class="r">${esc(r.guess)}</span></div>`).join('')}</div>`
-    : `<p class="note">${live ? 'Nothing from the app yet.' : 'Nothing captured.'}</p>`;
-  put('capture', `<h3><span>Find the app's commands</span><span class="chip ${live ? 'hot' : ''}">${live ? 'On' + (left ? ' · ' + left : '') : 'Off'}</span></h3>
-    <p class="note" style="margin-top:0">For finding the bytes the Char-Griller app sends for Power and Turbo. While this is on (10 minutes at most) the controller
-      shows up in the app as a grill and records everything the app sends. Nothing is passed to your grill, and a Wi-Fi password the app sends isn't kept.</p>
-    <details class="more" data-k="caphow"><summary>How to use it</summary><ol class="small">
-      <li>Switch the grill off (so the app finds the controller, not the grill).</li><li>Turn this on.</li>
-      <li>Open the Char-Griller app and add or connect the grill it finds (<b>${esc(c.name || 'Gravity980-…')}</b>). It shows as switched on, at 65°F.</li>
-      <li>Press Power a couple of times, a few seconds apart, then Turbo the same way.</li><li>Read the list below (newest first), then turn this off.</li></ol></details>
-    ${tog(CAP_SW, 'Capture the app\'s commands', 'The controller\'s own link to the grill pauses meanwhile.')}
-    ${state ? `<p class="linkstatus">${state}</p>` : ''}${!live && c.why_off ? `<p class="note">${esc(c.why_off)}</p>` : ''}
-    ${list}
-    <div class="btns">${recs.length ? '<button class="btn" data-a="capclear">Clear</button>' : ''}<button class="btn" data-a="capload">Refresh</button></div>`);
-}
-
 // ---------------------------------------------------------------- without Home Assistant: PIN, notifications, place
 let geoHits = [];
 function renderLocal() {
@@ -1368,7 +1323,6 @@ function renderSetup(u) {
     ${ip ? `<div class="row"><span>Grill IP address</span><span class="entry"><input id="ipin" type="text" inputmode="decimal" autocomplete="off" value="${esc(str(ip))}" placeholder="automatic" style="width:140px" aria-label="Grill IP address"><button class="btn" data-a="ip">Save</button></span></div>` : ''}
     ${E('text_sensor', 'Grill Wi-Fi') ? row('Grill\'s Wi-Fi', esc(wifi && wifi !== 'unknown' ? wifi : 'not reported yet')) : ''}
     ${wifiSetup()}`);
-  capWatch();
   const h5 = E('binary_sensor', 'H5198 connected'), rssi = S('H5198 signal');
   let rows = '';
   for (let i = 1; i <= 6; i++) {
@@ -1384,6 +1338,7 @@ function renderSetup(u) {
   put('dev', `<h3>This controller</h3>${rel ? row('Release', esc(rel)) : ''}${ver ? row('Built with', 'ESPHome ' + esc(String(ver).split(' ')[0])) : ''}${sig != null ? row('Its Wi-Fi <span class="muted small">(to your router, not the grill)</span>', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', dur(up)) : ''}
     ${row('Cooks learned', fmt(S('Cooks learned')))}
     ${fwRow()}
+    ${tog('Log raw grill data', 'Log raw grill data', 'For support: every byte from the grill goes to the controller\'s log (USB, or the ESPHome dashboard).')}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
@@ -1522,7 +1477,7 @@ function renderAI() {
 const SECT = (() => {
   const KEY = 'smoker-sections', MODE_KEY = 'smoker-mode';
   // Basic: what the Char-Griller app does (pit and food temperatures and targets, a timer, turbo/fan/lid, the chart,
-  // settings). Advanced: everything. Only the page changes: alerts, programs and Boost run either way.
+  // settings). Advanced: everything. Only the page changes: alerts and programs run either way.
   const BASIC = ['food', 'chart', 'setup'];
   let basic = false;
   try {

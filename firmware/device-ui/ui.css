@@ -1,6 +1,6 @@
 /* Smoker device page (served by the controller at /0.css; see ui.js). Same tokens and components as the
    Home Assistant smoker panel (custom_components/smoker/frontend/style.css, from home-dashboards' shell.py).
-   Everything sits under html.gx, so ?classic (ESPHome's stock page) is left alone. */
+   Everything sits under html.gx. */
 :root.gx{--ground:#f2f4f6;--surface:#fff;--sunk:#e9edf1;--ink:#0f1b27;--ink-2:#44556a;--muted:#6d7d8f;--line:#dbe2e9;--ok:#1d8a5f;--warn:#a86400;--bad:#b3261e;--page:#c2410c;--exp:#6d28d9;--page-soft:color-mix(in srgb,var(--page) 11%,var(--surface));color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root.gx:not([data-theme="light"]){--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#7b8a9a;--line:#233040;--ok:#3cc08a;--warn:#e0a24a;--bad:#ef6b61;--page:#fb8a3c;--exp:#a78bfa}}
 :root.gx[data-theme="dark"]{--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#7b8a9a;--line:#233040;--ok:#3cc08a;--warn:#e0a24a;--bad:#ef6b61;--page:#fb8a3c;--exp:#a78bfa}
@@ -103,9 +103,9 @@ html{background:#f2f4f6}
 .gx .hero-tgt{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px}
 .gx .hero-tgt .l{font:600 12px "Instrument Sans",system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:2px}
 .gx .hero-tgt .btn{min-width:48px;min-height:48px;font-size:22px;line-height:1;border-radius:12px}
-.gx .hero-tgt .btn.pri,.gx .hero-tgt .btn.boost{font-size:15px}
-.gx .hero-tgt .btn.boost.on{background:var(--page);border-color:var(--page);color:#fff}
-.gx .hero-boost{flex-basis:100%;margin:0}
+.gx .hero-tgt .btn.pri,.gx .hero-tgt .btn.turbo{font-size:15px}
+.gx .hero-tgt .btn.turbo.on{background:var(--page);border-color:var(--page);color:#fff}
+.gx .hero-msg{flex-basis:100%;margin:0}
 .gx .hero-tgt .btn.power{font-size:15px}
 .gx .hero-tgt .btn.power.armed{background:var(--bad);border-color:var(--bad);color:#fff}
 .gx .warn-text{color:var(--warn)}
@@ -263,4 +263,3 @@ html{background:#f2f4f6}
 .gx .modesw button{font:600 13px "Instrument Sans",system-ui,sans-serif;border:0;background:none;color:var(--ink-2);padding:6px 14px;border-radius:999px;min-height:34px;cursor:pointer}
 .gx .modesw button[aria-pressed="true"]{background:var(--page);color:#fff}
 .gx .food.timer .entry input{width:90px}
-.gx .caplist{max-height:340px;overflow:auto;margin:6px 0}.gx .caplist code{font:500 12.5px "JetBrains Mono",ui-monospace,monospace;word-break:break-all}.gx .caplist .row>span:first-child{min-width:0}

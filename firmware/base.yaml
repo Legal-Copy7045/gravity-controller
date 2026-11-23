@@ -53,7 +53,7 @@ psram:
   speed: 80MHz
 
 logger:
-  level: DEBUG
+  level: INFO
 
 ota:
   # Updates come from this project's GitHub release only (http_request, the Firmware update entity): the manifest and
@@ -413,17 +413,6 @@ text_sensor:
     icon: mdi:power
     update_interval: 2s
     lambda: return id(grill).power_prompt();
-  - platform: template
-    name: Boost status
-    icon: mdi:fan-plus
-    update_interval: 5s
-    lambda: return id(grill).boost_status();
-  - platform: template
-    id: test_result
-    name: Command test
-    icon: mdi:flask-outline
-    entity_category: diagnostic
-    update_interval: never
   # The loaded cook program as the controller parsed it (its own syntax; empty = none), so Home Assistant can check
   # what it actually runs. Home Assistant keeps states to 255 characters: a longer one says so instead.
   - platform: template
@@ -441,8 +430,10 @@ text_sensor:
       name: Last restart reason
       entity_category: diagnostic
   - platform: gravity980
+    # For support (the "Grill data" issue form): enable it in Home Assistant when asked.
     raw_frame:
       name: Raw status frame
+      disabled_by_default: true
     link:
       name: Grill link
     link_status:
@@ -612,7 +603,6 @@ switch:
   - platform: gravity980
     bridge_enabled:
       name: Bridge enabled
-  # Log every raw TCP/BLE byte from the grill (for protocol investigation; logs at DEBUG level).
   # Target changes over Bluetooth, for grills whose Wi-Fi is unreliable (it is on some mesh/UniFi networks). On by
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
   # changes nothing), and only pit/food targets are ever sent. Wi-Fi is used instead whenever it's connected.
@@ -638,31 +628,12 @@ switch:
       - lambda: id(grill).set_turbo(true);
     turn_off_action:
       - lambda: id(grill).set_turbo(false);
-  # Boost: the panel's turbo has no remote command, so the pit target goes up 100 °F (fan hard) until the pit reaches
-  # the real target or 15 minutes pass, then back. The pit target entities keep showing the real target.
-  - platform: template
-    name: Boost
-    icon: mdi:fan-plus
-    lambda: return id(grill).boosting();
-    turn_on_action:
-      - lambda: id(grill).start_boost(15);
-    turn_off_action:
-      - lambda: id(grill).stop_boost();
-  # Protocol research (off by default; switches itself off after 30 minutes): lets the test_command action send
-  # experimental commands to the grill, looking for ones it accepts (such as turbo).
-  - platform: template
-    name: Command tests
-    icon: mdi:flask-outline
-    entity_category: config
-    lambda: return id(grill).test_mode();
-    turn_on_action:
-      - lambda: id(grill).set_test_mode(true);
-    turn_off_action:
-      - lambda: id(grill).set_test_mode(false);
+  # Log every raw TCP/BLE byte from the grill (at INFO level), for support: the "Grill data" issue form asks for it.
   - platform: template
     name: Log raw grill data
     icon: mdi:text-search
     entity_category: config
+    disabled_by_default: true
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     on_turn_on:

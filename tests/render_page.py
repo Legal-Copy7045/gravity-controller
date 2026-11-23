@@ -41,7 +41,6 @@ MIN = {"unit_of_measurement": "min"}
 STATES = dict([
     st("sensor.smoker_pit_temperature", 251, "Smoker Pit temperature", **F),
     st("number.smoker_pit_target", 250, "Smoker Pit target", **F),
-    st("switch.smoker_boost", "off", "Smoker Boost"),
     st("switch.smoker_turbo", "off", "Smoker Turbo"),
     st("binary_sensor.smoker_grill_on", "on", "Smoker Grill on"),
     st("button.smoker_turn_the_grill_off", "unknown", "Smoker Turn the grill off"),
@@ -49,7 +48,6 @@ STATES = dict([
     st("sensor.smoker_grill_power", "", "Smoker Grill power"),
     st("number.smoker_timer", 0, "Smoker Timer", unit_of_measurement="min"),
     st("sensor.smoker_timer_remaining", 0, "Smoker Timer remaining", unit_of_measurement="s"),
-    st("sensor.smoker_boost_status", "", "Smoker Boost status"),
     st("binary_sensor.smoker_grill_connected", "on", "Smoker Grill connected"),
     st("sensor.smoker_grill_link", "wifi", "Smoker Grill link"),
     st("sensor.smoker_grill_link_status", "Connected over Wi-Fi", "Smoker Grill link status"),
@@ -761,10 +759,6 @@ def main():
                     fr.click("#herotgt .btn.power"); time.sleep(0.3)
                     if len(presses()) != 2:
                         failures.append(f"{scheme}/{name}: power off's second tap should press again: {presses()}")
-                    n0 = len(pg.evaluate("window.calls"))
-                    fr.click("#herotgt .btn.boost.adv"); time.sleep(0.3)
-                    if not any(c[0] == "switch" and c[1] == "turn_on" and c[2].get("entity_id") == "switch.smoker_boost" for c in pg.evaluate("window.calls")[n0:]):
-                        failures.append(f"{scheme}/{name}: Boost didn't turn the boost switch on: {pg.evaluate('window.calls')[n0:]}")
                     fr.evaluate("window.scrollTo(0, 0)"); time.sleep(0.4)
                     lit = fr.evaluate("[...document.querySelectorAll('#secbar a[aria-current=true]')].map(a => a.innerText.trim())")
                     if "Setup" in lit:

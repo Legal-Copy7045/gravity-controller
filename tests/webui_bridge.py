@@ -285,18 +285,6 @@ class Local:
         self.ai = {"provider": "", "model": "", "default_model": "", "auto": False, "interval": 30, "error": "",
                    "test": "", "cook_on": True, "calls_today": 0, "daily_limit": 40, "busy": {"advise": False, "plan": False, "label": False, "test": False}}
         self.ai_calls = []
-        # Capture mode's list (components/gravity980/capture.h's JSON), as after a session with the app.
-        self.capture = {"available": True, "active": False, "advertising": False, "left_s": 0, "name": "",
-                        "connected": False, "subscribed": False, "total": 5, "why_off": "Off: switched off",
-                        "records": [
-                            {"t": 41200, "ev": "write", "uuid": "BBB0", "len": 4, "hex": "FF 04 00 00",
-                             "guess": "power? (FF 04, value 0)"},
-                            {"t": 30100, "ev": "write", "uuid": "BBB0", "len": 24, "hex": "01 00 \u2026",
-                             "redacted": "credentials", "guess": "(Wi-Fi credentials: not recorded)"},
-                            {"t": 22000, "ev": "write", "uuid": "BBB0", "len": 4, "hex": "FF 00 00 E1",
-                             "guess": "pit target 225\u00b0F"},
-                            {"t": 9000, "ev": "subscribe", "guess": "the app turned status notifications on"},
-                            {"t": 8500, "ev": "connect", "guess": "phone connected"}]}
         rec = {"v": 1, "id": "0123456789abcdef0123456789abcdef", "grill": "gravity980", "release": "0.2.29",
                "season": "autumn", "cut": "Pork shoulder", "weight_lb": 8.5, "wrapped": True, "pit_f": 250,
                "target_f": 203, "stall_h": 3.1, "total_h": 11.6, "outside_f": 35, "rating": None, "tags": []}
@@ -313,9 +301,6 @@ class Local:
         return {**self.s, "pin": self.pin is not None, "authed": a, "locked": 0, "ha": True, "ai_provider": "",
                 "ai_model": "", "weather_age_min": -1, "last": {"ntfy": "", "pushover": "", "telegram": ""},
                 **({} if a else {"lat": None, "lon": None})}
-
-    def gate(self, request):  # writes need the PIN once one is set
-        return self.pin is None or self.authed(request)
 
     def token(self):
         t = os.urandom(32).hex()
@@ -337,10 +322,6 @@ class Local:
                     {"cut": "Pork shoulder", "line": "Pork shoulder 8-10 lb at 225-255°F: typically 11.2 h; 12 cooks"}]})
             if path == "ai":
                 return web.json_response(self.ai_json())
-            if path == "capture":
-                if not self.gate(request):
-                    return web.json_response({"error": "Enter the PIN", "pin": True}, status=401)
-                return web.json_response(self.capture)
             return web.json_response(self.status(request))
         body = await request.json() if request.can_read_body else {}
         err = lambda m, c=400: web.json_response({"error": m}, status=c)  # noqa: E731
@@ -359,11 +340,6 @@ class Local:
         if path == "logout":
             self.tokens.discard(request.headers.get("X-Smoker-Token", ""))
             return web.json_response({})
-        if path == "capture/clear":  # like the switch: open until a PIN is set
-            if not self.gate(request):
-                return err("Enter the PIN", 401)
-            self.capture.update(records=[], total=0)
-            return web.json_response(self.capture)
         if self.pin is None:
             return err("Set a PIN for the device page first", 409)
         if not self.authed(request):

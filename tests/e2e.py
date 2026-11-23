@@ -96,52 +96,12 @@ async def main():
         cli.number_command(by_id["pit_target"].key, 250)
         check(await wait_for(lambda: val("pit_target_reported") == 250.0, 10, "target 250"), "pit target set to 250 via API")
 
-        # Protocol research: test commands only while "Command tests" is on, never the dangerous ids, 15 s apart.
-        await cli.execute_service(svc["test_command"], {"command_id": 6, "value": 1})
-        check(await wait_for(lambda: (val("command_test") or "").startswith("refused FF 06 00 01: command tests are off"), 5, "refused"),
-              f"test command refused while tests are off ({val('command_test')!r})")
-        cli.switch_command(by_id["command_tests"].key, True)
-        check(await wait_for(lambda: val("command_tests") is True, 5, "tests on"), "command tests switch on")
-        await cli.execute_service(svc["test_command"], {"command_id": 4, "value": 0})
-        check(await wait_for(lambda: "one flag at a time" in (val("command_test") or ""), 5, "0x04 refused"), f"id 0x04 with every flag set is refused ({val('command_test')!r})")
-        await cli.execute_service(svc["test_command"], {"command_id": 6, "value": 1})
-        check(await wait_for(lambda: val("command_test") == "sent FF 06 00 01", 5, "sent"), f"test command sent ({val('command_test')!r})")
-        await cli.execute_service(svc["test_command"], {"command_id": 7, "value": 0})
-        check(await wait_for(lambda: "wait 15 s" in (val("command_test") or ""), 5, "rate limit"), f"15 s between test commands ({val('command_test')!r})")
-        cli.switch_command(by_id["command_tests"].key, False)
-        check(await wait_for(lambda: val("command_tests") is False, 5, "tests off"), "command tests switch off")
-        await asyncio.sleep(1)
-        with open(os.path.join(HERE, "e2e-grill.log"), encoding="utf-8", errors="replace") as fh:
-            check("unknown command id 0x06 value 1" in fh.read(), "the grill received FF 06 00 01")
-
         # Out-of-range is refused locally and never reaches the grill.
         cli.number_command(by_id["pit_target"].key, 100)
         await asyncio.sleep(3)
         check(val("pit_target_reported") == 250.0, "out-of-range target refused")
 
-        # Boost: the grill's target goes up 100 F while the entities keep the real one; Stop puts it back.
-        cli.number_command(by_id["pit_target"].key, 400)
-        check(await wait_for(lambda: val("pit_target_reported") == 400.0, 10, "target 400"), "pit target 400 for the boost")
         glog = lambda: open(os.path.join(HERE, "e2e-grill.log"), encoding="utf-8", errors="replace").read()
-        cli.switch_command(by_id["boost"].key, True)
-        check(await wait_for(lambda: val("boost") is True and "set target id 0x00 = 500 F" in glog(), 10, "boost on"),
-              f"boost raises the grill's target to 500 ({val('boost_status')!r})")
-        await asyncio.sleep(3)
-        check(val("pit_target_reported") == 400.0 and val("boost") is True, f"the real target still shows 400 during the boost ({val('pit_target_reported')})")
-        check(await wait_for(lambda: "Boosting to 500" in (val("boost_status") or ""), 8, "boost status"), f"boost status ({val('boost_status')!r})")
-        n500 = glog().count("= 400 F")
-        cli.switch_command(by_id["boost"].key, False)
-        check(await wait_for(lambda: val("boost") is False and glog().count("= 400 F") > n500, 10, "boost off"),
-              "stopping the boost puts the grill's target back to 400")
-        # A new target during a boost ends it: the new target stands.
-        cli.switch_command(by_id["boost"].key, True)
-        await wait_for(lambda: val("boost") is True, 10, "boost on again")
-        await asyncio.sleep(2)
-        cli.number_command(by_id["pit_target"].key, 380)
-        check(await wait_for(lambda: val("boost") is False and val("pit_target_reported") == 380.0, 10, "boost ended by a new target"),
-              f"a new target ends the boost ({val('boost')}, {val('pit_target_reported')})")
-        cli.number_command(by_id["pit_target"].key, 250)
-        await wait_for(lambda: val("pit_target_reported") == 250.0, 10, "back to 250")
 
         # Turbo and power, as the Char-Griller app sends them (one flag at a time); power never on one press.
         cli.switch_command(by_id["turbo"].key, True)

@@ -31,7 +31,7 @@ I found nothing for HeaterMeter or other off-the-shelf firmware that targets the
 | 15 | bit0 door open, bit4 fan turbo | |
 
 - Writes use `FF <id> <hi> <lo>`. Id `0x00` sets the pit target (200-700 °F), and `0x02`/`0x03` set the meat probe targets. These work only while the grill is in its "active" power state.
-- **Do not send** ids `0x01` (timer), `0x04` (power) or `0x05` (silence). The author reports these crashed the Wi-Fi side and forced re-provisioning (panel code 0040).
+- **Do not send** id `0x01` (timer). The author reports it, and `0x04`/`0x05` sent carelessly, crashed the Wi-Fi side and forced re-provisioning (panel code 0040). Since then `0x04` turned out to be the grill's flags (turbo, power: one flag at a time is safe) and `0x05` shows a pairing code; see [protocol.md](protocol.md).
 - The 980 ignores fan-speed writes, so you cannot run your own PID through the stock controller.
 
 ## 3. Stock electrical hardware (partly unverified)

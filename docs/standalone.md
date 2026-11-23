@@ -105,8 +105,8 @@ Pick one or more services:
   pit and food temperatures and targets, the timer, Turbo, turning the grill on or off, the fan/lid/turbo state, the
   chart and Setup. **Advanced** adds everything else: Plan, AI, the journal, Charcoal, programs and estimates. A
   browser that hasn't used the page before starts in **Basic**, so switch to **Advanced** to see Plan, AI, Journal and
-  Charcoal. Each browser remembers its choice, and the mode only changes the page: alerts, programs and Boost run
-  either way.
+  Charcoal. Each browser remembers its choice, and the mode only changes the page: alerts and programs run either
+  way.
 - **Pit target:** − / type it / + and **Set**, first thing on the page. The grill only takes targets while it's
   cooking (start the cook on its panel).
 - **Turbo:** the grill's own Turbo (the fan runs flat out), the same as the panel's button. The button shows the
@@ -114,8 +114,6 @@ Pick one or more services:
 - **Turn on / Turn off:** two taps within 10 s. The first tap arms it (the button turns red: *Tap again to turn
   off*), the second does it. The controller enforces this, so one press from anywhere does nothing. Turning on works
   while the grill is in standby with its Bluetooth awake.
-- **Boost** (Advanced): raises the pit target by 100 °F until the pit reaches yours, for up to 15 minutes, without
-  disturbing a running program. *Stop boost* ends it.
 - **Timer:** type the minutes and press **Start**; you get a notification when it's done. The controller keeps it,
   so it works without Home Assistant (a restart clears it).
 - **Chips:** *Fan on* while the fan runs, *Turbo (panel)* when turbo is on at the grill, *Lid open*. The on/off

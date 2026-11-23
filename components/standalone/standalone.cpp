@@ -1050,27 +1050,6 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     return this->community_json_();
   if (method == "GET" && path == "ai")
     return this->ai_json_(authed || !this->req_pin_);
-  // Capture mode (what the Char-Griller app wrote to the controller posing as the grill): behind the PIN when one is
-  // set, reading included, like the switch that turns it on.
-  if (path == "capture" || path == "capture/clear") {
-    if (this->req_pin_ && !authed) {
-      status = 401;
-      return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str();
-    }
-    if (!this->capture_json_) {
-      if (method == "GET" && path == "capture")
-        return "{\"available\":false,\"records\":[]}";
-      status = 404;
-      return err_json("not found");
-    }
-    if (method == "POST" && path == "capture/clear" && this->capture_clear_)
-      this->capture_clear_();
-    else if (!(method == "GET" && path == "capture")) {
-      status = 404;
-      return err_json("not found");
-    }
-    return this->capture_json_();
-  }
   if (method != "POST") {
     status = 404;
     return err_json("not found");

@@ -33,7 +33,7 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
       size_t n = std::min<size_t>(d.size(), 32);
       for (size_t i = 0; i < n; i++)
         std::snprintf(hex + 3 * i, 4, "%02X ", d[i]);
-      ESP_LOGD(TAG, "H5198 adv (%u): %s", (unsigned) d.size(), hex);
+      ESP_LOGI(TAG, "H5198 adv (%u): %s", (unsigned) d.size(), hex);
     }
     auto r = h5198::decode(d.data(), d.size());
     if (r.first_probe < 0)

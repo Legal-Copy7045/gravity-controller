@@ -114,12 +114,6 @@ class Standalone : public Component {
 #ifdef USE_SENSOR
   void set_pit_sensors(sensor::Sensor *pit, sensor::Sensor *target) { this->pit_ = pit; this->pit_target_ = target; }
 #endif
-  /// Capture mode's records (components/gravity980/capture_ble.h) for GET /local/capture, and its Clear. Both are
-  /// called on the API task, so they must be safe from any task.
-  void set_capture(std::function<std::string()> json, std::function<void()> clear) {
-    this->capture_json_ = std::move(json);
-    this->capture_clear_ = std::move(clear);
-  }
   /// A finished cook (the cook assistant's on_cook_complete JSON): into the journal.
   void add_cook(const std::string &summary_json);
 
@@ -199,8 +193,6 @@ class Standalone : public Component {
   bool fahrenheit_{true};
   const char *wind_unit_{"mph"};
   cook_assistant::CookAssistant *cook_{nullptr};
-  std::function<std::string()> capture_json_;
-  std::function<void()> capture_clear_;
 #ifdef USE_SENSOR
   sensor::Sensor *wx_temp_{nullptr}, *wx_hum_{nullptr}, *wx_wind_{nullptr};
 #endif
