@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.1] - 2026-11-23
+
+- **Fixed: the controller's page couldn't plan a cook, log charcoal, edit the journal, share or send a test
+  notification in 1.0.0** (it answered "not found"). A missing pair of braces in the request routing caused it, and
+  the firmware build now fails on that kind of mistake.
+- **Set the device-page PIN from Home Assistant at any time:** *Smoker: Set the device page PIN* (admin only; leave
+  it empty to clear the PIN). It only works once Home Assistant has adopted the controller. A *Device page PIN*
+  diagnostic shows "set" or "not set".
+- **Factory reset**, for selling or giving away a controller. It erases everything stored on it: Wi-Fi, keys, PIN,
+  settings, journal and history. Three ways:
+  - two presses within 10 s, from Home Assistant or the controller's page (Setup → This controller);
+  - holding the BOOT button for 30 s (10-29 s still just clears the PIN).
+
+  See "Before you sell or give away your controller" in the docs.
+- **Open Pitmaster:** an oversized upload is now refused before it's read.
+
 ## [1.0.0] - 2026-11-23
 
 **The first major release.** A controller for the Char-Griller Gravity 980 that works with Home Assistant or on its

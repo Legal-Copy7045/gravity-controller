@@ -100,7 +100,8 @@ Then:
 more reliable) for a phone page served by the controller itself: connection status first, the grill with live
 readings, food, pit target and program, charcoal and setup. It works without Home Assistant and without the internet,
 and loads nothing from other sites. A PIN is optional: to lock changes, set one there (Setup → This page's PIN) within
-15 minutes of powering on ([details](standalone.md#the-device-pages-pin)).
+15 minutes of powering on ([details](standalone.md#the-device-pages-pin)), or set it from Home Assistant at any time:
+Developer tools → Actions, **Smoker: Set the device page PIN** (`smoker.set_device_pin`, admin only; empty clears it).
 
 ## 3. Home Assistant package
 
@@ -217,3 +218,14 @@ suits common 100 kΩ (B 3950) probes; for yours, either set `wired_r25` / `wired
 datasheet, or calibrate: note the probe's resistance (the ADS1115 voltage in the logs) in ice water, at room
 temperature and in boiling water, and use ESPHome's three-point `calibration:` on the `ntc` sensors. Until then,
 treat wired readings as experimental and check them against a thermometer you trust.
+
+## Before you sell or give away your controller
+
+1. **Factory reset it:** Setup → This controller → **Factory reset** on the device page (tap twice within 10 s), the
+   controller's **Factory reset** button in Home Assistant (press twice within 10 s), or hold the board's **BOOT**
+   button for 30 s. It erases the Wi-Fi, the API key, the PIN and sessions, notification and AI keys, all settings,
+   the journal and learned cooks, then restarts with its setup hotspot.
+2. **Remove it from Home Assistant** (Settings → Devices & services → ESPHome → the controller → Delete).
+3. **Rotate the keys that were stored on it** (AI API key, ntfy topic, Pushover and Telegram tokens): the flash isn't
+   encrypted, so someone with the board in hand could have read them. More in
+   [standalone.md](standalone.md#before-you-sell-or-give-away-your-controller).

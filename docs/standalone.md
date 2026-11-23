@@ -56,7 +56,11 @@ How it's protected:
 - **Rules:** at least 6 characters; repeated or sequential ones (111111, 123456) are refused.
 - **Setting the first PIN:** only within 15 minutes of powering the controller on (or of holding its BOOT button
   for 10 s, which clears a forgotten PIN), so someone else on your Wi-Fi can't set one first and lock you out. A
-  restart from the page doesn't reopen that window; unplugging it does.
+  restart from the page doesn't reopen that window; unplugging it does. With Home Assistant, you can also set (or
+  replace) it at any time from there: **Smoker: Set the device page PIN** (`smoker.set_device_pin`, admin only). Home
+  Assistant holds the controller's API key, so it's trusted to do this without the window or the current PIN; it
+  isn't allowed until Home Assistant has adopted the controller. The controller's **Device page PIN** sensor says
+  "set" or "not set" (and why a PIN from Home Assistant was refused), never the PIN.
 - **Lockout:** 5 wrong PINs from one device lock that device out for 30 s, then 60 s, doubling up to an hour; other
   devices aren't affected. Empty or malformed PINs aren't counted.
 - **Sessions:** unlocking gives this browser a random 256-bit session, valid for 12 hours after its last change. At
@@ -65,8 +69,9 @@ How it's protected:
 - **Keys are write-only:** notification and AI keys can be replaced or removed, never read back, and they're never
   written to the logs.
 
-**Forgotten the PIN?** Hold the controller's **BOOT** button for 10 seconds, or press **Clear the device page PIN**
-in Home Assistant. Then set a new one. Your keys and settings are kept.
+**Forgotten the PIN?** Hold the controller's **BOOT** button for 10 seconds (and let go before 30 s: that's the
+factory reset), or press **Clear the device page PIN** in Home Assistant, or set a new one straight away from Home
+Assistant (**Smoker: Set the device page PIN**). Your keys and settings are kept.
 
 ## Notifications straight to your phone
 
@@ -162,6 +167,25 @@ at most 40 questions a day.
 What's sent: the live readings and settings, this grill's learned cooks, your journal entries (stars, tags, notes), the
 Open Pitmaster averages for your cuts and the weather numbers. Never your area, Wi-Fi, PIN or other keys. Label photos
 go to the provider and aren't kept on the controller.
+
+## Before you sell or give away your controller
+
+1. **Factory reset it.** This erases everything stored on the controller: its Wi-Fi, the Home Assistant (API) key, the
+   device page's PIN and sessions, notification and AI keys, your area and time zone, all settings, the journal and
+   the learned cooks. It then restarts with its setup hotspot, like a new one. Any of:
+   - the device page: Setup → This controller → **Factory reset** (the last item; needs the PIN when one is set). Tap
+     it, then tap again within 10 seconds (it turns red);
+   - Home Assistant: press the controller's **Factory reset** button twice within 10 seconds ("Factory reset status"
+     says when it's waiting for the second press). Only once Home Assistant has adopted the controller;
+   - at the controller: hold its **BOOT** button for 30 seconds, then let go (10 to 29 seconds only clears the PIN).
+2. **Remove it from Home Assistant** (Settings → Devices & services → ESPHome → the controller → Delete), so the old
+   key and entities aren't left behind.
+3. **Change the keys that were stored on it:** make a new AI API key (and delete the old one at the provider), a new
+   ntfy topic, Pushover token or Telegram bot token. The controller's flash isn't encrypted (see `firmware/base.yaml`),
+   so anyone who had the board in their hands could have read them, the Wi-Fi password included; change that too if
+   you lost the controller rather than reset it.
+
+The new owner sets their own PIN within 15 minutes of powering it on (the restart after the reset doesn't count).
 
 ## Still needs Home Assistant
 
