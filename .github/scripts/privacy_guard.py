@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Privacy guard: keeps personal details out of this public repository.
 
-Runs on every push and pull request (.github/workflows/privacy.yml) and fails if:
+Runs on every push and pull request (the privacy job in .github/workflows/build.yml, which the release and web installer wait for) and fails if:
 
 1. a new commit's author or committer isn't a no-reply address
    (<id>+<user>@users.noreply.github.com, noreply@github.com, noreply@anthropic.com);

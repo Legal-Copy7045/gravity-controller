@@ -16,7 +16,8 @@ input_boolean:
   smoker_ai_advisor:
     name: Smoker AI advisor
     icon: mdi:robot-outline
-    initial: true
+    # No `initial:`: Home Assistant keeps your on/off across restarts (it used to switch itself back on after every
+    # restart and update, spending AI credits). A new install starts off.
 
 input_number:
   smoker_ai_eta_minutes:

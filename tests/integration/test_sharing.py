@@ -142,8 +142,16 @@ async def test_auto_share_and_non_admin(hass: HomeAssistant, hass_client, hass_a
     assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
     new = hass.data["smoker_journal_data"].data["entries"][-1]
     await client.post(f"/api/smoker/journal/{new['id']}", json={"tags": ["dry"]})
+    await client.post(f"/api/smoker/journal/{new['id']}", json={"rating": 4})
     await hass.async_block_till_done()
-    assert [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    # Waits for the feedback to settle (a star and a tag in a row go out together, once).
+    assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    sh = hass.data[sharing.DATA]
+    sh._touched[new["id"]] = 0
+    await sh.share_ready()
+    await hass.async_block_till_done()
+    posts = [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    assert len(posts) == 1 and posts[0][2]["record"]["rating"] == 4 and posts[0][2]["record"]["tags"] == ["dry"]
     st = {e["entry"]: e["status"] for e in (await (await client.get("/api/smoker/sharing")).json())["entries"]}
     assert st[new["id"]] == "shared" and st[old["id"]] == "pending"
     # Only an administrator can turn sharing on or withdraw.

@@ -3,8 +3,9 @@
 ESPHome normally reconnects on its own. Occasionally it doesn't: the controller keeps running (its own page answers)
 while every entity in Home Assistant stays unavailable until someone reloads the device. Once a minute this checks each
 Smoker controller (an ESPHome device whose model is the gravity980 project); when it has been unavailable for 3 minutes
-and its web page answers, the ESPHome entry is reloaded. If the page doesn't answer (powered off, or no web server),
-it tries once after 15 minutes. At most one reload per controller every 10 minutes (30 when the page doesn't answer).
+and its web page answers, the ESPHome entry is reloaded (at most every 10 minutes). If the page doesn't answer
+(switched off between cooks, or no web server), it tries once after 15 minutes and then leaves it until the controller
+has been seen again: no reload every half hour all season.
 """
 
 from __future__ import annotations
@@ -33,13 +34,13 @@ def is_smoker_device(device) -> bool:
     return "gravity980" in (device.model or "").lower()
 
 
-def decide(unavailable_for: float | None, page_ok: bool, since_reload: float | None) -> bool:
+def decide(unavailable_for: float | None, page_ok: bool, since_reload: float | None, dark_tries: int = 0) -> bool:
     """Should the ESPHome entry be reloaded now? (pure: tested)"""
     if unavailable_for is None:
         return False
     if page_ok:
         return unavailable_for >= STUCK_S and (since_reload is None or since_reload >= GAP_S)
-    return unavailable_for >= STUCK_DARK_S and (since_reload is None or since_reload >= GAP_DARK_S)
+    return unavailable_for >= STUCK_DARK_S and dark_tries < 1 and (since_reload is None or since_reload >= GAP_DARK_S)
 
 
 class Watchdog:
@@ -47,6 +48,7 @@ class Watchdog:
         self.hass = hass
         self.lost: dict[str, float] = {}      # entry_id -> monotonic time it was first seen unavailable
         self.reloaded: dict[str, float] = {}  # entry_id -> monotonic time of the last reload
+        self.dark: dict[str, int] = {}  # entry_id -> reloads tried this outage while the page didn't answer
         self.unsub = None
 
     def _controllers(self):
@@ -78,6 +80,7 @@ class Watchdog:
             down = bool(states) and all(s.state == "unavailable" for s in states)
             if not down:
                 self.lost.pop(entry.entry_id, None)
+                self.dark.pop(entry.entry_id, None)
                 continue
             first = self.lost.setdefault(entry.entry_id, now)
             last = self.reloaded.get(entry.entry_id)
@@ -85,8 +88,10 @@ class Watchdog:
             if gone < STUCK_S:
                 continue
             page = await self._page_ok(entry.data.get("host"))
-            if decide(gone, page, None if last is None else now - last):
+            if decide(gone, page, None if last is None else now - last, self.dark.get(entry.entry_id, 0)):
                 self.reloaded[entry.entry_id] = now
+                if not page:
+                    self.dark[entry.entry_id] = self.dark.get(entry.entry_id, 0) + 1
                 _LOGGER.warning("Smoker controller %s unavailable for %d min%s: reloading its ESPHome connection",
                                 entry.title, gone // 60, " while its page still answers" if page else "")
                 self.hass.async_create_task(self.hass.config_entries.async_reload(entry.entry_id))

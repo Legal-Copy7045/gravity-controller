@@ -152,14 +152,26 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     # Uploading a grill photo from the dashboard: stored by the integration, served without a login (the controller's
     # own page loads it from another address), replaced by the next upload, removed by an admin.
     form = aiohttp.FormData()
-    form.add_field("photo", b"\xff\xd8\xff fake grill jpeg", filename="grill.jpg", content_type="image/jpeg")
+    # A real JPEG with a GPS tag in its EXIF: stored re-encoded, without it (it's served without a login).
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    exif = Image.Exif()
+    exif[0x8825] = {2: (40.0, 26.0, 0.0)}  # GPSInfo: latitude
+    Image.new("RGB", (40, 30), (200, 90, 40)).save(buf, "JPEG", exif=exif)
+    assert b"GPS" in buf.getvalue() or len(Image.open(io.BytesIO(buf.getvalue())).getexif()) > 0
+    form.add_field("photo", buf.getvalue(), filename="grill.jpg", content_type="image/jpeg")
     r = await client.post("/api/smoker/grill_photo", data=form)
     assert r.status == 200, await r.text()
     url = (await r.json())["url"]
     assert url.startswith("/api/smoker/grill_photo/image?v="), url
     assert (await (await client.get("/api/smoker/grill_photo")).json())["url"] == url
     img = await client.get("/api/smoker/grill_photo/image")
-    assert img.status == 200 and (await img.read()).startswith(b"\xff\xd8\xff")
+    got = await img.read()
+    assert img.status == 200 and got.startswith(b"\xff\xd8\xff")
+    assert len(Image.open(io.BytesIO(got)).getexif()) == 0  # no EXIF (no location) in what's served
     bad = aiohttp.FormData()
     bad.add_field("photo", b"<svg/>", filename="x.svg", content_type="image/svg+xml")
     assert (await client.post("/api/smoker/grill_photo", data=bad)).status == 400  # only JPEG/PNG/WebP
@@ -241,8 +253,14 @@ async def test_package_kept_up_to_date(hass: HomeAssistant, tmp_path):
                                    blocking=True, return_response=True)
     # Same content, newer version: nothing to do.
     assert not (await pi.async_update_installed(hass, "9.9.9"))["changed"]
+    # Edited by hand after it was installed: left alone, with a notification (never overwritten automatically).
+    mine = pkg.read_text().replace("Smoker AI advisor", "My advisor")
+    pkg.write_text(mine)
+    res = await pi.async_update_installed(hass, "9.9.9")
+    assert res.get("edited") and pkg.read_text() == mine
     # The installed package is older than the bundled one: rewritten with the same phone, and reloaded.
-    pkg.write_text(pkg.read_text().replace("Smoker AI advisor", "Old name"))
+    old_bundled = pi.BUNDLED.read_text().replace("Smoker AI advisor", "Old name")
+    pkg.write_text(pi.render(old_bundled, {"notify": "notify.mobile_app_test_phone"}, "0.0.1"))
     reloaded = []
     hass.services.async_register("automation", "reload", lambda call: reloaded.append("automation"))
     res = await pi.async_update_installed(hass, "9.9.9")

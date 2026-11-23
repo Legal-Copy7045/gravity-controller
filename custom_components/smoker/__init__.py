@@ -39,4 +39,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_unload_sharing(hass)
     async_remove_panel(hass)
     async_unload_watchdog(hass)
+    # Removed or disabled: its action and the states it published go too.
+    hass.services.async_remove(DOMAIN, "install_package")
+    for eid in ("sensor.smoker_journal", "sensor.smoker_community"):
+        hass.states.async_remove(eid)
     return True

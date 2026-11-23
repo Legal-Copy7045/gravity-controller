@@ -35,6 +35,22 @@ jobs:
       - name: Check the pages carry the current brand/ files
         run: python3 tools/brand_sync.py --check
 
+# Keeps personal details out of this public repository (.github/scripts/privacy_guard.py): nothing is published
+# (web installer, release) unless it passes.
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for personal details
+        env:
+          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: python3 .github/scripts/privacy_guard.py
+
   unit-tests:
     runs-on: ubuntu-latest
     steps:
@@ -153,7 +169,7 @@ jobs:
 
   deploy:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
-    needs: [firmware, unit-tests, home-assistant, integration]
+    needs: [privacy, firmware, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -167,7 +183,7 @@ jobs:
 
   release:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
-    needs: [firmware, unit-tests, home-assistant, integration]
+    needs: [privacy, firmware, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
     permissions:
       contents: write

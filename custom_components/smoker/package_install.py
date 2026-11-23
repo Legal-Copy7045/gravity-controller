@@ -12,11 +12,14 @@ time, which are recorded on the file's first line. Any file it replaces is kept 
 Keeping it up to date: once the integration has installed the package, every start of the integration (so every
 update through HACS) compares the installed package with the bundled one and, when they differ, rewrites it with the
 same choices and reloads the parts of Home Assistant it uses (helpers, timers, templates, scripts, automations). No
-second restart. A package that was copied in by hand (no "Installed by" line) is never touched.
+second restart. A package that was copied in by hand (no "Installed by" line) is never touched, and neither is one you
+edited after it was installed: the first line records a fingerprint (sha=…) of what was written, and a package that
+no longer matches it is left alone with a notification (re-run the action to update it; your version is backed up).
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 from pathlib import Path
@@ -71,13 +74,26 @@ def _previous_choices(text: str) -> dict:
     return {k: v for k, v in re.findall(r"\b(notify|ai_task|weather)=([a-z_]+\.[a-z0-9_]+)", first)}
 
 
+def fingerprint(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+
 def render(bundled: str, choices: dict, version: str) -> str:
-    """The bundled package with the placeholders replaced and a header recording the choices."""
+    """The bundled package with the placeholders replaced and a header recording the choices and a fingerprint."""
     out = bundled
     for key, placeholder in DEFAULTS.items():
         out = out.replace(placeholder, choices.get(key, placeholder))
     head = f"{MARK} {version}: " + ", ".join(f"{k}={choices.get(k, DEFAULTS[k])}" for k in DEFAULTS)
+    head += f", sha={fingerprint(out)}"
     return head + "\n# Re-run the action smoker.install_package to update it (your choices above are kept).\n" + out
+
+
+def edited(text: str | None) -> bool:
+    """Installed by the integration, then changed by hand (its body no longer matches the recorded fingerprint)."""
+    if text is None or not text.startswith(MARK):
+        return False
+    m = re.search(r"\bsha=([0-9a-f]{16})", text.split("\n", 1)[0])
+    return bool(m) and fingerprint(_body(text) or "") != m.group(1)
 
 
 def _body(text: str | None) -> str | None:
@@ -93,6 +109,9 @@ def install(config_dir: str, fields: dict, version: str, only_if_ours: bool = Fa
     old = target.read_text(encoding="utf-8") if target.exists() else None
     if only_if_ours and (old is None or not old.startswith(MARK)):
         return {"path": str(target), "changed": False, "backup": None, "restart_needed": False, "skipped": True}
+    if only_if_ours and edited(old):  # your own changes: never overwritten by an automatic update
+        return {"path": str(target), "changed": False, "backup": None, "restart_needed": False, "skipped": True,
+                "edited": True}
     choices = {**(_previous_choices(old) if old else {}), **fields}
     if "notify" not in choices:
         raise HomeAssistantError(
@@ -101,7 +120,7 @@ def install(config_dir: str, fields: dict, version: str, only_if_ours: bool = Fa
         )
     new = render(BUNDLED.read_text(encoding="utf-8"), choices, version)
     # Unchanged apart from the version in the header: leave it (no rewrite, no reload).
-    same = old is not None and old.startswith(MARK) and _body(new) == _body(old)
+    same = old is not None and old.startswith(MARK) and _body(new) == _body(old) and "sha=" in old.split("\n", 1)[0]
     result = {"path": str(target), "changed": not same, "backup": None, "restart_needed": not same}
     if same:
         return result
@@ -137,6 +156,12 @@ async def _reload(hass: HomeAssistant) -> list[str]:
 async def async_update_installed(hass: HomeAssistant, version: str) -> dict:
     """After an integration update: bring a package this integration installed up to date, then reload it."""
     res = await hass.async_add_executor_job(install, hass.config.config_dir, {}, version, True)
+    if res.get("edited"):
+        persistent_notification.async_create(
+            hass, f"Your Smoker package has changes of your own, so it wasn't updated to {version}. To update it, run "
+            "the action smoker.install_package (your version is kept next to it as a backup) and copy your changes "
+            "back in.", "Smoker package", "smoker_package")
+        return res
     if not res.get("changed"):
         return res
     failed = await _reload(hass)

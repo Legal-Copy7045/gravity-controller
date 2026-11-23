@@ -109,8 +109,13 @@ class Journal:
         """sensor.smoker_journal: count + compact recent entries for the AI advisor's prompt."""
         recent = []
         for e in self.data["entries"][-8:]:
-            recent.append({k: e.get(k) for k in ("ended", "profile", "weight_kg", "pit_c", "stall_h", "total_h",
-                                                  "carryover_c", "rating", "tags", "notes")})
+            r = {k: e.get(k) for k in ("ended", "profile", "weight_kg", "pit_c", "stall_h", "total_h",
+                                       "carryover_c", "rating", "tags", "notes")}
+            # Notes shortened: Home Assistant drops a state whose attributes pass 16 KB (8 x 2,000-character notes
+            # would), and the AI prompt doesn't need the whole of each.
+            if isinstance(r.get("notes"), str) and len(r["notes"]) > 300:
+                r["notes"] = r["notes"][:297] + "..."
+            recent.append(r)
         self.hass.states.async_set("sensor.smoker_journal", len(self.data["entries"]),
                                    {"friendly_name": "Smoker journal", "icon": "mdi:notebook", "recent": recent,
                                     "draft_items": [i["name"] for i in self.data["draft"]["items"]]})
@@ -422,6 +427,26 @@ class IdentifyView(HomeAssistantView):
 GRILL_PHOTO_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
 
+def strip_metadata(body: bytes, ext: str) -> tuple[bytes, str]:
+    """The grill photo without EXIF (a phone photo can carry where it was taken) and anything else but the pixels: it's
+    served without a login. Re-encoded as JPEG (PNG keeps transparency); unreadable: refused rather than kept as is."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    try:
+        img = Image.open(io.BytesIO(body))
+        img = ImageOps.exif_transpose(img)  # keep the way up the phone meant, then drop the EXIF
+    except Exception as err:  # noqa: BLE001
+        raise ValueError("couldn't read that photo") from err
+    out = io.BytesIO()
+    if ext == "png" or img.mode in ("RGBA", "LA", "P"):
+        img.save(out, "PNG", optimize=True)
+        return out.getvalue(), "png"
+    img.convert("RGB").save(out, "JPEG", quality=85, optimize=True)
+    return out.getvalue(), "jpg"
+
+
 def _uploaded_grill_photo(hass) -> Path | None:
     for ext in ("jpg", "png", "webp"):
         f = Path(hass.config.path(".storage", "smoker_photos", f"grill.{ext}"))
@@ -485,13 +510,17 @@ class GrillPhotoView(HomeAssistantView):
         def save():
             folder = Path(hass.config.path(".storage", "smoker_photos"))
             folder.mkdir(parents=True, exist_ok=True)
+            data, out_ext = strip_metadata(body, ext)
             for old in folder.glob("grill.*"):
                 old.unlink(missing_ok=True)
-            f = folder / f"grill.{ext}"
-            f.write_bytes(body)
+            f = folder / f"grill.{out_ext}"
+            f.write_bytes(data)
             return int(f.stat().st_mtime)
 
-        mtime = await hass.async_add_executor_job(save)
+        try:
+            mtime = await hass.async_add_executor_job(save)
+        except ValueError as err:
+            return self.json_message(str(err), 400)
         return self.json({"url": f"{GrillPhotoImageView.url}?v={mtime}"})
 
     async def delete(self, request: web.Request) -> web.Response:

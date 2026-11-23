@@ -27,7 +27,7 @@ from aiohttp import ClientError, ClientTimeout, web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -43,6 +43,7 @@ PRIVACY_URL = "https://github.com/Legal-Copy7045/gravity-controller/blob/main/do
 CUTS = {"Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish", "Auto"}
 TIMEOUT = ClientTimeout(total=20)
 READY_AFTER = 12 * 3600  # a cook without feedback is offered this long after it ended
+SETTLE = 600  # automatic sharing waits this long after the last star/tag/note change (seconds)
 
 
 
@@ -121,6 +122,8 @@ class Sharing:
                                      "url": ""}
         self.community: dict[str, Any] | None = None
         self._unsub = None
+        self._sending: set[str] = set()      # entries being uploaded right now (one upload per cook)
+        self._touched: dict[str, float] = {}  # entry id -> last feedback change (automatic sharing waits)
 
     @property
     def url(self) -> str:
@@ -149,7 +152,11 @@ class Sharing:
             return 0
         since = float(self.data.get("auto_since") or time.time())
         n = 0
+        now = time.time()
         for e in list(self.journal.data["entries"]):
+            # Wait SETTLE s after the last star/tag/note change, so a cook goes out with all its feedback at once.
+            if now - self._touched.get(e["id"], 0) < SETTLE:
+                continue
             if (float(e.get("ended") or 0) >= since and self.status(e) == "pending"):
                 try:
                     await self.share(e["id"])
@@ -193,8 +200,16 @@ class Sharing:
 
     @callback
     def _on_entry(self, entry: dict, event: str = "new") -> None:
-        if self.data["enabled"] and self.data["auto"]:
-            self.hass.async_create_task(self.share_ready())
+        if not (self.data["enabled"] and self.data["auto"]):
+            return
+        if entry and entry.get("id"):
+            self._touched[entry["id"]] = time.time()
+        # Shared once the feedback has settled (or by the hourly tick).
+        async_call_later(self.hass, SETTLE + 5, self._settled)
+
+    @callback
+    def _settled(self, _now=None) -> None:
+        self.hass.async_create_task(self.share_ready())
 
     async def share(self, entry_id: str) -> dict:
         if not self.data["enabled"]:
@@ -204,17 +219,29 @@ class Sharing:
             raise ValueError("no such cook")
         if entry_id in self.data["shared"]:
             return self.data["shared"][entry_id]
-        record = self.record_for(entry)
+        if entry_id in self._sending:
+            raise ValueError("already sending this cook")
+        # The record id and deletion key are chosen once and saved before sending, so a retry (or a reply lost to a
+        # timeout) re-sends the same record instead of a second copy whose key would be lost.
+        pend = self.data.setdefault("pending", {})
+        if entry_id not in pend:
+            pend[entry_id] = {"id": secrets.token_hex(16), "key": secrets.token_hex(24)}
+            self._save()
+        rid, key = pend[entry_id]["id"], pend[entry_id]["key"]
+        record = anonymise(entry, self.version, self.hass.config.latitude or 0.0, rid)
         if record is None:
             raise ValueError("this cook can't be shared (no total time recorded)")
-        key = secrets.token_hex(24)
         body = {"record": record, "key_hash": hashlib.sha256(key.encode()).hexdigest()}
+        self._sending.add(entry_id)
         try:
             async with async_get_clientsession(self.hass).post(self.url + "/v1/cooks", json=body, timeout=TIMEOUT) as r:
-                if r.status not in (201, 409):
+                if r.status not in (201, 409):  # 409: this id is already stored (an earlier try got through)
                     raise ValueError(f"the sharing service said {r.status}: {(await r.text())[:200]}")
-        except ClientError as err:
+        except (ClientError, TimeoutError) as err:
             raise ValueError(f"couldn't reach the sharing service ({err.__class__.__name__}); try again later") from err
+        finally:
+            self._sending.discard(entry_id)
+        pend.pop(entry_id, None)
         self.data["shared"][entry_id] = {"id": record["id"], "key": key}
         if entry_id in self.data["declined"]:
             self.data["declined"].remove(entry_id)
@@ -258,6 +285,9 @@ class Sharing:
 
     def set(self, enabled: bool | None, auto: bool | None) -> None:
         if enabled is not None:
+            if bool(enabled) and not self.data["enabled"]:
+                # Turned back on: automatic sharing starts from now (never the cooks made while it was off).
+                self.data["auto_since"] = time.time()
             self.data["enabled"] = bool(enabled)
         if auto is not None:
             if bool(auto) and not self.data["auto"]:

@@ -20,6 +20,7 @@ def test_decide():
     assert not decide(600, False, None)          # page silent: probably off, wait longer
     assert decide(1000, False, None)
     assert not decide(1000, False, 900)
+    assert not decide(5000, False, 4000, dark_tries=1)  # switched off: one try per outage, not every half hour
 
 
 async def test_reloads_a_stuck_controller_only(hass: HomeAssistant):
