@@ -135,6 +135,10 @@ struct FoodProbe {
   uint32_t reading_ms{0};
   sensor::Sensor *stall_remaining{nullptr};
   text_sensor::TextSensor *finish_time{nullptr};
+  // The cook's plan: the predicted food temperature curve, taken at the first sound prediction of each cook (so the
+  // graph can show actual vs plan). "1;<start epoch>;<step min>;<F|C>;t0,t1,...", whole degrees.
+  text_sensor::TextSensor *plan{nullptr};
+  bool plan_taken{false};
   text_sensor::TextSensor *phase{nullptr};
   text_sensor::TextSensor *estimate_info{nullptr};
   binary_sensor::BinarySensor *stall{nullptr};
@@ -265,6 +269,7 @@ class CookAssistant : public Component {
   float from_c_(float c) const { return this->fahrenheit_ ? c * 9.0f / 5.0f + 32.0f : c; }
   float rate_from_c_(float r) const { return this->fahrenheit_ ? r * 9.0f / 5.0f : r; }
   std::string fmt_temp_(float c) const;
+  void take_plan_(FoodProbe *p, const std::vector<cook::PlanSegment> &plan, float sp, const cook::Prediction &pr);
   std::string fmt_minutes_(float m) const;
   double now_min_() const;
   int minute_of_day_();

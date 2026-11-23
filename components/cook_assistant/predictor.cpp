@@ -554,7 +554,8 @@ bool Predictor::take_completed(CookRecord &out) {
 }
 
 float Predictor::simulate_(float start_t, Phase start_phase, const std::vector<PlanSegment> &plan_in, float pit_now,
-                           float k_scale, float stall_scale, float *stall_start_in) const {
+                           float k_scale, float stall_scale, float *stall_start_in, std::vector<float> *curve,
+                           int curve_step_min) const {
   const Profile &p = profiles()[profile_];
   std::vector<PlanSegment> plan = plan_in;
   if (plan.empty()) {
@@ -579,8 +580,13 @@ float Predictor::simulate_(float start_t, Phase start_phase, const std::vector<P
   if (stall_start_in)
     *stall_start_in = NAN;
   for (int m = 0; m < 48 * 60; m++) {
-    if (T >= target_c_)
+    if (curve != nullptr && m % curve_step_min == 0)
+      curve->push_back(T);
+    if (T >= target_c_) {
+      if (curve != nullptr && m % curve_step_min != 0)
+        curve->push_back(T);  // ends at the target
       return float(m);
+    }
     // Plan advancement.
     const PlanSegment &s = plan[seg];
     bool cond = false;
@@ -682,6 +688,26 @@ Prediction Predictor::predict(const std::vector<PlanSegment> &plan, float pit_se
   if (phase_ == Phase::STALL)
     r.stall_remaining_min = 60.0f * stall_left_h_(1.0f);
   return r;
+}
+
+std::vector<float> Predictor::forecast_curve(const std::vector<PlanSegment> &plan, float pit_setpoint_c,
+                                            int step_min) const {
+  std::vector<float> out;
+  if (!this->predict(plan, pit_setpoint_c).valid || phase_ == Phase::DONE || phase_ == Phase::RESTING || step_min < 1)
+    return out;
+  // As in predict(): plan with what the pit actually holds.
+  float pit_now = !std::isnan(pit_setpoint_c) ? pit_setpoint_c : pit_average_(15);
+  float deficit = !std::isnan(pit_setpoint_c) ? pit_deficit() : NAN;
+  std::vector<PlanSegment> adj = plan;
+  if (!std::isnan(deficit) && std::fabs(deficit) > 2.0f) {
+    pit_now -= deficit;
+    for (auto &seg : adj)
+      if (!std::isnan(seg.pit_c))
+        seg.pit_c -= deficit;
+  }
+  if (std::isnan(this->simulate_(last_food_, phase_, adj, pit_now, 1.0f, 1.0f, nullptr, &out, step_min)))
+    out.clear();
+  return out;
 }
 
 float Predictor::estimate_total_minutes(float start_c, float pit_c, const std::vector<PlanSegment> &plan) const {

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.40] - 2026-11-23
+
+- **The temperature graph shows the plan beside the actual:**
+  - When a cook's first sound prediction comes in, the controller records the predicted food temperature curve as
+    the cook's plan (the new *Food N plan* entities).
+  - Both dashboards draw it dotted next to the real temperature, running on into the future.
+  - Each food card says how far ahead or behind plan you are ("40 min behind plan").
+- **Plan with AI shows its result on the page** (Home Assistant's Smoker page):
+  - The button says *Planning…* while the AI works.
+  - Then the Plan card shows the AI's explanation, the program the controller loaded and a *Start the program*
+    button, or why the controller refused it.
+  - It used to go only to a phone notification.
+
 ## [0.2.39] - 2026-11-23
 
 Ten new features:

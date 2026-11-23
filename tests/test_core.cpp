@@ -663,6 +663,16 @@ static void test_forecast_and_rest() {
   auto pa = a.predict({}, 107.0f), pb = b.predict({}, 107.0f);
   std::printf("  ETA %.0f min (steady) vs %.0f min (colder forecast)\n", pa.minutes, pb.minutes);
   CHECK(pa.valid && pb.valid && pb.minutes > pa.minutes);
+  {  // The plan curve: from the food's temperature now to the target, never falling, one point per step.
+    auto c = a.forecast_curve({}, 107.0f, 10);
+    CHECK(c.size() >= 3);
+    NEAR(c.front(), 20.0f + 0.18f * 180, 0.5f);
+    CHECK(c.back() >= a.target() - 0.5f);
+    bool up = true;
+    for (size_t i = 1; i < c.size(); i++) up = up && c[i] >= c[i - 1] - 0.01f;
+    CHECK(up);
+    CHECK(std::fabs(float(c.size() - 1) * 10.0f - pa.minutes) <= 10.0f);  // as long as the prediction
+  }
 
   // Rest coach: pull, carryover peak, then cooling towards room temperature.
   cook::Predictor r;

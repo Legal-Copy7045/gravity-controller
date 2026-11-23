@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.39"
+  project_version: "0.2.40"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -645,6 +645,8 @@ cook_assistant:
         name: Food 1 rate
       finish_time:
         name: Food 1 finish time
+      plan:
+        name: Food 1 plan
       phase:
         name: Food 1 phase
       estimate_info:
@@ -725,6 +727,8 @@ cook_assistant:
         name: Food 2 rate
       finish_time:
         name: Food 2 finish time
+      plan:
+        name: Food 2 plan
       phase:
         name: Food 2 phase
       estimate_info:
@@ -805,6 +809,8 @@ cook_assistant:
         name: Food 3 rate
       finish_time:
         name: Food 3 finish time
+      plan:
+        name: Food 3 plan
       phase:
         name: Food 3 phase
       estimate_info:
@@ -885,6 +891,8 @@ cook_assistant:
         name: Food 4 rate
       finish_time:
         name: Food 4 finish time
+      plan:
+        name: Food 4 plan
       phase:
         name: Food 4 phase
       estimate_info:
@@ -965,6 +973,8 @@ cook_assistant:
         name: Food 5 rate
       finish_time:
         name: Food 5 finish time
+      plan:
+        name: Food 5 plan
       phase:
         name: Food 5 phase
       estimate_info:
@@ -1045,6 +1055,8 @@ cook_assistant:
         name: Food 6 rate
       finish_time:
         name: Food 6 finish time
+      plan:
+        name: Food 6 plan
       phase:
         name: Food 6 phase
       estimate_info:

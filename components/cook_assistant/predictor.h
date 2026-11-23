@@ -69,6 +69,9 @@ struct Prediction {
 
 class Predictor {
  public:
+  /// The predicted food temperature (°C) every step_min minutes from now until the target (the last point), from
+  /// the same forward model as predict(); empty when there's no valid prediction. Used as the cook's "plan" curve.
+  std::vector<float> forecast_curve(const std::vector<PlanSegment> &plan, float pit_setpoint_c, int step_min) const;
   void set_profile(int index);
   int profile() const { return profile_; }
   void set_target(float target_c) { target_c_ = target_c; }
@@ -172,7 +175,8 @@ class Predictor {
   float k_estimate_(bool post) const;
   float pit_average_(int minutes) const;
   float simulate_(float start_t, Phase start_phase, const std::vector<PlanSegment> &plan, float pit_now,
-                  float k_scale, float stall_scale, float *stall_start_in) const;
+                  float k_scale, float stall_scale, float *stall_start_in, std::vector<float> *curve = nullptr,
+                  int curve_step_min = 10) const;
   float forecast_offset_(float minutes) const;
   float forecast_at_(float minutes) const;
   void update_rest_();

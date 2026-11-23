@@ -111,6 +111,10 @@ STATES = dict([
     st("input_text.smoker_ai_summary", "Stall began 70 min ago at 157°F; typical for an 8 lb butt at 250°F.", "Smoker AI summary"),
     st("input_text.smoker_ai_suggestion", "Wrap in butcher paper now to finish by 6:30 pm.", "Smoker AI suggestion"),
     st("input_boolean.smoker_ai_advisor", "on", "Smoker AI advisor"),
+    st("input_text.smoker_ai_plan", "Run the pit at 250F to 165F, wrap, then 275F to 203F: about 11 h.", "Smoker AI plan"),
+    # The cook's plan for Food 1: started 2 h ago at 100°F, +10°F every 30 min, so at 159°F it's ~55 min ahead.
+    st("sensor.smoker_food_1_plan", "1;%d;30;F;%s" % (int(time.time()) - 7200, ",".join(str(100 + 10 * i) for i in range(11))),
+       "Smoker Food 1 plan"),
     st("input_number.smoker_charcoal_stock_kg", 12.5, "Smoker charcoal in stock", unit_of_measurement="kg"),
     st("input_number.smoker_charcoal_bag_kg", 9, "Smoker charcoal bag size", unit_of_measurement="kg"),
     st("input_number.smoker_charcoal_bag_price", 21.99, "Smoker charcoal bag price"),
@@ -192,7 +196,7 @@ def presets():
 
 def shared_blocks_match():
     """page.html and the device page's ui.js carry the same shared blocks (cook program editor, page sections)."""
-    for name in ("cook program editor", "page sections"):
+    for name in ("cook program editor", "page sections", "cook plan"):
         b, e = f"// ==== BEGIN {name} (shared block) ====", f"// ==== END {name} (shared block) ===="
         out = []
         for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
@@ -636,6 +640,17 @@ def main():
                         failures.append(f"section bar marks Setup on the main page: {lit}")
                     if fr.evaluate("document.getElementById('setup').offsetParent !== null"):
                         failures.append("setup page: Back to the cook didn't leave it")
+                    # The latest AI plan sits in the Plan card with the loaded program; Plan with AI says "Planning…".
+                    ap = fr.evaluate("(document.getElementById('aiplanbox') || {}).textContent || ''")
+                    if "about 11 h" not in ap or "Cook program" not in ap:
+                        failures.append(f"AI plan box: {ap[:160]!r}")
+                    fr.fill("#plantext", "8 lb pork butt for 6 pm")
+                    if "Planning" not in fr.evaluate("document.activeElement.blur(), act.plan(), document.getElementById('plancard').textContent"):
+                        failures.append("Plan with AI: no 'Planning…' while it works")
+                    # The cook plan: dotted on the chart, in the legend, and "ahead of plan" on Food 1's card.
+                    pl = fr.evaluate("[document.querySelectorAll('#chart path[stroke-dasharray=\"2 4\"]').length, document.getElementById('legend').textContent, document.getElementById('probes').textContent]")
+                    if pl[0] < 1 or "Food 1 plan" not in pl[1] or "ahead of plan" not in pl[2]:
+                        failures.append(f"cook plan: lines {pl[0]}, legend {pl[1][-80:]!r}, card has 'ahead of plan': {'ahead of plan' in pl[2]}")
                     # This cook vs your best: the 4-star pork shoulder in the journal, during this pork shoulder cook.
                     time.sleep(1.0)
                     bl = fr.evaluate("[getComputedStyle(document.getElementById('bestcard')).display, document.getElementById('bestline').textContent, document.querySelectorAll('#bestchart path').length]")

@@ -102,6 +102,9 @@ input_number:
     icon: mdi:fan
 
 input_text:
+  smoker_ai_plan:
+    name: Smoker AI plan
+    max: 255
   smoker_charcoal_last_cook:
     name: Smoker charcoal, last cook
     max: 255
@@ -513,6 +516,9 @@ script:
           - condition: template
             value_template: "{{ states('sensor.smoker_program_error') not in ['', 'unknown', 'unavailable'] }}"
         then:
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_plan}
+            data: {value: "{{ ('Rejected: ' ~ states('sensor.smoker_program_error'))[:250] }}"}
           - action: script.smoker_notify
             data:
               title: AI plan rejected
@@ -520,6 +526,10 @@ script:
               priority: 0
               tag: plan
         else:
+          # Shown on the Smoker page's Plan card (with the loaded program and a Start button).
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_plan}
+            data: {value: "{{ plan.data.explanation[:250] }}"}
           - action: script.smoker_notify
             data:
               title: Cook plan ready

@@ -122,6 +122,9 @@ PROBE_SCHEMA = cv.All(cv.Schema(
             icon="mdi:trending-up",
         ),
         cv.Optional("finish_time"): text_sensor.text_sensor_schema(icon="mdi:clock-check"),
+        cv.Optional("plan"): text_sensor.text_sensor_schema(
+            icon="mdi:chart-bell-curve-cumulative", entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+        ),
         cv.Optional("phase"): text_sensor.text_sensor_schema(icon="mdi:progress-clock"),
         cv.Optional("estimate_info"): text_sensor.text_sensor_schema(
             icon="mdi:information-outline", entity_category=ENTITY_CATEGORY_DIAGNOSTIC
@@ -347,7 +350,7 @@ async def to_code(config):
             c["unit_of_measurement"] = "°F/h" if fahrenheit else "°C/h"
             s = await sensor.new_sensor(c)
             cg.add(cg.RawExpression(f"{pv}->rate = {s}"))
-        for key in ["finish_time", "phase", "estimate_info"]:
+        for key in ["finish_time", "phase", "estimate_info", "plan"]:
             if key in p:
                 s = await text_sensor.new_text_sensor(p[key])
                 cg.add(cg.RawExpression(f"{pv}->{key} = {s}"))

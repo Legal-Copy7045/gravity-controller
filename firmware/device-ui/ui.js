@@ -575,6 +575,7 @@ function renderFood(u) {
       <div class="eta" style="margin-top:6px"><span class="t">${rem != null ? clock(rem) : '--'}</span><span class="muted small">${rem != null ? 'in ' + mins(rem) : esc(phase || 'no estimate yet')}</span>${rem != null && isExp(info) ? EXP('Finish times firm up after a few similar cooks. ' + info) : ''}</div>
       ${fin && fin !== '--' ? row('Finish', esc(fin)) : ''}
       ${E('number', L + ' target') ? `<div class="row"><span>Target</span><span class="step"><button class="btn" data-a="tgt" data-n="${L} target" data-d="-1" aria-label="Lower ${L} target">−</button><span class="r">${tg != null ? fmt(tg) + esc(u) : '--'}</span><button class="btn" data-a="tgt" data-n="${L} target" data-d="1" aria-label="Raise ${L} target">+</button></span></div>` : ''}
+      ${(pl => { const d = planDeviation(pl, t, Date.now()); return d == null ? '' : row('Plan', `<span class="chip ${Math.abs(d) <= 10 ? 'ok' : d < 0 ? 'warn' : ''}">${esc(planWords(d))}</span>`); })(parsePlan(T(L + ' plan'), u === '°F'))}
       ${pull != null ? row('Pull at', `${fmt(pull)}${esc(u)} <span class="muted">(coasts to target)</span>${pullExp(info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}`) : ''}
       ${pulled ? row('Ready to slice', rest != null ? (rest <= 0 ? 'now' : 'in ' + mins(rest)) : 'measuring…') : ''}
       ${E('select', L + ' probe') ? `<div class="row"><span>Probe</span>${sel('select', L + ' probe')}</div>` : ''}
@@ -1049,22 +1050,61 @@ const atClock = t => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric'
 const dayLabel = t => { const d = new Date(t * 1000), now = new Date(); const days = Math.round((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
   return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
 
+// ==== BEGIN cook plan (shared block) ====
+// The controller's plan for a cook ("Food N plan": the predicted food temperature, taken at the cook's first sound
+// prediction): "1;<start epoch>;<step min>;<F|C>;t0,t1,...". Drawn dotted beside the actual temperature, and
+// compared with it ("40 min behind plan"). Identical in the integration's page.html and the controller's ui.js.
+function parsePlan(text, wantF) {
+  const p = String(text || '').split(';');
+  if (p.length < 5 || p[0] !== '1') return null;
+  const start = parseInt(p[1], 10) * 1000, step = parseInt(p[2], 10) * 60e3, isF = p[3] === 'F';
+  const conv = v => isF === wantF ? v : (wantF ? v * 9 / 5 + 32 : (v - 32) * 5 / 9);
+  const pts = p[4].split(',').map((v, i) => [start + i * step, conv(parseFloat(v))]).filter(q => isFinite(q[1]));
+  return pts.length >= 2 && isFinite(start) && step > 0 ? { pts, start, end: pts[pts.length - 1][0] } : null;
+}
+// How far ahead (+) or behind (-) plan, in minutes: when did the plan expect today's temperature, against now.
+function planDeviation(plan, temp, now) {
+  if (!plan || temp == null || !isFinite(temp)) return null;
+  const pts = plan.pts;
+  if (temp <= pts[0][1]) return null;  // not yet past the plan's starting point
+  for (let i = 1; i < pts.length; i++) if (pts[i][1] >= temp) {
+    const [t0, v0] = pts[i - 1], [t1, v1] = pts[i];
+    const t = v1 === v0 ? t1 : t0 + (t1 - t0) * (temp - v0) / (v1 - v0);
+    return Math.round((t - now) / 60000);
+  }
+  return Math.round((pts[pts.length - 1][0] - now) / 60000);  // already past the plan's end temperature
+}
+function planWords(dev) {
+  if (dev == null) return '';
+  const m = Math.abs(dev), t = m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min';
+  return m <= 10 ? 'on plan' : dev > 0 ? t + ' ahead of plan' : t + ' behind plan';
+}
+// ==== END cook plan (shared block) ====
 function drawChart() {
   put('range', [3, 6, 12, 24].map(h => `<button aria-pressed="${h === chartHours}" data-a="range" data-h="${h}">${h}h</button>`).join(''));
   const box = $('chart'); if (!box) return;
   if (!HIST || !HIST.series || !HIST.series[0] || !HIST.series[0].length) { box.innerHTML = '<div class="empty" style="padding:4px 0">The chart fills in as the controller records (one point a minute; up to 24 hours, cleared by a restart).</div>'; put('legend', ''); return; }
   const W = box.clientWidth || 600, Hh = 260, L = 40, R = 10, T = 10, B = 24, step = HIST.step_min * 60, now = Date.now() / 1000 - (HIST.age_s || 0);
   const series = HIST.series.map((pts, i) => ({ name: HIST.names[i], color: COLORS[i], dash: i === 1, pts: pts.map((v, k) => [now - (pts.length - 1 - k) * step, v]).filter(p => p[1] != null) })).filter(s => s.pts.length);
-  const all = series.flatMap(s => s.pts.map(p => p[1])), t0 = now - (HIST.series[0].length - 1) * step;
+  const t0 = now - (HIST.series[0].length - 1) * step;
+  // The cook's plan for each food slot (dotted), and the chart running on to where it ends (at most as far ahead as
+  // it looks back).
+  const plans = HIST.names.map((n, i) => ({ n, i, plan: /^Food \d/.test(n) ? parsePlan(str(E('text_sensor', n + ' plan')), TU() === '°F') : null })).filter(q => q.plan);
+  const t1 = Math.min(now + chartHours * 3600, Math.max(now, ...plans.map(q => q.plan.end / 1000)));
+  const all = series.flatMap(s => s.pts.map(p => p[1])).concat(plans.flatMap(q => q.plan.pts.filter(p => p[0] / 1000 >= t0 && p[0] / 1000 <= t1).map(p => p[1])));
   let lo = Math.min(...all), hi = Math.max(...all); const pad = Math.max(10, (hi - lo) * 0.08); lo = Math.floor((lo - pad) / 25) * 25; hi = Math.ceil((hi + pad) / 25) * 25;
-  const x = t => L + (W - L - R) * (t - t0) / Math.max(1, now - t0), y = v => T + (Hh - T - B) * (1 - (v - lo) / Math.max(1, hi - lo));
+  const x = t => L + (W - L - R) * (t - t0) / Math.max(1, t1 - t0), y = v => T + (Hh - T - B) * (1 - (v - lo) / Math.max(1, hi - lo));
   let g = '';
   for (let v = lo; v <= hi; v += Math.max(25, Math.round((hi - lo) / 5 / 25) * 25)) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   const hstep = chartHours <= 6 ? 1 : chartHours <= 12 ? 2 : 4;
-  for (let t = Math.ceil(t0 / 3600 / hstep) * hstep * 3600; t <= now; t += hstep * 3600) g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric' })}</text>`;
+  for (let t = Math.ceil(t0 / 3600 / hstep) * hstep * 3600; t <= t1; t += hstep * (t1 - t0 > chartHours * 3600 * 1.5 ? 2 : 1) * 3600) g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric' })}</text>`;
   const lines = series.map(s => `<path d="${s.pts.map((p, k) => (k ? 'L' : 'M') + x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1)).join('')}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? 1.5 : 2.2}"${s.dash ? ' stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`).join('');
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" width="100%" height="${Hh}" role="img" aria-label="Temperature history" style="font:11px var(--mono, monospace);fill:var(--muted)">${g}${lines}</svg>`;
-  put('legend', series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join(''));
+  const planLines = plans.map(q => `<path d="${q.plan.pts.filter(p => p[0] / 1000 >= t0 - 3600 && p[0] / 1000 <= t1 + 3600).map((p, k) => (k ? 'L' : 'M') + Math.max(L, Math.min(W - R, x(p[0] / 1000))).toFixed(1) + ',' + y(p[1]).toFixed(1)).join('')}" fill="none" stroke="${COLORS[q.i]}" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round" opacity=".85"/>`).join('');
+  const nowLine = t1 > now ? `<line x1="${x(now)}" x2="${x(now)}" y1="${T}" y2="${Hh - B}" stroke="var(--muted)" stroke-dasharray="1 3"/><text x="${x(now) + 4}" y="${T + 10}">now</text>` : '';
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" width="100%" height="${Hh}" role="img" aria-label="Temperature history${plans.length ? ' with the cook plan' : ''}" style="font:11px var(--mono, monospace);fill:var(--muted)">${g}${nowLine}${lines}${planLines}</svg>`;
+  put('legend', series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('') +
+    plans.map(q => { const w = planWords(planDeviation(q.plan, S(q.n + ' temperature'), Date.now()));
+      return `<span><i style="background:transparent;border-top:2px dotted ${COLORS[q.i]};height:0"></i>${esc(q.n)} plan${w ? ' · ' + esc(w) : ''}</span>`; }).join(''));
 }
 
 function renderPlan() {

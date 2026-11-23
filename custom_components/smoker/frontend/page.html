@@ -242,6 +242,8 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 .sum-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:12px 0}
 .sum-facts div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.sum-facts span{display:block;font-size:12px;color:var(--muted)}
 @media print{html.summary-open body>*:not(#summary){display:none!important}.summary{position:static;padding:0;background:#fff;color:#000}.sum-tools{display:none}}
+.aiplan{margin-top:10px;border:1px solid color-mix(in srgb,var(--page) 40%,var(--line));background:color-mix(in srgb,var(--page) 6%,var(--surface));border-radius:10px;padding:10px 12px}
+.aiplan.bad{border-color:color-mix(in srgb,var(--bad) 55%,var(--line));background:color-mix(in srgb,var(--bad) 6%,var(--surface))}
 </style>
 </head>
 <body>
@@ -789,7 +791,14 @@ window.act = {
   plan() {
     if (!hasPkg()) return toast(PKG_MSG);
     const t = $('plantext').value.trim(); if (!t) return toast('Describe the cook first');
-    toast('Asking the AI…'); H().service('script', 'smoker_plan_cook', { request: t }).then(() => { clean('plantext'); toast('Plan requested: check notifications'); }).catch(fail);
+    // The script runs until the AI has answered and the controller has the program (up to a minute or so): the Plan
+    // card says "Planning…" meanwhile, then shows the plan, the loaded program and a Start button.
+    planBusy = Date.now(); renderPlan();
+    H().service('script', 'smoker_plan_cook', { request: t })
+      .then(() => { clean('plantext'); planBusy = 0; renderPlan(); const ok = !/^Rejected/.test(val(byName('Smoker AI plan', ['input_text'])) || '');
+        toast(ok ? 'Plan ready: it\'s loaded as the cook program (Start when you\'re ready)' : 'The controller didn\'t take the AI\'s program: see the Plan card');
+        const c = $('aiplanbox'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'center' }); })
+      .catch(e => { planBusy = 0; renderPlan(); fail(e); });
   },
   advise() { if (!hasPkg()) return toast(PKG_MSG); toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
   serve(v) {
@@ -1268,6 +1277,8 @@ function renderProbes() {
       <div class="row"><span>Target</span><span class="step"><button class="btn" onclick="act.target('${p.key}',-1)" aria-label="Lower ${esc(p.label)} target">−</button>
         <span class="r">${s.tgt != null ? fmt(s.tgt) + esc(TU()) : '--'}</span>
         <button class="btn" onclick="act.target('${p.key}',1)" aria-label="Raise ${esc(p.label)} target">+</button></span></div>
+      ${(pl => { if (!pl) return ''; const now = Date.now(), d = planDeviation(pl, s.t, now), planned = at(pl.pts.map(q => [q[0] / 3600e3, q[1]]), now / 3600e3);
+        return d == null ? '' : `<div class="row"><span>Plan</span><span class="r"><span class="chip ${Math.abs(d) <= 10 ? 'ok' : d < 0 ? 'warn' : ''}">${esc(planWords(d))}</span>${planned != null ? ` <span class="muted small">planned ${fmt(planned)}${esc(TU())} by now</span>` : ''}</span></div>`; })(parsePlan(val(E(p.label + ' plan', ['sensor'])), isF()))}
       ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span>${pullExp(s.info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}</span></div>` : ''}
       ${s.pulledE ? `<div class="row"><span>Off the grill, resting</span><button class="tg ${s.isPulled ? 'on' : ''}" role="switch" aria-checked="${!!(s.isPulled)}" onclick="act.pulled('${p.key}')" aria-label="pulled"></button></div>` : ''}
       ${s.isPulled ? `<div class="row"><span>Ready to slice</span><span class="r">${s.restReady != null ? (s.restReady <= 0 ? 'now' : 'in ' + minsTxt(s.restReady) + ' (' + atTxt(s.restReady) + ')') : 'measuring…'}</span></div>` : ''}
@@ -1324,6 +1335,7 @@ function renderSources() {
     Grill probes keep their targets in step with the grill. Everything except <em>Home Assistant</em> sources keeps working without Home Assistant.</div>` : '<div class="empty">This controller has fixed probes.</div>');
 }
 
+let planBusy = 0;
 function renderPlan() {
   const serveE = byName('Smoker serve by', ['input_datetime']), startE = byName('Smoker start cooking by', ['sensor']);
   const serve = val(serveE), start = val(startE);
@@ -1331,13 +1343,27 @@ function renderPlan() {
   const local = serve ? serve.replace(' ', 'T').slice(0, 16) : '';
   if (!hasPkg()) return put('plancard', `<h3>Plan a cook</h3>${pkgNote('Planning with AI, the serve-by time and the rest timer')}
     <div class="row"><span>Slice when it's down to</span><span><input type="number" id="sliceat" value="${num(E('Slice at', ['number'])) ?? ''}" onchange="act.slice(this.value)"> ${esc(TU())}</span></div>`);
+  const busy = (planBusy && Date.now() - planBusy < 180e3) || val(S('script.smoker_plan_cook') ? 'script.smoker_plan_cook' : null) === 'on';
   put('plancard', `<h3>Plan a cook</h3>
     <textarea id="plantext" placeholder="e.g. 8 lb pork butt, ready by 6pm, I'll wrap at the stall" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:14px"></textarea>
-    <div class="btns"><button class="btn pri" onclick="act.plan()">Plan with AI</button></div>
+    <div class="btns"><button class="btn pri" onclick="act.plan()"${busy ? ' disabled' : ''}>${busy ? 'Planning…' : 'Plan with AI'}</button></div>
+    ${aiPlanBox(busy)}
     <div class="row" style="margin-top:10px"><span>Serve by</span><input type="datetime-local" value="${esc(local)}" onchange="act.serve(this.value)"></div>
     <div class="row"><span>Light the grill by</span><span class="r">${start && start !== 'unknown' ? clock(start) + ' (' + (Date.parse(start) < Date.now() ? 'now' : esc(until(start) || '')) + ')' : '--'}</span></div>
     <div class="row"><span>Slice when it's down to</span><span><input type="number" id="sliceat" value="${num(E('Slice at', ['number'])) ?? ''}" onchange="act.slice(this.value)"> ${esc(TU())}</span></div>
     <div class="row"><span>Rest timer</span><span class="r">${rest ? esc(rest.state) + (rest.attributes.finishes_at ? ' · ends ' + clock(rest.attributes.finishes_at) : '') : '--'}</span></div>`);
+}
+
+// The latest AI plan: its explanation, the program the controller loaded from it, and Start.
+function aiPlanBox(busy) {
+  if (busy) return '<div class="aiplan" id="aiplanbox" role="status"><b>Planning…</b> <span class="muted small">the AI is writing the plan; it\'s loaded as the cook program when it\'s done (about a minute).</span></div>';
+  const e = byName('Smoker AI plan', ['input_text']), st = S(e), txt = val(e);
+  if (!txt || /^(unknown|unavailable)$/.test(txt)) return '';
+  const rejected = /^Rejected/.test(txt), status = val(E('Program status', ['sensor'])) || '', pstate = val(E('Program state', ['sensor'])) || '';
+  return `<div class="aiplan${rejected ? ' bad' : ''}" id="aiplanbox"><div class="row" style="border:0;padding-top:0"><b>${rejected ? 'The AI\'s plan wasn\'t loaded' : 'AI plan'}</b><span class="muted small">${st ? esc(ago(Date.parse(st.last_changed))) : ''}</span></div>
+    <p class="small" style="margin:2px 0 6px">${esc(txt)}</p>
+    ${rejected ? '' : `<div class="row"><span>Cook program</span><span class="r">${esc(status || '--')}</span></div>
+      <div class="btns">${/Running|Paused/.test(pstate) ? '' : '<button class="btn pri" onclick="act.prog(\'start_program\')">Start the program</button>'}<button class="btn" onclick="document.getElementById('pit').scrollIntoView({behavior:'smooth'})">See the program</button></div>`}</div>`;
 }
 
 // ---------------------------------------------------------------- charcoal
@@ -1681,12 +1707,49 @@ async function loadChart() {
   chartData = series.filter(s => s[1]).map(([name, eid, color]) => ({ name, color, dash: name === 'Pit target',
     pts: (h[eid] || []).map(p => [p.t, parseFloat(p.s)]).filter(p => isFinite(p[1])) }));
 }
+// ==== BEGIN cook plan (shared block) ====
+// The controller's plan for a cook ("Food N plan": the predicted food temperature, taken at the cook's first sound
+// prediction): "1;<start epoch>;<step min>;<F|C>;t0,t1,...". Drawn dotted beside the actual temperature, and
+// compared with it ("40 min behind plan"). Identical in the integration's page.html and the controller's ui.js.
+function parsePlan(text, wantF) {
+  const p = String(text || '').split(';');
+  if (p.length < 5 || p[0] !== '1') return null;
+  const start = parseInt(p[1], 10) * 1000, step = parseInt(p[2], 10) * 60e3, isF = p[3] === 'F';
+  const conv = v => isF === wantF ? v : (wantF ? v * 9 / 5 + 32 : (v - 32) * 5 / 9);
+  const pts = p[4].split(',').map((v, i) => [start + i * step, conv(parseFloat(v))]).filter(q => isFinite(q[1]));
+  return pts.length >= 2 && isFinite(start) && step > 0 ? { pts, start, end: pts[pts.length - 1][0] } : null;
+}
+// How far ahead (+) or behind (-) plan, in minutes: when did the plan expect today's temperature, against now.
+function planDeviation(plan, temp, now) {
+  if (!plan || temp == null || !isFinite(temp)) return null;
+  const pts = plan.pts;
+  if (temp <= pts[0][1]) return null;  // not yet past the plan's starting point
+  for (let i = 1; i < pts.length; i++) if (pts[i][1] >= temp) {
+    const [t0, v0] = pts[i - 1], [t1, v1] = pts[i];
+    const t = v1 === v0 ? t1 : t0 + (t1 - t0) * (temp - v0) / (v1 - v0);
+    return Math.round((t - now) / 60000);
+  }
+  return Math.round((pts[pts.length - 1][0] - now) / 60000);  // already past the plan's end temperature
+}
+function planWords(dev) {
+  if (dev == null) return '';
+  const m = Math.abs(dev), t = m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min';
+  return m <= 10 ? 'on plan' : dev > 0 ? t + ' ahead of plan' : t + ' behind plan';
+}
+// ==== END cook plan (shared block) ====
+function probePlans() {
+  return PROBES.map(p => ({ p, plan: parsePlan(val(E(p.label + ' plan', ['sensor'])), isF()) })).filter(x => x.plan);
+}
 function drawChart() {
   const box = $('chart'); if (!box || !chartData) return;
   const W = box.clientWidth || 600, Hh = box.clientHeight || 280, L = 40, R = 10, T = 10, B = 24;
-  const now = Date.now(), t0 = now - chartHours * 3600e3;
+  const now0 = Date.now(), t0 = now0 - chartHours * 3600e3, plans = probePlans();
+  // With a plan, the chart runs on into the future to where the plan ends (at most as far ahead as it looks back).
+  const t1 = Math.min(now0 + chartHours * 3600e3, Math.max(now0, ...plans.map(x => x.plan.end)));
+  const now = t1;  // (the x scale's right edge)
   let lo = Infinity, hi = -Infinity;
   chartData.forEach(s => s.pts.forEach(p => { if (p[0] >= t0) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); } }));
+  plans.forEach(x => x.plan.pts.forEach(p => { if (p[0] >= t0 && p[0] <= t1) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); } }));
   if (!isFinite(lo)) { box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
   const span = Math.max(20, hi - lo), stepY = span > 200 ? 50 : span > 80 ? 25 : 10;
   lo = Math.floor((lo - 5) / stepY) * stepY; hi = Math.ceil((hi + 5) / stepY) * stepY;
@@ -1694,18 +1757,25 @@ function drawChart() {
   let g = '';
   for (let v = lo; v <= hi; v += stepY) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   const hstep = chartHours <= 6 ? 1 : chartHours <= 12 ? 2 : 4;
-  for (let t = Math.ceil(t0 / 3600e3 / hstep) * hstep * 3600e3; t <= now; t += hstep * 3600e3)
+  for (let t = Math.ceil(t0 / 3600e3 / hstep) * hstep * 3600e3; t <= t1; t += hstep * (t1 - t0 > chartHours * 3600e3 * 1.5 ? 2 : 1) * 3600e3)
     g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}</text>`;
   const lines = chartData.map(s => {
     const pts = s.pts.filter(p => p[0] >= t0 - 3600e3);
     if (!pts.length) return '';
     let d = '', last = null;
     pts.forEach(p => { const px = Math.max(L, x(p[0])), py = y(p[1]); if (last != null && s.dash) d += `L${px},${last}`; d += (d ? 'L' : 'M') + px + ',' + py; last = py; });
-    d += `L${x(now)},${last}`;
+    d += `L${x(now0)},${last}`;
     return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? 1.5 : 2.2}" ${s.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`;
   }).join('');
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="Temperature history">${g}${lines}</svg>`;
-  put('legend', chartData.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join(''));
+  const planLines = plans.map(({ p, plan }) => {
+    const pts = plan.pts.filter(q => q[0] >= t0 - 3600e3 && q[0] <= t1 + 3600e3);
+    return pts.length ? `<path d="${pts.map((q, i) => (i ? 'L' : 'M') + Math.max(L, Math.min(W - R, x(q[0]))) + ',' + y(q[1])).join('')}" fill="none" stroke="${p.color}" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round" opacity=".85"/>` : '';
+  }).join('');
+  const nowLine = t1 > now0 ? `<line x1="${x(now0)}" x2="${x(now0)}" y1="${T}" y2="${Hh - B}" stroke="var(--muted)" stroke-dasharray="1 3"/><text x="${x(now0) + 4}" y="${T + 10}" font-size="11">now</text>` : '';
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="Temperature history${plans.length ? ' with the cook plan' : ''}">${g}${nowLine}${lines}${planLines}</svg>`;
+  put('legend', chartData.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('') +
+    plans.map(({ p, plan }) => { const w = planWords(planDeviation(plan, num(E(p.label + ' temperature', ['sensor'])), now0));
+      return `<span><i style="background:transparent;border-top:2px dotted ${p.color};height:0"></i>${esc(p.label)} plan${w ? ' · ' + esc(w) : ''}</span>`; }).join(''));
 }
 function renderRange() {
   put('range', [3, 6, 12, 24].map(h => `<button aria-pressed="${h === chartHours}" onclick="act.range(${h})">${h}h</button>`).join(''));

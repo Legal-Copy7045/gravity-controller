@@ -650,6 +650,41 @@ void CookAssistant::tick_second_() {
   }
 }
 
+// The cook's plan curve (see FoodProbe::plan): taken once per cook, at its first sound prediction, and kept through
+// the end of the cook (so the graph can compare); a new cook in that slot (the probe out, then in again) takes a new one.
+void CookAssistant::take_plan_(FoodProbe *p, const std::vector<cook::PlanSegment> &plan, float sp,
+                               const cook::Prediction &pr) {
+  if (p->plan == nullptr)
+    return;
+  const auto ph = p->predictor.phase();
+  if (ph == cook::Phase::NO_PROBE || ph == cook::Phase::WAITING) {
+    p->plan_taken = false;
+    return;
+  }
+  if (p->plan_taken || !pr.valid || pr.minutes <= 0 ||
+      !(ph == cook::Phase::WARMING || ph == cook::Phase::STALL || ph == cook::Phase::FINISHING))
+    return;
+#ifdef USE_TIME
+  if (this->time_ == nullptr)
+    return;
+  auto t = this->time_->now();
+  if (!t.is_valid())
+    return;
+  // At most ~45 points (the text fits a text sensor's 255 characters): a step of 10 minutes or more.
+  int step = std::max(10, int(std::ceil(pr.minutes / 45.0f / 5.0f)) * 5);
+  auto curve = p->predictor.forecast_curve(plan, sp, step);
+  if (curve.size() < 2)
+    return;
+  std::string out = "1;" + std::to_string(uint32_t(t.timestamp)) + ";" + std::to_string(step) + ";" +
+                    (this->fahrenheit_ ? "F" : "C") + ";";
+  for (size_t i = 0; i < curve.size() && out.size() < 248; i++)
+    out += (i ? "," : "") + std::to_string(int(std::lround(this->from_c_(curve[i]))));
+  p->plan_taken = true;
+  p->plan->publish_state(out);
+  ESP_LOGI(TAG, "%s: plan taken (%u points every %d min)", p->name.c_str(), unsigned(curve.size()), step);
+#endif
+}
+
 void CookAssistant::tick_minute_() {
   const double now = this->now_min_();
   float sp = this->pit_setpoint_c_();
@@ -663,6 +698,7 @@ void CookAssistant::tick_minute_() {
       if (this->probes_[i] == p)
         plan = this->runner_.plan_for_probe(int(i) + 1, now, target);
     auto pr = p->predictor.predict(plan, sp);
+    this->take_plan_(p, plan, sp, pr);
     auto pub = [](sensor::Sensor *s, float v) {
       if (s != nullptr)
         s->publish_state(v);
