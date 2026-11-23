@@ -55,6 +55,48 @@ static std::string hex32(uint32_t v) {
   return b;
 }
 
+// A group from Open Pitmaster's aggregates.json, as its nightly build writes them: a known cut, band labels like
+// "8-10 lb" / "225-255°F" / "any weather", and finite times. Anything else is someone else's text: dropped.
+static bool band_ok_(const char *v, const char *any, const char *unit) {
+  if (v == nullptr) return false;
+  std::string s(v);
+  if (s == any) return true;
+  if (s.size() > 24) return false;
+  size_t u = s.rfind(unit);
+  if (u == std::string::npos || u + std::strlen(unit) != s.size()) return false;
+  std::string n = s.substr(0, u);
+  while (!n.empty() && n.back() == ' ') n.pop_back();
+  if (n.rfind("under ", 0) == 0) n = n.substr(6);
+  if (!n.empty() && n.back() == '+') n.pop_back();
+  size_t dash = n.find('-', 1);
+  auto digits = [](const std::string &x) {
+    if (x.empty() || x.size() > 3) return false;
+    for (char c : x) if (c < '0' || c > '9') return false;
+    return true;
+  };
+  return dash == std::string::npos ? digits(n) : digits(n.substr(0, dash)) && digits(n.substr(dash + 1));
+}
+
+bool Standalone::community_group_ok_(JsonObject g) {
+  static const char *const CUTS[] = {"Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"};
+  const char *cut = g["cut"] | "";
+  bool known = false;
+  for (const char *c : CUTS) known |= std::strcmp(cut, c) == 0;
+  if (!known) return false;
+  if (!band_ok_(g["weight"] | (const char *) nullptr, "any weight", "lb")) return false;
+  if (!band_ok_(g["pit"] | (const char *) nullptr, "any pit", "\u00b0F")) return false;
+  if (!band_ok_(g["outside"] | (const char *) nullptr, "any weather", "\u00b0F")) return false;
+  int n = g["n"] | 0;
+  if (n < 1 || n > 1000000) return false;
+  for (const char *k : {"total_h", "total_p25", "total_p75", "stall_h"}) {
+    JsonVariant v = g[k];
+    if (v.isNull()) continue;
+    float f = v.as<float>();
+    if (!v.is<float>() || !std::isfinite(f) || f < 0 || f > 48) return false;
+  }
+  return !g["total_h"].isNull();
+}
+
 // ---------------------------------------------------------------- setup / loop
 
 void Standalone::setup_cook_() {
@@ -150,6 +192,8 @@ void Standalone::loop_cook_(uint32_t now) {
         this->community_updated_ = doc["updated"] | "";
         for (JsonObject g : doc["groups"].as<JsonArray>()) {
           if (this->community_.size() >= 60) break;
+          // The text goes into the AI's prompt: only the builder's own words and numbers, anything else is dropped.
+          if (!community_group_ok_(g)) continue;
           char line[200];
           std::snprintf(line, sizeof(line), "%s %s at %s (%s outside): typically %.1f h (%.1f-%.1f), stall %.1f h; %d cooks",
                         g["cut"] | "", g["weight"] | "", g["pit"] | "", g["outside"] | "", double(g["total_h"] | 0.0f),
@@ -393,7 +437,7 @@ std::string Standalone::journal_json_(bool authed) {
       num("stall_h", e->stall_h); num("total_h", e->total_h); num("ambient_c", e->ambient_c);
       if (e->wrapped < 2) o["wrapped"] = e->wrapped == 1;
       if (e->rating) o["rating"] = e->rating;
-      if (authed || !this->guard_->pin_set()) o["notes"] = e->notes;  // private: only for an unlocked page
+      if (authed || !this->req_pin_) o["notes"] = e->notes;  // private: only for an unlocked page
       static const char *const ST[] = {"pending", "shared", "declined", "sending"};
       bool ready = e->rating || e->tags || (e->ended && t && t - e->ended >= READY_AFTER_S);
       o["share"] = e->share == 0 && !ready ? "waiting" : ST[e->share & 3];

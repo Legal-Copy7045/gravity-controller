@@ -142,13 +142,30 @@ bool Guard::verify_(const std::string &pin) const {
   return equal_ct(h, this->stored_.hash, HASH_LEN);
 }
 
-std::string Guard::set_pin(const std::string &pin, const std::string &current) {
+const char *const FIRST_PIN_CLOSED =
+    "Power the controller off and on (or hold its BOOT button 10 s), then set the PIN within 15 minutes";
+
+void Guard::open_first_pin_() {
+  this->first_open_ = true;
+  this->first_from_ = this->now_();
+}
+
+uint32_t Guard::first_pin_for() const {
+  if (this->pin_set() || !this->first_open_) return 0;
+  const uint32_t gone = this->now_() - this->first_from_;
+  return gone < FIRST_PIN_MS ? (FIRST_PIN_MS - gone + 999) / 1000 : 0;
+}
+
+std::string Guard::set_pin(const std::string &pin, const std::string &current, const std::string &client) {
   if (this->pin_set()) {
-    if (this->locked_for() > 0) return "Too many wrong PINs: wait and try again";
+    if (this->locked_for(client) > 0) return "Too many wrong PINs: wait and try again";
+    if (!well_formed(current)) return "Enter the current PIN";
     if (!this->verify_(current)) {
-      this->login("");  // counts as a failure (adds to the lockout)
+      this->fail_(client);  // counts as a wrong PIN (adds to the lockout)
       return "The current PIN is wrong";
     }
+  } else if (this->first_pin_for() == 0) {
+    return FIRST_PIN_CLOSED;  // anyone on the Wi-Fi could otherwise claim the page
   }
   std::string why = pin_problem(pin);
   if (!why.empty()) return why;
@@ -160,7 +177,8 @@ std::string Guard::set_pin(const std::string &pin, const std::string &current) {
   this->stored_ = s;
   this->sessions_.clear();  // a new PIN logs everyone out
   this->gen_++;
-  this->failures_ = 0;
+  this->first_open_ = false;
+  this->forget_(client);
   return "";
 }
 
@@ -168,15 +186,77 @@ void Guard::clear() {
   this->stored_ = Stored{};
   this->sessions_.clear();
   this->gen_++;
-  this->failures_ = 0;
-  this->locked_until_ = 0;
-  this->locked_ = false;
+  this->clients_.clear();
+  this->global_on_ = false;
+  this->open_first_pin_();
 }
 
-uint32_t Guard::locked_for() const {
-  if (!this->locked_) return 0;  // (locked_until_ alone can't tell: millis() wraps, 0 reads as "locked" after 24.8 days)
-  int32_t left = int32_t(this->locked_until_ - this->now_());
-  return left > 0 ? uint32_t(left + 999) / 1000 : 0;
+uint32_t Guard::locked_for(const std::string &client) const {
+  const uint32_t now = this->now_();
+  int64_t left = 0;
+  const Client *c = this->find_(client);
+  if (c != nullptr && c->locked) left = int32_t(c->locked_until - now);
+  if (this->global_on_) {  // everyone waits while GLOBAL_MAX or more wrong PINs are outstanding
+    int64_t g = int64_t(int32_t(this->global_until_ - now)) - int64_t(GLOBAL_MAX - 1) * GLOBAL_LEAK_MS;
+    if (g > left) left = g;
+  }
+  return left > 0 ? uint32_t((left + 999) / 1000) : 0;
+}
+
+void Guard::tick() {
+  const uint32_t now = this->now_();
+  if (this->first_open_ && (this->pin_set() || now - this->first_from_ >= FIRST_PIN_MS)) this->first_open_ = false;
+  if (this->global_on_ && int32_t(this->global_until_ - now) <= 0) this->global_on_ = false;
+  for (auto it = this->clients_.begin(); it != this->clients_.end();) {
+    if (it->locked && int32_t(it->locked_until - now) <= 0) it->locked = false;
+    if (!it->locked && now - it->last >= FORGET_MS) it = this->clients_.erase(it);
+    else ++it;
+  }
+}
+
+const Guard::Client *Guard::find_(const std::string &ip) const {
+  for (auto &c : this->clients_)
+    if (c.ip == ip) return &c;
+  return nullptr;
+}
+
+Guard::Client &Guard::client_(const std::string &ip, uint32_t now) {
+  for (auto &c : this->clients_)
+    if (c.ip == ip) return c;
+  if (this->clients_.size() >= CLIENTS) {
+    // Make room: the least recent client, preferring one that isn't locked out (a locked one stays locked).
+    auto worst = this->clients_.begin();
+    for (auto it = this->clients_.begin(); it != this->clients_.end(); ++it) {
+      bool better = it->locked != worst->locked ? !it->locked : now - it->last > now - worst->last;
+      if (better) worst = it;
+    }
+    this->clients_.erase(worst);
+  }
+  this->clients_.push_back({ip, 0, false, 0, now});
+  return this->clients_.back();
+}
+
+void Guard::forget_(const std::string &ip) {
+  for (auto it = this->clients_.begin(); it != this->clients_.end(); ++it)
+    if (it->ip == ip) { this->clients_.erase(it); return; }
+}
+
+void Guard::fail_(const std::string &ip) {
+  const uint32_t now = this->now_();
+  if (!this->global_on_ || int32_t(this->global_until_ - now) <= 0) this->global_until_ = now;
+  this->global_until_ += GLOBAL_LEAK_MS;
+  this->global_on_ = true;
+  Client &c = this->client_(ip, now);
+  if (c.locked && int32_t(c.locked_until - now) <= 0) c.locked = false;
+  if (!c.locked && now - c.last >= FORGET_MS) c.failures = 0;  // a quiet day since its last wrong PIN
+  c.last = now;
+  if (c.failures < 255) c.failures++;
+  if (c.failures >= 5) {
+    uint32_t secs = 30;
+    for (int i = 5; i < c.failures && secs < 3600; i++) secs *= 2;
+    c.locked_until = now + (secs > 3600 ? 3600 : secs) * 1000;
+    c.locked = true;
+  }
 }
 
 std::string Guard::new_token_() {
@@ -189,20 +269,14 @@ std::string Guard::new_token_() {
   return t;
 }
 
-std::string Guard::login(const std::string &pin) {
-  if (this->locked_for() > 0) return "";
-  this->locked_ = false;  // any lockout has passed (locked_for() was 0)
-  if (!pin.empty() && this->verify_(pin)) {
-    this->failures_ = 0;
+std::string Guard::login(const std::string &pin, const std::string &client) {
+  if (!well_formed(pin) || !this->pin_set()) return "";  // not a PIN, or nothing to log in to: not counted
+  if (this->locked_for(client) > 0) return "";
+  if (this->verify_(pin)) {
+    this->forget_(client);
     return this->new_token_();
   }
-  if (this->failures_ < 255) this->failures_++;
-  if (this->failures_ >= 5) {
-    uint32_t secs = 30;
-    for (int i = 5; i < this->failures_ && secs < 3600; i++) secs *= 2;
-    this->locked_until_ = this->now_() + (secs > 3600 ? 3600 : secs) * 1000;
-    this->locked_ = true;
-  }
+  this->fail_(client);
   return "";
 }
 

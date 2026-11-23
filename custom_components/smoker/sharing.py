@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
+import re
 import secrets
 import time
 from datetime import timedelta
@@ -104,6 +106,46 @@ def anonymise(entry: dict[str, Any], release: str, latitude: float, record_id: s
         "rating": rating if isinstance(rating, int) and 1 <= rating <= 5 else None,
         "tags": [t for t in TAGS if t in (entry.get("tags") or [])],
     }
+
+
+# Group labels as open-pitmaster's build.py writes them (band(): "under 4 lb", "4-6 lb", "15+ lb", "any weight"...).
+_BANDS = {
+    "weight": re.compile(r"(under \d{1,3} lb|\d{1,3}-\d{1,3} lb|\d{1,3}\+ lb|any weight)"),
+    "pit": re.compile(r"(under \d{3}°F|\d{3}-\d{3}°F|\d{3}\+°F|any pit)"),
+    "outside": re.compile(r"(under -?\d{1,3}°F|-?\d{1,3}--?\d{1,3}°F|-?\d{1,3}\+°F|any weather)"),
+}
+
+
+def _fnum(v: Any, lo: float, hi: float, null: bool = False) -> bool:
+    if v is None:
+        return null
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v) and lo <= v <= hi
+
+
+def valid_group(g: Any) -> bool:
+    """One group of the downloaded averages, exactly as the builder makes it. Its text goes into the AI's prompts, so
+    anything else (odd labels, unknown tags, nonsense numbers) is dropped rather than passed on. Never raises."""
+    try:
+        if not isinstance(g, dict) or g.get("cut") not in CUTS:
+            return False
+        if not all(isinstance(g.get(k), str) and rx.fullmatch(g[k]) for k, rx in _BANDS.items()):
+            return False
+        n = g.get("n")
+        if isinstance(n, bool) or not isinstance(n, int) or not 0 < n < 10_000_000:
+            return False
+        if not (_fnum(g.get("total_h"), 0, 72) and _fnum(g.get("total_p25"), 0, 72, True)
+                and _fnum(g.get("total_p75"), 0, 72, True) and _fnum(g.get("stall_h"), 0, 72, True)
+                and _fnum(g.get("wrapped_pct"), 0, 100, True) and _fnum(g.get("rating"), 1, 5, True)):
+            return False
+        tags = g.get("tags", {})
+        if tags is None:
+            tags = {}
+        if not isinstance(tags, dict) or any(t not in TAGS or isinstance(p, bool) or not isinstance(p, int)
+                                             or not 0 <= p <= 100 for t, p in tags.items()):
+            return False
+        return True
+    except Exception:  # noqa: BLE001 - whatever it is, it's not a group we use
+        return False
 
 
 def ready(entry: dict, now: float | None = None) -> bool:
@@ -323,7 +365,15 @@ class Sharing:
         except Exception:  # noqa: BLE001 - offline or odd answer: keep the last averages, try again later
             return
         if isinstance(data, dict) and data.get("v") == 1:
-            self.community = data
+            groups = data.get("groups") if isinstance(data.get("groups"), list) else []
+            cooks = data.get("cooks")
+            self.community = {
+                "v": 1,
+                "cooks": cooks if isinstance(cooks, int) and not isinstance(cooks, bool) and cooks >= 0 else 0,
+                "updated": data["updated"] if isinstance(data.get("updated"), str)
+                and re.fullmatch(r"\d{4}-\d{2}-\d{2}", data["updated"]) else None,
+                "groups": [g for g in groups if valid_group(g)],
+            }
             self._publish_community()
 
     @callback
@@ -333,8 +383,11 @@ class Sharing:
         def line(g: dict) -> str:
             said = ", ".join(f"{t} {pct}%" for t, pct in list((g.get("tags") or {}).items())[:4])
             return (f"{g['cut']} {g['weight']} at {g['pit']} ({g['outside']} outside): median {g['total_h']} h"
-                    f" (middle half {g['total_p25']}-{g['total_p75']} h), stall {g['stall_h']} h, wrapped"
-                    f" {g['wrapped_pct']}%" + (f", rated {g['rating']}/5" if g.get("rating") else "")
+                    + (f" (middle half {g['total_p25']}-{g['total_p75']} h)"
+                       if g.get("total_p25") is not None and g.get("total_p75") is not None else "")
+                    + (f", stall {g['stall_h']} h" if g.get("stall_h") is not None else "")
+                    + (f", wrapped {g['wrapped_pct']}%" if g.get("wrapped_pct") is not None else "")
+                    + (f", rated {g['rating']}/5" if g.get("rating") else "")
                     + (f", cooks said: {said}" if said else "") + f"; {g['n']} cooks")
 
         lines = [line(g) for g in (c.get("groups") or [])[:40]]
@@ -388,6 +441,9 @@ class SharingActionView(HomeAssistantView):
         s = _sharing(request)
         try:
             if action == "share" and entry_id:
+                # A cook the owner said no to ("Not this one") is shared only by an administrator.
+                if entry_id in s.data["declined"] and not request["hass_user"].is_admin:
+                    return self.json_message("only an administrator can share a cook that was declined", 403)
                 await s.share(entry_id)
             elif action == "decline" and entry_id:
                 s.decline(entry_id)

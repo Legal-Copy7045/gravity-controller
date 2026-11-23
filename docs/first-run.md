@@ -85,9 +85,13 @@ over Bluetooth, on the controller's device page (Configuration) or the dashboard
 - **A new network:** on the controller's own page (`http://gravity980.local` → Setup → *Set up the grill's Wi-Fi*),
   pick the network from the scan or type its name, enter the password and press **Set up**. The password goes to the
   controller only (never to Home Assistant, which would record it) and is cleared as soon as it's sent to the grill.
+  The controller only sends it to a grill it already knows: one it has been talking to since before its last
+  restart, or for at least 10 minutes (or the address set in `bluetooth: mac_address`). A brand-new grill: leave it
+  connected for about 12 minutes first. That stops a look-alike Bluetooth device from collecting your Wi-Fi password.
 
 **Grill Wi-Fi** then shows the result ("On &lt;network&gt;, IP …"), and the controller switches to Wi-Fi by itself
-(with *Grill IP address* empty it uses the address the grill reports). Bluetooth stays as the fallback.
+(with *Grill IP address* empty it uses the address the grill reports right after that setup, if it's a private
+address on the controller's own network). Bluetooth stays as the fallback.
 
 ## The grill's Wi-Fi (UniFi and mesh networks)
 

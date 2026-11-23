@@ -16,6 +16,9 @@
 #ifdef USE_API
 #include "esphome/components/api/api_server.h"
 #endif
+#ifdef USE_CAPTIVE_PORTAL
+#include "esphome/components/captive_portal/captive_portal.h"
+#endif
 #include "esphome/components/network/util.h"
 #ifdef USE_TIME_TIMEZONE
 #include "esphome/components/time/posix_tz.h"
@@ -27,7 +30,10 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_http_client.h>
+#include <esp_http_server.h>
+#include <lwip/sockets.h>
 #include <esp_random.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
@@ -49,25 +55,28 @@ class Handler : public AsyncWebHandler {
   bool canHandle(AsyncWebServerRequest *req) const override {
     char buf[AsyncWebServerRequest::URL_BUF_SIZE];
     StringRef url = req->url_to(buf);
-    if (url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0) {
-      this->body_.clear();
-      return true;
-    }
+    if (url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0)
+      return this->take_();
+    // DNS rebinding (a website posing as the controller) is refused for everything, reading included: such a page
+    // could otherwise read the live states. Not while the setup hotspot's portal is up (phones ask it for any name).
+    if (bad_host_(req) && !portal_active_())
+      return this->take_();  // refused in handleRequest
     // Any change through the device page needs the PIN once one is set. ESPHome's web server also carries out
     // actions sent as GET (/button/<name>/press, /number/<name>/set?value=...), so those count as changes too: an
-    // <img> on any website could otherwise press "Clear the device page PIN". Reading (the page, states, the live
-    // event stream) stays open on the local network.
+    // <img> on any website could otherwise press a button. Reading (the page, states, the live event stream) stays
+    // open on the local network.
     if (req->method() == HTTP_OPTIONS)
       return false;
-    if ((req->method() == HTTP_GET || req->method() == HTTP_HEAD) && !is_action_(url))
+    const bool action = is_action_(url);
+    if ((req->method() == HTTP_GET || req->method() == HTTP_HEAD) && !action)
       return false;
-    if (bad_host_(req))
-      return true;  // refused in handleRequest (DNS rebinding: a website posing as the controller)
+    if (action && clears_pin_(url))
+      return this->take_();  // never from the web page, PIN or not: it would reopen the first PIN's window
     if (cross_site_(req))
-      return true;  // refused in handleRequest: another website can't post a form here, PIN or not
+      return this->take_();  // refused in handleRequest: another website can't post a form here, PIN or not
     if (!this->p_->pin_set())
       return false;
-    return !this->p_->write_allowed(token_(req));
+    return !this->p_->write_allowed(token_(req)) && this->take_();
   }
 
   void handleBody(AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) override {
@@ -91,19 +100,34 @@ class Handler : public AsyncWebHandler {
   }
 
   void handleRequest(AsyncWebServerRequest *req) override {
+    // This request's body, and nothing left over for the next one (whatever way this one ends).
+    std::string body;
+    body.swap(this->body_);
+    const bool too_big = this->too_big_;
+    this->too_big_ = false;
     char buf[AsyncWebServerRequest::URL_BUF_SIZE];
     StringRef url = req->url_to(buf);
     const bool local = url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0;
-    if (bad_host_(req) || ((req->method() != HTTP_GET || !local) && cross_site_(req))) {
+    if (bad_host_(req) && (local || !portal_active_())) {
+      std::string me = App.get_name();
+      req->send(403, "text/plain",
+                ("Open the controller at its IP address or http://" + me + ".local/ (other names are refused)").c_str());
+      return;
+    }
+    if ((req->method() != HTTP_GET || !local) && cross_site_(req)) {
       req->send(403, "application/json", "{\"error\":\"Changes come from the controller's own page only\"}");
       return;
     }
-    if (!(url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0)) {
+    if (!local && clears_pin_(url)) {
+      req->send(403, "application/json",
+                "{\"error\":\"Clear the PIN from Home Assistant, or hold the controller's BOOT button for 10 s\"}");
+      return;
+    }
+    if (!local) {
       req->send(401, "application/json", "{\"error\":\"Enter the PIN to make changes\",\"pin\":true}");
       return;
     }
-    if (this->too_big_) {
-      this->too_big_ = false;
+    if (too_big) {
       req->send(413, "application/json", "{\"error\":\"Too big (a photo needs the PIN; keep it under 300 KB)\"}");
       return;
     }
@@ -113,8 +137,7 @@ class Handler : public AsyncWebHandler {
     if (req->hasArg("hours"))
       path += "?hours=" + req->arg("hours");
     // Run on the controller's API task: the web server's own task has a 4.5 KB stack, too small for this work.
-    std::string out = this->p_->api_call(m, path, this->body_, token_(req), status);
-    this->body_.clear();
+    std::string out = this->p_->api_call(m, path, body, token_(req), peer_(req), status);
     auto *res = req->beginResponse(status, "application/json", out);
     res->addHeader("Cache-Control", "no-store");
     req->send(res);
@@ -157,16 +180,68 @@ class Handler : public AsyncWebHandler {
     if (inet_pton(AF_INET, host.c_str(), &a) == 1 || host == "localhost") return false;
     std::string me = App.get_name();
     for (auto &c : me) c = std::tolower(static_cast<unsigned char>(c));
-    return !(host == me || host == me + ".local" || host == me + ".local.");
+    if (host.size() && host.back() == '.') host.pop_back();
+    if (host == me) return false;
+    // <name>.local, or a name the home router gives it under a suffix no website can own.
+    for (const char *sfx : {".local", ".lan", ".home", ".internal", ".home.arpa", ".localdomain"})
+      if (host == me + sfx) return false;
+    return true;
   }
   static std::string token_(AsyncWebServerRequest *req) {
     auto h = req->get_header(TOKEN_HEADER);
     return h.has_value() ? h.value() : std::string();
   }
+  // Who's asking (for the PIN's lockout): the IP address, or for IPv6 its /64 (one machine can have many in it).
+  static std::string peer_(AsyncWebServerRequest *req) {
+#ifdef USE_ESP32
+    int fd = httpd_req_to_sockfd(*req);
+    struct sockaddr_storage a {};
+    socklen_t n = sizeof(a);
+    if (fd < 0 || getpeername(fd, reinterpret_cast<struct sockaddr *>(&a), &n) != 0)
+      return std::string();
+    char b[48] = "";
+    if (a.ss_family == AF_INET) {
+      inet_ntop(AF_INET, &reinterpret_cast<struct sockaddr_in *>(&a)->sin_addr, b, sizeof(b));
+    }
+#if LWIP_IPV6
+    else if (a.ss_family == AF_INET6) {
+      struct in6_addr ip = reinterpret_cast<struct sockaddr_in6 *>(&a)->sin6_addr;
+      const uint8_t *p = reinterpret_cast<const uint8_t *>(&ip);
+      static const uint8_t V4[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+      if (std::memcmp(p, V4, 12) == 0)  // an IPv4 client on a dual-stack socket
+        return inet_ntop(AF_INET, p + 12, b, sizeof(b)) ? std::string(b) : std::string();
+      std::memset(reinterpret_cast<uint8_t *>(&ip) + 8, 0, 8);
+      inet_ntop(AF_INET6, &ip, b, sizeof(b));
+    }
+#endif
+    return b;
+#else
+    return std::string();
+#endif
+  }
+  // "Clear the device page PIN" (base.yaml): Home Assistant's button, not one for the web page.
+  static bool clears_pin_(const StringRef &url) {
+    std::string u(url.c_str(), url.size());
+    for (auto &c : u) c = std::tolower(static_cast<unsigned char>(c));
+    return u.rfind("/button/", 0) == 0 && u.find("clear the device page pin") != std::string::npos;
+  }
+  static bool portal_active_() {
+#ifdef USE_CAPTIVE_PORTAL
+    return captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
+#else
+    return false;
+#endif
+  }
+  // This handler takes the request: start it with an empty body.
+  bool take_() const {
+    this->body_.clear();
+    this->too_big_ = false;
+    return true;
+  }
   Standalone *p_;
   mutable std::string body_;
   size_t cap_{4096};
-  bool too_big_{false};
+  mutable bool too_big_{false};
 };
 
 // ---------------------------------------------------------------- the API task
@@ -176,7 +251,7 @@ class Handler : public AsyncWebHandler {
 #ifdef USE_ESP32
 struct ApiCall {
   const char *method;
-  const std::string *path, *body, *token;
+  const std::string *path, *body, *token, *client;
   std::string out;
   int status;
 };
@@ -185,17 +260,17 @@ void Standalone::api_task_(void *arg) {
   for (;;) {
     ApiCall *c = nullptr;
     if (xQueueReceive(static_cast<QueueHandle_t>(s->api_q_), &c, portMAX_DELAY) != pdTRUE || c == nullptr) continue;
-    c->out = s->api(c->method, *c->path, *c->body, *c->token, c->status);
+    c->out = s->api(c->method, *c->path, *c->body, *c->token, *c->client, c->status);
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(s->api_done_));
   }
 }
 #endif
 
 std::string Standalone::api_call(const char *method, const std::string &path, const std::string &body,
-                                 const std::string &token, int &status) {
+                                 const std::string &token, const std::string &client, int &status) {
 #ifdef USE_ESP32
   if (this->api_q_ != nullptr) {
-    ApiCall c{method, &path, &body, &token, std::string(), 200};
+    ApiCall c{method, &path, &body, &token, &client, std::string(), 200};
     ApiCall *pc = &c;
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(this->api_mutex_), portMAX_DELAY);  // one request at a time
     xQueueSend(static_cast<QueueHandle_t>(this->api_q_), &pc, portMAX_DELAY);
@@ -205,7 +280,7 @@ std::string Standalone::api_call(const char *method, const std::string &path, co
     return std::move(c.out);
   }
 #endif
-  return this->api(method, path, body, token, status);
+  return this->api(method, path, body, token, client, status);
 }
 
 // ---------------------------------------------------------------- setup / loop
@@ -238,6 +313,17 @@ void Standalone::setup() {
     this->guard_->restore(toks);
   }
   this->sess_gen_ = this->guard_->generation();
+#ifdef USE_ESP32
+  // The first PIN's window opens on power-up (or a reset by hand), not on a software restart: with no PIN set,
+  // anyone on the Wi-Fi can press Restart, and that mustn't let them claim the page.
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: case ESP_RST_EXT: case ESP_RST_BROWNOUT: case ESP_RST_PWR_GLITCH: case ESP_RST_USB:
+    case ESP_RST_JTAG:
+      break;
+    default:
+      this->guard_->close_first_pin();
+  }
+#endif
   this->apply_tz_();
   this->setup_cook_();
   auto *base = web_server_base::global_web_server_base;
@@ -294,6 +380,8 @@ void Standalone::loop() {
   if (this->clear_pin_pending_) this->clear_pin();
   {  // keep the unlocked browsers across a restart (saved only when the list changes: login, logout, expiry)
     std::unique_lock<std::mutex> g(this->guard_lock_, std::try_to_lock);  // never wait here: the PIN may be hashing
+    if (g.owns_lock() && this->guard_ != nullptr)
+      this->guard_->tick();  // the first PIN's window and the lockouts end on time
     if (g.owns_lock() && this->guard_ != nullptr && this->guard_->generation() != this->sess_gen_) {
       this->sess_gen_ = this->guard_->generation();
       SavedSessions ss{};
@@ -389,7 +477,7 @@ void Standalone::clear_pin() {
     this->clear_pin_pending_ = false;
     this->guard_->clear();
   }
-  ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page");
+  ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page within 15 minutes");
   this->save_();
 }
 
@@ -435,6 +523,42 @@ static std::string url_encode(const std::string &s) {
   return o;
 }
 
+// A self-hosted ntfy server: a public DNS name only (no IP address, localhost or home-network name), so the controller
+// can't be pointed at something on the home network. host_part: everything after "https://".
+static bool public_host(const std::string &host_part) {
+  std::string h = host_part.substr(0, host_part.find_first_of("/?#"));
+  if (h.find('@') != std::string::npos || h.empty() || h[0] == '[') return false;  // user info, IPv6 literal
+  size_t colon = h.find(':');
+  if (colon != std::string::npos) {
+    std::string port = h.substr(colon + 1);
+    h.resize(colon);
+    if (port.empty() || port.size() > 5) return false;
+    for (char c : port)
+      if (!isdigit(static_cast<unsigned char>(c))) return false;
+  }
+  for (auto &c : h) {
+    c = std::tolower(static_cast<unsigned char>(c));
+    if (!(isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '.')) return false;
+  }
+  if (!h.empty() && h.back() == '.') h.pop_back();
+  size_t dot = h.rfind('.');
+  if (dot == std::string::npos || dot == 0) return false;  // one label: localhost, a router name
+  // The last label must be letters: rules out 10.0.0.1, 2130706433 and friends.
+  std::string tld = h.substr(dot + 1);
+  if (tld.size() < 2) return false;
+  for (char c : tld)
+    if (!isalpha(static_cast<unsigned char>(c))) return false;
+  for (const char *sfx : {".local", ".lan", ".home", ".internal", ".localhost", ".localdomain", ".home.arpa", ".intranet",
+                          ".corp", ".private"}) {
+    size_t n = std::strlen(sfx);
+    if (h.size() >= n && h.compare(h.size() - n, n, sfx) == 0) return false;
+  }
+  return true;
+}
+static bool public_server(const char *url) {
+  return std::strncmp(url, "https://", 8) == 0 && public_host(std::string(url + 8));
+}
+
 void Standalone::notify(const std::string &title, const std::string &message, int priority, const std::string &tag) {
   std::lock_guard<std::recursive_mutex> g(this->lock_);
   const std::string r = this->s_.route;
@@ -458,7 +582,10 @@ void Standalone::notify(const std::string &title, const std::string &message, in
     page += food ? "#s-food" : (tag.rfind("fuel", 0) == 0 || tag.rfind("fire", 0) == 0) ? "#s-fuel"
                  : (tag.rfind("pit", 0) == 0 || tag == "program" || tag == "lid") ? "#s-pit" : "";
   }
-  if (this->s_.ntfy_topic[0]) {
+  if (this->s_.ntfy_topic[0] && !public_server(this->s_.ntfy_server)) {
+    std::lock_guard<std::mutex> r(this->results_lock_);  // saved by older firmware, and pointing into the home network
+    this->last_result_[0] = "not sent: set a public ntfy server";
+  } else if (this->s_.ntfy_topic[0]) {
     std::string body = json::build_json([&](JsonObject root) {
       root["topic"] = this->s_.ntfy_topic;
       root["title"] = title;
@@ -584,6 +711,9 @@ void Standalone::worker_lane_(int lane) {
     cfg.method = j.method == "POST" ? HTTP_METHOD_POST : j.method == "DELETE" ? HTTP_METHOD_DELETE : HTTP_METHOD_GET;
     cfg.timeout_ms = lane ? 180000 : 15000;  // an AI answer can take a couple of minutes
     cfg.crt_bundle_attach = esp_crt_bundle_attach;  // real certificate checks
+    // Never follow a redirect: it could point into the home network, and headers (an AI key) would go along. A 3xx
+    // counts as a failure.
+    cfg.disable_auto_redirect = true;
     cfg.event_handler = collect_;
     cfg.user_data = &resp;
     cfg.buffer_size_tx = 1024;
@@ -611,7 +741,11 @@ void Standalone::worker_lane_(int lane) {
     if (err != ESP_OK)
       std::snprintf(result, sizeof(result), "couldn't connect (%s)", esp_err_to_name(err));
     else
-      std::snprintf(result, sizeof(result), code >= 200 && code < 300 ? "sent (HTTP %d)" : "refused (HTTP %d)", code);
+      std::snprintf(result, sizeof(result),
+                    code >= 200 && code < 300   ? "sent (HTTP %d)"
+                    : code >= 300 && code < 400 ? "redirected (HTTP %d), not followed"
+                                                : "refused (HTTP %d)",
+                    code);
     ESP_LOGI(TAG, "%s: %s", j.what.c_str(), result);
     std::lock_guard<std::mutex> g(this->results_lock_);
     if (j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0 || j.what == "aggregates" ||
@@ -662,9 +796,10 @@ std::string Standalone::status_json_(bool authed) {
     for (int i = 0; i < 3; i++) r[i] = this->last_result_[i];
   }
   return json::build_json([&](JsonObject o) {
-    o["pin"] = this->guard_->pin_set();
+    o["pin"] = this->req_pin_;
     o["authed"] = authed;
-    o["locked"] = this->guard_->locked_for();
+    o["locked"] = this->req_locked_;
+    if (!this->req_pin_) o["first_pin"] = this->req_first_pin_;  // seconds left for the first PIN (0 = power-cycle first)
     o["ha"] = ha_connected();
     o["route"] = this->s_.route;
     JsonObject set = o["set"].to<JsonObject>();  // secrets: only whether they're there, never their value
@@ -686,11 +821,13 @@ std::string Standalone::status_json_(bool authed) {
       uint32_t t = ::time(nullptr) > 1700000000 ? uint32_t(::time(nullptr)) : 0;
       int light = this->light_by_(t, &est);
       JsonObject plan = o["plan"].to<JsonObject>();
-      plan["serve_by"] = this->s2_.serve_by;
+      // When you're eating (and so when the house is busy) is for an unlocked page once a PIN is set.
+      const bool show = authed || !this->req_pin_;
+      plan["serve_by"] = show ? this->s2_.serve_by : 0;
       plan["rest_min"] = this->s2_.rest_min;
       plan["now"] = t;
-      if (light > 0) plan["light_by"] = light;
-      if (!std::isnan(est)) plan["est_min"] = std::round(est);
+      if (show && light > 0) plan["light_by"] = light;
+      if (show && !std::isnan(est)) plan["est_min"] = std::round(est);
     }
     o["weather_age_min"] = this->wx_at_ ? int((millis() - this->wx_at_) / 60000) : -1;
     JsonObject last = o["last"].to<JsonObject>();
@@ -706,23 +843,27 @@ static std::string err_json(const std::string &msg) {
 
 // login / pin / logout (called with guard_lock_ held, not lock_).
 std::string Standalone::api_pin_(const std::string &path, const std::string &body, const std::string &token,
-                                 int &status) {
+                                 const std::string &client, int &status) {
   JsonDocument in = json::parse_json(body);
   auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
   if (path == "login") {
     if (!this->guard_->pin_set()) { status = 409; return err_json("No PIN yet: set one first"); }
-    std::string t = this->guard_->login(str("pin"));
+    const std::string pin = str("pin");
+    if (!pinauth::well_formed(pin)) { status = 400; return err_json("Enter the PIN (6 to 32 characters)"); }  // not counted
+    std::string t = this->guard_->login(pin, client);
     if (t.empty()) {
-      status = this->guard_->locked_for() ? 429 : 401;
+      const uint32_t locked = this->guard_->locked_for(client);
+      status = locked ? 429 : 401;
       return json::build_json([&](JsonObject o) {
-        o["error"] = this->guard_->locked_for() ? "Too many wrong PINs: wait and try again" : "Wrong PIN";
-        o["locked"] = this->guard_->locked_for();
+        o["error"] = locked ? "Too many wrong PINs: wait and try again" : "Wrong PIN";
+        o["locked"] = locked;
       }).c_str();
     }
     return json::build_json([&](JsonObject o) { o["token"] = t; }).c_str();
   }
-  if (path == "pin") {  // set (first use) or change (needs the current PIN)
-    std::string why = this->guard_->set_pin(str("pin"), str("current"));
+  if (path == "pin") {  // set (first use, within its window) or change (needs the current PIN)
+    std::string why = this->guard_->set_pin(str("pin"), str("current"), client);
+    if (why == pinauth::FIRST_PIN_CLOSED) { status = 403; return err_json(why); }
     if (!why.empty()) { status = 400; return err_json(why); }
     this->save_pending_ = true;
     std::string t = this->guard_->new_session();  // (not login(): that would hash the PIN a third time)
@@ -737,15 +878,18 @@ std::string Standalone::api_pin_(const std::string &path, const std::string &bod
 }
 
 std::string Standalone::api(const std::string &method, const std::string &path, const std::string &body,
-                            const std::string &token, int &status) {
+                            const std::string &token, const std::string &client, int &status) {
   // The PIN (login, set or change, logout) first, under its own lock: hashing it takes a while on the controller,
   // and the main loop must never wait on that (it takes lock_ below).
   bool authed;
   {
     std::lock_guard<std::mutex> gl(this->guard_lock_);
     authed = this->guard_->pin_set() && this->guard_->check(token);
+    this->req_pin_ = this->guard_->pin_set();  // for this request's answer (read below without guard_lock_)
+    this->req_locked_ = this->guard_->locked_for(client);
+    this->req_first_pin_ = this->guard_->first_pin_for();
     if (method == "POST" && (path == "login" || path == "pin" || path == "logout"))
-      return this->api_pin_(path, body, token, status);
+      return this->api_pin_(path, body, token, client, status);
   }
   std::lock_guard<std::recursive_mutex> g(this->lock_);
   if (method == "GET" && path == "status")
@@ -761,14 +905,14 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   if (method == "GET" && path == "community")
     return this->community_json_();
   if (method == "GET" && path == "ai")
-    return this->ai_json_();
+    return this->ai_json_(authed || !this->req_pin_);
   if (method != "POST") {
     status = 404;
     return err_json("not found");
   }
   // Everything below changes settings or keys: a PIN must be set (so keys are never stored on an open page) and
   // this request must carry a live session. Checked before the body is even parsed.
-  if (!this->guard_->pin_set()) { status = 409; return err_json("Set a PIN for the device page first"); }
+  if (!this->req_pin_) { status = 409; return err_json("Set a PIN for the device page first"); }
   if (!authed) { status = 401; return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str(); }
   JsonDocument in = json::parse_json(body);
   auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
@@ -803,9 +947,20 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     }
     if (in["ntfy_server"].is<const char *>()) {
       std::string u = str("ntfy_server");
+      while (!u.empty() && u.back() == '/') u.pop_back();
       if (u.rfind("https://", 0) != 0 || u.size() >= sizeof(this->s_.ntfy_server)) {
         status = 400;
         return err_json("The ntfy server must be an https:// address");
+      }
+      if (!public_server(u.c_str())) {
+        status = 400;
+        return err_json("The ntfy server must be a public name (like ntfy.example.com), not an address on your network");
+      }
+      if (u != this->s_.ntfy_server) {
+        // The topic was for the old server: never hand it to a new one (whoever changed the server would read it).
+        std::memset(this->s_.ntfy_topic, 0, sizeof(this->s_.ntfy_topic));
+        std::lock_guard<std::mutex> r(this->results_lock_);
+        this->last_result_[0].clear();
       }
       copy_field(this->s_.ntfy_server, sizeof(this->s_.ntfy_server), u);
     }

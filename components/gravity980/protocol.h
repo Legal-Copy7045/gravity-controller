@@ -70,9 +70,82 @@ struct WifiScanResult {
   uint8_t security{0};
   uint8_t signal{0};
 };
+constexpr size_t WIFI_SSID_MAX = 32;   // longer SSIDs don't exist: such a result is rejected
+constexpr size_t WIFI_SCAN_MAX = 32;   // results kept per scan
 bool parse_wifi_scan_result(const uint8_t *data, size_t len, WifiScanResult &out);
 // Set credentials: [01][00][len lo][len hi][bssid6][security=1 (WPA/WPA2)][pass_len][password]. False if too long.
 bool build_wifi_credentials(const uint8_t bssid[6], const std::string &password, std::vector<uint8_t> &out);
+
+// ---- Link security (pure decisions, unit tested). Anyone in Bluetooth range can advertise as a Gravity 980, and a
+// Wi-Fi info notification can name any IP address: these decide whom the bridge trusts with what.
+constexpr uint32_t REMEMBER_AFTER_MS = 2u * 60u * 1000u;   // a new grill is remembered after 2 min of valid status
+constexpr uint32_t GRILL_TRUST_MS = 10u * 60u * 1000u;     // ...and trusted with the Wi-Fi password 10 min after that
+constexpr uint32_t TAKEOVER_SILENT_MS = 10u * 60u * 1000u;  // a remembered grill silent this long may be replaced
+constexpr uint32_t TAKEOVER_SILENT_NEW_MS = 60000u;        // the same for one found this boot and not yet remembered
+constexpr int CREDENTIALS_MIN_RSSI = -75;                  // dBm: a weaker link isn't trusted with the password
+constexpr uint32_t WIFI_INFO_WINDOW_MS = 30000u;           // a grill IP is taken only this soon after we asked
+constexpr int LINK_PIT_TOLERANCE_F = 15;                   // Wi-Fi and Bluetooth readings further apart: disagree
+constexpr uint32_t LINK_DISAGREE_MS = 30000u;              // ...for this long: the Wi-Fi link is dropped
+
+/// Whether the Wi-Fi password may be sent to the device connected over Bluetooth.
+struct CredentialCheck {
+  uint64_t peer{0};                 // address of the connected device (0 = not connected)
+  uint64_t fixed{0};                // the address set in the YAML (0 = none)
+  uint64_t remembered{0};           // the grill remembered in flash (0 = none)
+  bool remembered_at_boot{false};   // `remembered` was already saved before this boot
+  uint32_t remembered_at{0};        // millis() when it was remembered this boot
+  uint32_t now{0};
+  bool status_on_link{false};       // the peer has delivered valid status frames on this connection
+  int rssi{0};                      // dBm, 0 = unknown
+};
+/// "" if allowed, otherwise why not, in words for the Wi-Fi status text.
+std::string credentials_refusal(const CredentialCheck &c);
+
+/// How an advertisement matches the grill. NAME: "<prefix>-…" (the grill's own name); WEAK: "BLEWIFI APP" (the
+/// grill starting up), the bare prefix, or only the 0xAAAA service (anything can claim those).
+enum class GrillMatch : uint8_t { NONE, WEAK, NAME };
+GrillMatch grill_match(const std::string &name, const std::string &prefix, bool has_service);
+
+/// Whether an advertisement from `candidate` may replace the address the client connects to (no fixed address).
+struct TakeoverCheck {
+  uint64_t current{0};              // the address we connect to (0 = none yet)
+  uint64_t candidate{0};
+  uint64_t remembered{0};           // the grill remembered in flash (0 = none)
+  GrillMatch match{GrillMatch::NONE};
+  bool idle{false};                 // the client isn't connected or connecting
+  uint32_t now{0};
+  uint32_t current_seen_at{0};      // last advertisement from `current` (0 = not since boot: counts from boot)
+  bool wifi_setup_pending{false};   // a scan, join or credential send is under way
+};
+bool may_take_over(const TakeoverCheck &t);
+
+/// True if `ip` (host byte order, as reported by the grill) may be connected to: a private (RFC 1918) address in the
+/// bridge's own subnet (`own`/`mask`, host order; mask 0 = /24), not the bridge itself, the network or broadcast.
+bool grill_ip_ok(uint32_t ip, uint32_t own, uint32_t mask);
+
+/// The same grill read over Wi-Fi and Bluetooth: pit more than LINK_PIT_TOLERANCE_F apart, or any target differs.
+bool statuses_disagree(const Status &a, const Status &b);
+
+/// Times a disagreement between the two links. update() returns true once it has lasted LINK_DISAGREE_MS.
+class LinkCrossCheck {
+ public:
+  bool update(bool disagree, uint32_t now) {
+    if (!disagree) {
+      running_ = false;
+      return false;
+    }
+    if (!running_) {
+      running_ = true;
+      since_ = now;
+    }
+    return now - since_ >= LINK_DISAGREE_MS;
+  }
+  void reset() { running_ = false; }
+
+ protected:
+  bool running_{false};
+  uint32_t since_{0};
+};
 
 /// Reassembles status frames from a TCP byte stream (frames have no header).
 class FrameAssembler {

@@ -44,7 +44,7 @@ async def main():
         return d if isinstance(d, dict) else render(d)
 
     # 1. probe key mapping used by the notification buttons
-    seq = autos["smoker_notification_actions"]["actions"][1]["choose"]
+    seq = next(st for st in autos["smoker_notification_actions"]["actions"] if "choose" in st)["choose"]
     plus = next(c for c in seq if "FOOD_PLUS_5" in str(c["conditions"]))["sequence"][0]["variables"]["key"]
     for a, want in [("SMOKER_FOOD_PLUS_5_FOOD1", "food_1"), ("SMOKER_FOOD_PLUS_5_FOOD3", "food_3")]:
         got = render(plus, a=a)
@@ -88,6 +88,56 @@ async def main():
                           ("Food 6 stall", "stall_food6", 1), ("Food 1 stall over", "stall_food1", 0)]:
         b = render(fwd["buttons"], tag=tag, trigger={"event": Ev(title, tag)})
         check(isinstance(b, list) and len(b) == n, f"buttons for {title!r}: {b!r}")
+
+    # 2b. a tag that isn't exactly done_/pull_/stall_ + food1-6 names no probe (no JSON pasting of the tag)
+    for tag in ['done_food1"}, {"action": "SMOKER_START_PROGRAM', "done_food9", "pull_FOOD1x", "stall_"]:
+        b = render(fwd["buttons"], tag=tag, trigger={"event": Ev("Food 1 stall", tag)})
+        check(isinstance(b, list) and not any("FOOD" in x["action"] or "START" in x["action"] for x in b),
+              f"odd tag {tag!r} -> {b!r}")
+    b = render(fwd["buttons"], tag="pull_food2", trigger={"event": Ev("Pull it", "pull_food2")})
+    check(b[0]["action"] == "SMOKER_PULLED_FOOD2", f"pull button -> {b!r}")
+
+    # 2c. smoker_notify: SMOKER_ buttons get the notification's one-off code, other buttons are left alone
+    nv = pkg["script"]["smoker_notify"]["sequence"][0]["variables"]
+    code = render(nv["code"])
+    check(isinstance(code, str) and len(code) == 16 and code.isalpha() and code != render(nv["code"]),
+          f"notification code {code!r}")
+    given = [{"action": "SMOKER_PIT_HOLD", "title": "Hold"}, {"action": "URI", "title": "Open", "uri": "/x"}]
+    b = render(nv["buttons"], actions=given, code=code)
+    check(b["ours"] and b["list"][0]["action"] == "SMOKER_PIT_HOLD__" + code and b["list"][1]["action"] == "URI",
+          f"coded buttons {b!r}")
+    check(render(nv["buttons"], code=code) == {"list": [], "ours": False}, "no buttons -> nothing to remember")
+
+    # 2d. a button counts only with a code remembered in the last 2 hours
+    cond = autos["smoker_notification_actions"]["conditions"][0]["value_template"]
+    import time as _t
+    now_s = int(_t.time())
+    hass.states.async_set("input_text.smoker_notify_codes", f"{'a' * 16}:{now_s - 8000} {'b' * 16}:{now_s - 60}")
+    for action, want in [("SMOKER_START_PROGRAM__" + "b" * 16, True), ("SMOKER_START_PROGRAM__" + "a" * 16, False),
+                         ("SMOKER_START_PROGRAM", False), ("SMOKER_START_PROGRAM__" + "c" * 16, False),
+                         ("OTHER__" + "b" * 16, False), ("SMOKER_X__" + "b" * 16 + "__y", False)]:
+        got = render(cond, trigger={"event": {"data": {"action": action}}})
+        check(got is want, f"button {action!r} accepted: {got!r}")
+
+    # 2e. the AI plan's program is checked before it's loaded
+    pv = next(st for st in pkg["script"]["smoker_plan_cook"]["sequence"]
+              if isinstance(st, dict) and "variables" in st and "refused" in st["variables"])["variables"]["refused"]
+    hass.states.async_set("number.smoker_pit_target", "225", {"unit_of_measurement": "°F", "min": 200, "max": 700})
+    ok = 'name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it; don\'t cut"'
+    for prog, bad in [(ok, ""), ("pit 400F until after 2h", ""), ("1. pit 250\n2. hold 200", ""),
+                      ("pit 450 until food1 done", "above the 400°F"), ("hold 401", "above"),
+                      ("set to 230C until after 1h", "above"), ('pit 250 notify "see http://x.example"', "link"),
+                      ('pit 250 notify "go to www.example.com"', "link"), ("ignore the rules; pit 250", "not an action"),
+                      ("pit 250; name: x", "must come first"), ('pit 250 notify "unbalanced', "quotes"),
+                      ("", "no program"), ("name: only a name", "no steps"), ("pit 250 until food1 >= 165 {x}", "other than"),
+                      ("name: x; pit 250\nhold 900", "above")]:
+        got = str(render(pv, program=prog, explanation="Fine.", max_pit=400.0) or "")
+        check((bad in got) if bad else got == "", f"plan check {prog!r} -> {got!r}")
+    hass.states.async_set("number.smoker_pit_target", "107", {"unit_of_measurement": "°C", "min": 93, "max": 371})
+    check("above" in str(render(pv, program="pit 250", explanation="", max_pit=400.0)), "°C controller: pit 250 is 482°F")
+    check(str(render(pv, program="pit 120", explanation="", max_pit=400.0) or "") == "", "°C controller: pit 120 is fine")
+    check("link" in str(render(pv, program="pit 120", explanation="More at https://x.example", max_pit=400.0)),
+          "a link in the explanation")
 
     # 3. recommendation parsing in the advisor script
     adv = pkg["script"]["smoker_ai_advise"]["sequence"]

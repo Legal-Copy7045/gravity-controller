@@ -1,6 +1,8 @@
 #pragma once
 // Everything the controller needs to run without Home Assistant (docs/standalone.md):
-//  - the device page's PIN (pin_auth.h): once set, every change made through the device page needs it;
+//  - the device page's PIN (pin_auth.h): once set, every change made through the device page needs it. The first one
+//    can only be set within 15 minutes of a restart or of clearing it; without one the page stays open to changes
+//    (the owner's choice), but keys and settings can't be stored;
 //  - write-only secrets (notification keys, AI key): stored in flash, never sent back out, only "set / not set";
 //  - notifications straight to a phone (ntfy, Pushover, Telegram), routed via Home Assistant, direct, or both;
 //  - weather and the forecast from Open-Meteo for a location stored only here;
@@ -132,11 +134,12 @@ class Standalone : public Component {
   bool migrate_ntfy_topic(const std::string &topic);
 
   // --- used by the web handler (httpd task; everything below takes the lock) ---
+  /// client: the browser's IP address (the PIN's lockout is per client).
   std::string api(const std::string &method, const std::string &path, const std::string &body, const std::string &token,
-                  int &status);
+                  const std::string &client, int &status);
   /// api() on the controller's API task (a roomy stack), waiting for the answer. Used by the web handler.
   std::string api_call(const char *method, const std::string &path, const std::string &body, const std::string &token,
-                       int &status);
+                       const std::string &client, int &status);
   bool write_allowed(const std::string &token);
   bool pin_set();
 
@@ -163,7 +166,11 @@ class Standalone : public Component {
   std::string api_cook_(const std::string &path, JsonDocument &in, bool authed, int &status);
   std::string status_json_(bool authed);
   bool direct_configured_() const;
-  std::string api_pin_(const std::string &path, const std::string &body, const std::string &token, int &status);
+  std::string api_pin_(const std::string &path, const std::string &body, const std::string &token,
+                       const std::string &client, int &status);
+  // The PIN's state for the request being answered (API task only; read from guard_ under guard_lock_).
+  bool req_pin_{false};
+  uint32_t req_locked_{0}, req_first_pin_{0};
 
   Settings s_{};
   ESPPreferenceObject pref_, pin_pref_;
@@ -229,9 +236,10 @@ class Standalone : public Component {
   int ai_kind_(const std::string &k) const;
   bool ai_ask_(const std::string &kind, const std::string &system, const std::string &user, const std::string &image_b64,
                std::string &why);
+  static bool community_group_ok_(JsonObject g);
   void ai_done_(const std::string &what, int code, const std::string &body);
   std::string ai_advise_();
-  std::string ai_json_();
+  std::string ai_json_(bool full = true);  // full: with the answers and errors (an unlocked page, or no PIN)
   std::string api_ai_(const std::string &path, JsonDocument &in, int &status);
   AiSettings ai_{};
   ESPPreferenceObject aipref_;

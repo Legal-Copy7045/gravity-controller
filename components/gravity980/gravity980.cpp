@@ -25,6 +25,10 @@
 #include <mutex>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_netif.h>
+#endif
+#ifdef USE_NETWORK
+#include "esphome/components/network/util.h"
 #endif
 #ifdef USE_GRAVITY980_BLE
 #include "esphome/components/esp32_ble/ble.h"
@@ -88,6 +92,45 @@ std::string hex_dump(const uint8_t *data, size_t len) {
   return s;
 }
 static const char *const PROBE_NAME[PROBE_COUNT] = {"pit", "food1", "food2"};
+static const size_t TCP_READ_MAX = 1024;  // bytes read per loop() (a flood can't hold the main loop)
+static const uint32_t TCP_HOLD_MS = 10u * 60u * 1000u;  // a configured host that disagreed with Bluetooth: retry after
+
+// The bridge's own IPv4 address and netmask (host byte order; 0 when unknown, mask 0 = assume /24).
+static void own_ipv4(uint32_t &ip, uint32_t &mask) {
+  ip = mask = 0;
+#ifdef USE_ESP32
+  for (const char *key : {"WIFI_STA_DEF", "ETH_DEF"}) {
+    esp_netif_t *nif = esp_netif_get_handle_from_ifkey(key);
+    esp_netif_ip_info_t info{};
+    if (nif != nullptr && esp_netif_get_ip_info(nif, &info) == ESP_OK && info.ip.addr != 0) {
+      ip = ntohl(info.ip.addr);
+      mask = ntohl(info.netmask.addr);
+      return;
+    }
+  }
+#endif
+#ifdef USE_NETWORK
+  for (const auto &a : network::get_ip_addresses()) {
+    if (!a.is_ip4())
+      continue;
+    char b[network::IP_ADDRESS_BUFFER_SIZE];
+    a.str_to(b);
+    struct in_addr x {};
+    if (inet_pton(AF_INET, b, &x) == 1 && x.s_addr != 0) {
+      ip = ntohl(x.s_addr);
+      return;
+    }
+  }
+#endif
+}
+
+// "…:AB:CD:EF": the last 3 bytes of a Bluetooth address, enough for the owner to tell devices apart.
+static std::string mac_tail(uint64_t a) {
+  char b[16];
+  std::snprintf(b, sizeof b, "…:%02X:%02X:%02X", unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF),
+                unsigned(a & 0xFF));
+  return b;
+}
 static const uint32_t CONNECT_TIMEOUT_MS = 5000;
 // The grill silently ignores writes while idle; unacknowledged writes revert.
 static const uint32_t VERIFY_TIMEOUT_MS = 6000;
@@ -124,6 +167,7 @@ void Gravity980Component::setup() {
   this->grill_pref_ = global_preferences->make_preference<uint64_t>(fnv1_hash("gravity980_grill_addr_v1"), true);
   if (!this->grill_pref_.load(&this->remembered_grill_))
     this->remembered_grill_ = 0;
+  this->remembered_at_boot_ = this->remembered_grill_ != 0;  // trusted with the Wi-Fi password (see credentials_refusal)
   // A boost interrupted by a restart: put the target back as soon as the grill reports the boosted one.
   this->boost_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("gravity980_boost_v1"));
   uint32_t b = 0;
@@ -147,11 +191,17 @@ void Gravity980Component::remember_grill(uint64_t a) {
   if (a == 0 || a == this->remembered_grill_)
     return;
   this->remembered_grill_ = a;
+  this->remembered_at_boot_ = false;
+  const uint32_t now = millis();
+  this->remembered_at_ = now ? now : 1;
   this->grill_pref_.save(&a);
+  ESP_LOGI(TAG, "Remembered the grill at %s", mac_tail(a).c_str());
 }
 
 void Gravity980Component::forget_grill() {
   this->remembered_grill_ = 0;
+  this->remembered_at_boot_ = false;
+  this->remembered_at_ = 0;
   uint64_t z = 0;
   this->grill_pref_.save(&z);
 #ifdef USE_GRAVITY980_BLE
@@ -212,6 +262,8 @@ bool Gravity980Component::ble_raw_(const std::vector<uint8_t> &data, const char 
 bool Gravity980Component::wifi_rejoin() {
   if (!this->ble_raw_({0x06, 0x00, 0x00, 0x00}, "ask the grill to join Wi-Fi"))
     return false;
+  const uint32_t now = millis();
+  this->wifi_info_req_at_ = now ? now : 1;  // the Wi-Fi info (and its IP) that follows is ours to use
   this->wifi_status_("Asked the grill to join its saved Wi-Fi…");
   return true;
 }
@@ -260,7 +312,36 @@ void Gravity980Component::wifi_scan_done_() {
   }
 }
 
+// The Wi-Fi password goes only to a grill we have reason to trust: the address set in the YAML, or the remembered
+// grill (remembered before this boot, or at least 10 minutes ago), delivering status now, with a decent signal.
+// Anything in Bluetooth range can advertise as a Gravity 980 and wait for the owner to type the password.
+std::string Gravity980Component::credentials_refusal_() {
+  CredentialCheck c;
+  c.now = millis();
+  c.remembered = this->remembered_grill_;
+  c.remembered_at_boot = this->remembered_at_boot_;
+  c.remembered_at = this->remembered_at_;
+  c.status_on_link = this->ble_connected_ && this->ble_got_frame_ && this->ble_status_since_ != 0 &&
+                     int32_t(c.now - this->ble_last_frame_) < int32_t(this->stale_timeout_);
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr && this->ble_connected_ && this->ble_->ready()) {
+    c.peer = this->ble_->get_address();
+    c.fixed = this->ble_->fixed_address();
+    if (this->ble_->link_rssi_at() != 0 && c.now - this->ble_->link_rssi_at() < 90000)
+      c.rssi = this->ble_->link_rssi();
+    this->ble_->request_rssi();  // fresh for the next try
+  }
+#endif
+  return credentials_refusal(c);
+}
+
 bool Gravity980Component::wifi_send_credentials_(const WifiNet &net, const std::string &password) {
+  const std::string why = this->credentials_refusal_();
+  if (!why.empty()) {
+    ESP_LOGW(TAG, "Not sending the Wi-Fi password: %s", why.c_str());
+    this->wifi_status_("Didn't send the Wi-Fi password: " + why);
+    return false;
+  }
   std::vector<uint8_t> m;
   if (!build_wifi_credentials(net.bssid, password, m)) {
     this->wifi_status_("Password too long (max 63 characters)");
@@ -270,14 +351,27 @@ bool Gravity980Component::wifi_send_credentials_(const WifiNet &net, const std::
   std::fill(m.begin(), m.end(), 0);  // don't leave the password lying around
   if (!ok)
     return false;
-  this->wifi_cred_at_ = millis();
-  this->wifi_status_("Sent the Wi-Fi details for '" + net.ssid + "' to the grill…");
+  const uint32_t now = millis();
+  this->wifi_cred_at_ = now ? now : 1;
+  uint64_t peer = 0;
+#ifdef USE_GRAVITY980_BLE
+  peer = this->ble_->get_address();
+#endif
+  this->wifi_status_("Sent the Wi-Fi details for '" + net.ssid + "' to the grill (Bluetooth " + mac_tail(peer) +
+                     ")…");
   return true;
 }
 
 bool Gravity980Component::wifi_join(const std::string &ssid, const std::string &password) {
   if (ssid.empty()) {
     this->wifi_status_("Enter the network name first");
+    return false;
+  }
+  // Checked again when the password is actually sent (after the scan).
+  const std::string why = this->credentials_refusal_();
+  if (!why.empty()) {
+    ESP_LOGW(TAG, "Not sending the Wi-Fi password: %s", why.c_str());
+    this->wifi_status_("Didn't send the Wi-Fi password: " + why);
     return false;
   }
   for (const auto &w : this->wifi_nets_)
@@ -307,6 +401,9 @@ void Gravity980Component::loop() {
   if (this->enabled_ && !this->host_for_tcp_().empty()) {
     switch (this->tcp_state_) {
       case TcpState::IDLE:
+        if (this->tcp_hold_at_ != 0 && now - this->tcp_hold_at_ < TCP_HOLD_MS)
+          break;  // dropped for disagreeing with Bluetooth: try again later
+        this->tcp_hold_at_ = 0;
         if (this->tcp_last_attempt_ == 0 || now - this->tcp_last_attempt_ >= this->reconnect_interval_)
           this->tcp_start_connect_();
         break;
@@ -449,9 +546,11 @@ void Gravity980Component::tcp_check_connect_() {
 
 void Gravity980Component::tcp_read_() {
   uint8_t buf[128];
-  while (true) {
+  size_t total = 0;
+  while (total < TCP_READ_MAX) {  // the rest waits for the next loop()
     ssize_t n = recv(this->fd_, buf, sizeof(buf), 0);
     if (n > 0) {
+      total += size_t(n);
       if (this->log_raw_)
         ESP_LOGD(TAG, "TCP rx: %s", hex_dump(buf, n).c_str());
       this->assembler_.feed(buf, size_t(n), [this](const uint8_t *f, size_t len) {
@@ -462,6 +561,8 @@ void Gravity980Component::tcp_read_() {
           this->handle_status_(s, Transport::TCP);
         }
       });
+      if (this->fd_ < 0)
+        return;  // closed while handling a frame (the links disagreed)
       continue;
     }
     if (n == 0) {
@@ -517,10 +618,20 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
   if (ble_status_payload(data, len, &payload, &plen)) {
     Status s;
     if (parse_status(payload, plen, s)) {
+      const uint32_t now = millis();
+      // Valid status without a gap since: a grill found this boot is remembered after 2 minutes of it.
+      if (this->ble_status_since_ == 0 || !this->ble_got_frame_ ||
+          int32_t(now - this->ble_last_frame_) >= int32_t(this->stale_timeout_))
+        this->ble_status_since_ = now ? now : 1;
       this->ble_connected_ = true;
       this->ble_got_frame_ = true;
       this->ble_retries_ = 0;
-      this->ble_last_frame_ = millis();
+      this->ble_last_frame_ = now;
+#ifdef USE_GRAVITY980_BLE
+      if (this->ble_ != nullptr && !this->ble_->has_fixed_address() &&
+          now - this->ble_status_since_ >= REMEMBER_AFTER_MS)
+        this->remember_grill(this->ble_->get_address());
+#endif
       this->handle_status_(s, Transport::BLE);
     }
     return;
@@ -559,18 +670,41 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
         if (!this->wifi_ts_->has_state() || this->wifi_ts_->state != b)
           this->wifi_ts_->publish_state(b);
       }
-      // Grill IP address left empty: use the address the grill reports for the Wi-Fi link.
+      // Grill IP address left empty: use the address the grill reports for the Wi-Fi link. Only an answer to our own
+      // request (join / send credentials) and only a private address in the bridge's own subnet: anything that can
+      // send this notification could otherwise point the bridge at its own server, which would then be preferred.
+      const uint32_t now = millis();
+      const bool asked = this->wifi_info_req_at_ != 0 && now - this->wifi_info_req_at_ < WIFI_INFO_WINDOW_MS;
       if (has_ip && this->auto_host_ != ipb) {
-        this->auto_host_ = ipb;
-        if (this->host_.empty())
-          ESP_LOGI(TAG, "Using the grill's reported IP %s for Wi-Fi (Grill IP address is empty)", ipb);
+        uint32_t own = 0, mask = 0;
+        own_ipv4(own, mask);
+        const uint32_t addr = (uint32_t(ip[0]) << 24) | (uint32_t(ip[1]) << 16) | (uint32_t(ip[2]) << 8) | ip[3];
+        if (this->auto_host_blocked_) {
+          ESP_LOGW(TAG, "Not using the reported IP %s: the Wi-Fi link disagreed with Bluetooth (until a restart)", ipb);
+        } else if (!asked) {
+          ESP_LOGW(TAG, "Ignoring an unrequested grill IP %s (use \"Grill Wi-Fi: join saved network\")", ipb);
+        } else if (!grill_ip_ok(addr, own, mask)) {
+          ESP_LOGW(TAG, "Ignoring the reported grill IP %s: not a private address on the bridge's own network", ipb);
+        } else {
+          this->auto_host_ = ipb;
+#ifdef USE_GRAVITY980_BLE
+          this->auto_host_peer_ = this->ble_ != nullptr ? this->ble_->get_address() : 0;
+#endif
+          this->wifi_info_req_at_ = 0;
+          if (this->host_.empty())
+            ESP_LOGI(TAG, "Using the grill's reported IP %s for Wi-Fi (Grill IP address is empty)", ipb);
+        }
       }
     }
     return;
   }
   if (len >= 5 && data[0] == 0x00 && data[1] == 0x10) {
     WifiScanResult r;
-    if (parse_wifi_scan_result(data, len, r)) {
+    if (this->wifi_scan_at_ == 0) {
+      ESP_LOGD(TAG, "Ignoring a Wi-Fi scan result: no scan running");
+    } else if (this->wifi_nets_.size() >= WIFI_SCAN_MAX) {
+      ESP_LOGD(TAG, "Ignoring a Wi-Fi scan result: list full");
+    } else if (parse_wifi_scan_result(data, len, r)) {
       ESP_LOGI(TAG, "Grill sees Wi-Fi '%s' (signal %u, security %u)", r.ssid.c_str(), r.signal, r.security);
       WifiNet w;
       w.ssid = r.ssid;
@@ -595,8 +729,27 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
 void Gravity980Component::on_ble_connected() {
   this->ble_connected_ = true;
   this->ble_got_frame_ = false;  // active only once status notifications arrive
+  this->ble_status_since_ = 0;
   this->ble_last_frame_ = this->ble_warned_ = millis();
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr) {
+    this->ble_->clear_link_rssi();
+    // The IP was reported by another Bluetooth device: not this grill's to vouch for.
+    if (!this->auto_host_.empty() && this->ble_->get_address() != this->auto_host_peer_)
+      this->clear_auto_host_("the Bluetooth device changed");
+  }
+#endif
   ESP_LOGI(TAG, "BLE connected");
+}
+
+void Gravity980Component::clear_auto_host_(const char *why) {
+  if (this->auto_host_.empty())
+    return;
+  ESP_LOGW(TAG, "No longer using the grill's reported IP %s: %s", this->auto_host_.c_str(), why);
+  this->auto_host_.clear();
+  this->auto_host_peer_ = 0;
+  if (this->host_.empty())
+    this->tcp_close_(why);
 }
 
 void Gravity980Component::on_ble_disconnected(int reason) {
@@ -612,6 +765,14 @@ void Gravity980Component::on_ble_disconnected(int reason) {
   }
   this->ble_connected_ = false;
   this->ble_got_frame_ = false;
+  this->ble_status_since_ = 0;
+  // A join waiting for its scan: the password goes nowhere now (the next device to connect may not be the grill).
+  if (!this->wifi_join_ssid_.empty()) {
+    std::fill(this->wifi_join_pass_.begin(), this->wifi_join_pass_.end(), '\0');
+    this->wifi_join_ssid_.clear();
+    this->wifi_join_pass_.clear();
+    this->wifi_status_("Wi-Fi setup cancelled: the Bluetooth link dropped. Try again once it's back");
+  }
   ESP_LOGI(TAG, "BLE disconnected (reason 0x%02X)", unsigned(reason & 0xFF));
   this->update_active_();
 }
@@ -846,6 +1007,41 @@ void Gravity980Component::update_active_() {
 }
 
 void Gravity980Component::handle_status_(const Status &s, Transport via) {
+  // Both links deliver: they read the same grill, so they must agree. If they don't (one of them isn't the grill,
+  // e.g. a reported IP that leads to someone else's server), drop the Wi-Fi link and stop trusting reported IPs.
+  {
+    const uint32_t now = millis();
+    if (via == Transport::TCP) {
+      this->tcp_seen_ = s;
+      this->tcp_seen_at_ = now ? now : 1;
+    } else {
+      this->ble_seen_ = s;
+      this->ble_seen_at_ = now ? now : 1;
+    }
+    const bool both = this->tcp_seen_at_ != 0 && this->ble_seen_at_ != 0 &&
+                      int32_t(now - this->tcp_seen_at_) < int32_t(this->stale_timeout_) &&
+                      int32_t(now - this->ble_seen_at_) < int32_t(this->stale_timeout_) &&
+                      this->tcp_state_ == TcpState::CONNECTED && this->ble_connected_;
+    if (this->cross_check_.update(both && statuses_disagree(this->tcp_seen_, this->ble_seen_), now)) {
+      ESP_LOGW(TAG, "Wi-Fi (%s) and Bluetooth readings have disagreed for 30 s (pit %u vs %u°F, target %u vs %u°F): "
+               "dropping the Wi-Fi link",
+               this->host_for_tcp_().c_str(), this->tcp_seen_.probe[PROBE_PIT].temp_f,
+               this->ble_seen_.probe[PROBE_PIT].temp_f, this->tcp_seen_.probe[PROBE_PIT].target_f,
+               this->ble_seen_.probe[PROBE_PIT].target_f);
+      this->cross_check_.reset();
+      this->tcp_seen_at_ = 0;
+      if (this->host_.empty()) {
+        this->auto_host_blocked_ = true;
+        this->clear_auto_host_("its readings disagreed with Bluetooth");
+      } else {
+        this->tcp_hold_at_ = now ? now : 1;
+        this->tcp_close_("readings disagreed with Bluetooth");
+      }
+      this->update_active_();
+      if (via == Transport::TCP)
+        return;
+    }
+  }
   // When both links deliver, only the preferred one updates entities.
   this->update_active_();
   if (via != this->active_ && this->active_ != Transport::NONE)
@@ -996,6 +1192,9 @@ std::string Gravity980Component::send_test_command(int id, int value) {
     return "id must be 0-255 and value 0-65535";
   if (id == 0x01 || id == 0x04 || id == 0x05)
     return "ids 0x01, 0x04 and 0x05 are never sent (they crash the grill's Wi-Fi side)";
+  for (uint8_t t : CMD_TARGET_ID)
+    if (id == t)
+      return "use the target entities for setpoints";  // they check the grill's range
   if (this->read_only_)
     return "the bridge is read-only";
   const uint32_t now = millis();
@@ -1177,21 +1376,38 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     this->seen_at_ = now;
   if (a != 0 && (a == this->fixed_address_ || (this->fixed_address_ == 0 && a == this->get_address())))
     this->grill_seen_at_ = now;
-  // Found by name (no fixed address): learn the address and remember it. A grill that is power-cycled can come back
-  // on a different address, so while idle a match from a new address takes over once the one we know has been quiet
-  // for a minute (another Gravity 980 or a look-alike nearby doesn't snatch the link while ours is around).
-  if (this->fixed_address_ == 0 && a != this->get_address() &&
-      (this->get_address() == 0 ||
-       (this->state() == esp32_ble_tracker::ClientState::IDLE && (now - this->seen_at_) > 60000u))) {
-    if (this->is_grill_(device)) {
-      this->seen_at_ = this->grill_seen_at_ = now;
-      auto name = device.get_name();
-      ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
-               unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
-               unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
-      this->set_address(device.address_uint64());
-      if (this->parent_ != nullptr)
-        this->parent_->remember_grill(device.address_uint64());
+  // Found by name (no fixed address): learn the address; the bridge remembers it once it has delivered status for
+  // 2 minutes. A grill that is power-cycled can come back on a different address, so while idle a match from a new
+  // address may take over, but anything in range can claim to be a grill (see may_take_over): once one is
+  // remembered only a "Gravity980-…" name, after the known one has been quiet for 10 minutes (from boot, if it
+  // hasn't been heard since), and never during a Wi-Fi setup.
+  if (this->fixed_address_ == 0 && a != 0 && a != this->get_address()) {
+    const uint64_t remembered = this->parent_ != nullptr ? this->parent_->remembered_grill() : 0;
+    if (this->get_address() == 0 && remembered != 0) {
+      this->set_address(remembered);  // a cancelled connection cleared it: back to the grill we know (seen_at_ kept)
+    }
+    TakeoverCheck t;
+    t.current = this->get_address();
+    t.candidate = a;
+    t.remembered = remembered;
+    t.idle = this->state() == esp32_ble_tracker::ClientState::IDLE;
+    t.now = now;
+    t.current_seen_at = this->seen_at_;
+    t.wifi_setup_pending = this->parent_ != nullptr && this->parent_->wifi_setup_pending();
+    if (a != t.current) {
+      static const auto SVC = esp32_ble_tracker::ESPBTUUID::from_uint16(SVC_UUID);
+      bool svc = false;
+      for (const auto &u : device.get_service_uuids())
+        svc = svc || u == SVC;
+      t.match = grill_match(device.get_name(), this->name_prefix_, svc);
+      if (may_take_over(t)) {
+        this->seen_at_ = this->grill_seen_at_ = now;
+        auto name = device.get_name();
+        ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
+                 unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
+                 unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
+        this->set_address(a);
+      }
     }
   }
   if (a != 0 && a == this->get_address())
@@ -1200,19 +1416,8 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
 }
 
 // The grill advertises as "Gravity980-…", but while it starts up (and in some firmware states) as "BLEWIFI APP", and
-// always with its service 0xAAAA. Matching only the name missed a grill switched on after the bridge.
-bool Gravity980BLE::is_grill_(const esp32_ble_tracker::ESPBTDevice &device) const {
-  const std::string &name = device.get_name();
-  if (!this->name_prefix_.empty() && name.compare(0, this->name_prefix_.size(), this->name_prefix_) == 0)
-    return true;
-  if (name == "BLEWIFI APP")
-    return true;
-  static const auto SVC = esp32_ble_tracker::ESPBTUUID::from_uint16(0xAAAA);
-  for (const auto &u : device.get_service_uuids())
-    if (u == SVC)
-      return true;
-  return false;
-}
+// always with its service 0xAAAA (grill_match: those weak matches only pick a grill while none is remembered).
+// Matching only the name missed a grill switched on after the bridge.
 
 void Gravity980BLE::request_rssi() {
   if (this->state() != esp32_ble_tracker::ClientState::ESTABLISHED)

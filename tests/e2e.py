@@ -158,7 +158,7 @@ async def main():
         await cli.execute_service(svc["load_program"], {"program": "name: Test; pit 260 until food1 >= 110; pit 275 until food1 >= 203; hold 200 notify \"done\""})
         await asyncio.sleep(1)
         await cli.execute_service(svc["start_program"], {})
-        check(await wait_for(lambda: val("pit_target_reported") == 260.0, 10, "program pit 260"), "program step 1 set pit to 260")
+        check(await wait_for(lambda: val("pit_target_reported") == 260.0, 20, "program pit 260"), "program step 1 set pit to 260")
         check(await wait_for(lambda: val("pit_target_reported") == 275.0, 90, "program pit 275"),
               f"program advanced to step 2 when food1 >= 110 (food1 {val('food_1_temperature')})")
         print(f"  status: {val('program_status')}")

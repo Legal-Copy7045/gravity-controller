@@ -44,6 +44,9 @@ class GoveeH5198 : public ble_device_base::ESPBTDeviceListener, public Component
   uint32_t rssi_ms_{0};
   int last_rssi_{0};
   bool seen_{false};
+  h5198::Candidate cand_;       // not remembered yet: the thermometer being heard (see h5198::Candidate)
+  uint64_t cand_used_{0};
+  h5198::ProbeFilter filter_[4];  // per probe: sudden jumps count only once they repeat
 };
 
 }  // namespace govee_h5198

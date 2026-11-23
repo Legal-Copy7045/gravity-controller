@@ -49,7 +49,9 @@ dashboard (pull the latest and install).
    proxy): you can ignore it; the controller reads the H5198 itself.
 2. Device page → **Grill IP address**: the grill's IP (give it a DHCP reservation on your router). Find it in your
    router's client list, or in the device log, which prints `Grill reports Wi-Fi status …, IP a.b.c.d` when it
-   connects over Bluetooth. **Optional:** without it the bridge reads *and controls* the grill over Bluetooth
+   connects over Bluetooth. Left empty, the bridge uses the IP the grill reports only right after **Grill Wi-Fi: join
+   saved network** (or a Wi-Fi setup), and only a private address on the controller's own network
+   ([why](protocol.md#trust)). **Optional:** without it the bridge reads *and controls* the grill over Bluetooth
    (**Control over Bluetooth**, on by default; see
    [first run](first-run.md#control-over-bluetooth)). Grill Wi-Fi not joining (common on UniFi)? See
    [the grill's Wi-Fi](first-run.md#the-grills-wi-fi-unifi-and-mesh-networks), or just leave it on Bluetooth.
@@ -62,8 +64,13 @@ dashboard (pull the latest and install).
 
 **The controller's own page:** open `http://gravity980.local` (or its IP; on a phone the IP is more reliable) for a
 phone page served by the controller itself: connection status first, the grill with live readings, food, pit target
-and program, charcoal and setup. It works without Home Assistant and without the internet. ESPHome's standard page
-with every entity and the logs is at `http://gravity980.local/?classic` (that one loads from the internet).
+and program, charcoal and setup. It works without Home Assistant and without the internet, and loads nothing from
+other sites.
+
+**Add it to Home Assistant within 15 minutes of powering it on.** Until Home Assistant adopts it (and sets its
+encryption key), the controller only accepts a new connection, and offers its setup hotspot and Bluetooth Wi-Fi
+setup, for 15 minutes after it's powered on. Missed it? Unplug it and plug it back in. Bluetooth Wi-Fi setup (Improv)
+also needs a short press of the board's BOOT button, so someone nearby can't move it to their own Wi-Fi.
 
 ## 3. Home Assistant package
 
@@ -126,7 +133,10 @@ that's unplugged reports exactly 0 °C (32 °F); that's treated as no reading.
 down: the controller keeps predicting, running programs and sending ntfy alarms. Only *Home Assistant* sources need it.
 
 **H5198 direct.** Nothing to set up: the controller uses the first H5198 that sends probe readings (*H5198
-connected* / *H5198 signal* show it). To pin a specific unit, add its Bluetooth address in your device YAML:
+connected* / *H5198 signal* show it) and remembers it once it has been heard steadily for a minute. A probe reading
+that jumps more than 15 °C within 10 s is shown only once it repeats in 3 advertisements in a row (a probe really moved
+into the pit still shows within a second or two). Advertisements aren't authenticated, so to pin your unit (and never
+pick up a neighbour's or a look-alike), add its Bluetooth address in your device YAML:
 
 ```yaml
 govee_h5198:

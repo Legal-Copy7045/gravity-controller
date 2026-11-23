@@ -2,9 +2,9 @@
 // Served by web_server as /0.js (js_include, gzipped in flash) with ui.css as /0.css; js_url is empty, so the
 // page never needs the internet. It reads live states from web_server's /events stream and acts through its
 // REST API (POST /<domain>/<entity name>/<action>), the same calls ESPHome's own page makes.
-// ?classic loads ESPHome's stock page instead (that one comes from oi.esphome.io, so it needs internet).
+// No third-party scripts: the session token lives in this origin's localStorage (ESPHome's stock page, loaded
+// from oi.esphome.io, used to be offered as ?classic; gone for that reason).
 const Q = new URLSearchParams(location.search);
-const CLASSIC = 'https://oi.esphome.io/v3/www.js';
 const doc = document, $ = id => doc.getElementById(id);
 const meta = (n, c) => { const m = doc.createElement('meta'); m.name = n; m.content = c; doc.head.appendChild(m); };
 meta('viewport', 'width=device-width,initial-scale=1,viewport-fit=cover');
@@ -23,10 +23,7 @@ function start() {
   doc.title = 'Smoker';
   meta('theme-color', '#c2410c');
   const ico = doc.createElement('link'); ico.rel = 'icon'; ico.href = FAVICON; doc.head.appendChild(ico);
-  // Optional web fonts: offline, the system fonts in ui.css take over.
-  const f = doc.createElement('link'); f.rel = 'stylesheet';
-  f.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap';
-  doc.head.appendChild(f);
+  // No web fonts: nothing on this page comes from another site (the system fonts in ui.css are used).
   const app = doc.querySelector('esp-app'); if (app) app.remove();
   doc.body.insertAdjacentHTML('afterbegin', ICONS + `<div class="wrap">
   <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
@@ -285,7 +282,9 @@ const ACT = {
     catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
   },
   async ntfyserver() {
-    const f = $('ntfysrv'); try { LOCAL = await local('settings', { ntfy_server: f.value.trim() }); delete f.dataset.dirty; toast('ntfy server saved'); renderLocal(); } catch (e) { toast(e.message); }
+    const f = $('ntfysrv'), had = LOCAL && LOCAL.set && LOCAL.set.ntfy;
+    // A new server drops the stored topic (it was for the old one): say so.
+    try { LOCAL = await local('settings', { ntfy_server: f.value.trim() }); delete f.dataset.dirty; toast(had && !LOCAL.set.ntfy ? 'ntfy server saved: enter the topic again' : 'ntfy server saved'); renderLocal(); } catch (e) { toast(e.message); }
   },
   async testnotify() { try { LOCAL = await local('test-notify', {}); toast('Test sent: check your phone'); renderLocal(); setTimeout(loadLocal, 8000); } catch (e) { toast(e.message); } },
   async geo() {
@@ -1077,11 +1076,17 @@ function renderLocal() {
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
   const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or press "Clear the device page PIN" in Home Assistant.</p>';
+  // The first PIN can only be set within 15 minutes of the controller being powered on (first_pin: seconds left; older
+  // firmware doesn't say), so whoever is on the Wi-Fi later can't claim the page.
+  const closed = L.first_pin === 0, left = L.first_pin > 0 ? Math.ceil(L.first_pin / 60) : 0;
   if (!L.pin) put('lock', `<h3><span>This page's PIN</span><span class="chip warn">not set</span></h3>
     <p class="note" style="margin-top:0">Anyone on your Wi-Fi can open this page. A PIN stops them changing anything, and it's needed before
       notification or AI keys can be stored. 6+ characters; not 123456 or 111111.</p>
+    ${closed ? `<p class="note" role="status"><b>To set it:</b> power the controller off and on (or hold its BOOT button for 10 seconds),
+      then set the PIN here within 15 minutes. (A restart from this page doesn't count: anyone on your Wi-Fi could do that.)</p>`
+    : `${left ? `<p class="note">Set it within ${fmt(left)} min: after that, setting one needs the controller powered off and on first.</p>` : ''}
     <div class="row"><span>New PIN</span><span class="entry">${pw('pin1', 'PIN', 'new-password')}</span></div>
-    <div class="row"><span>Again</span><span class="entry">${pw('pin2', 'Same PIN', 'new-password')}<button class="btn pri" data-a="pinset">Set PIN</button></span></div>`);
+    <div class="row"><span>Again</span><span class="entry">${pw('pin2', 'Same PIN', 'new-password')}<button class="btn pri" data-a="pinset">Set PIN</button></span></div>`}`);
   else if (!L.authed) put('lock', `<h3><span>This page's PIN</span><span class="chip bad">locked</span></h3>
     <p class="note" style="margin-top:0">Readings are open; enter the PIN to change anything from this browser.</p>
     <div class="row"><span>PIN</span><span class="entry">${pw('pinin', 'PIN')}<button class="btn pri" data-a="login">Unlock</button></span></div>
@@ -1282,8 +1287,7 @@ function renderSetup(u) {
   put('dev', `<h3>This controller</h3>${rel ? row('Release', esc(rel)) : ''}${ver ? row('Built with', 'ESPHome ' + esc(String(ver).split(' ')[0])) : ''}${sig != null ? row('Its Wi-Fi <span class="muted small">(to your router, not the grill)</span>', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', dur(up)) : ''}
     ${row('Cooks learned', fmt(S('Cooks learned')))}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
-      <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}
-    <p class="note"><a href="?classic">Full device view</a>: ESPHome's standard page with every entity and the logs (loads from the internet).</p>`);
+      <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
 }
 
@@ -1568,12 +1572,4 @@ const SECT = (() => {
 // ==== END page sections (shared block) ====
 
 // Run last: everything above (let/const) must be initialised first.
-if (Q.has('classic')) {
-  // Stock page: drop our stylesheet and load ESPHome's app into the <esp-app> the index already has.
-  const css = doc.querySelector('link[href="/0.css"]'); if (css) css.remove();
-  const s = doc.createElement('script'); s.src = CLASSIC;
-  s.onerror = () => { doc.body.insertAdjacentHTML('afterbegin', '<p style="font:15px system-ui;padding:16px">The full device view is ESPHome\'s standard page, loaded from oi.esphome.io: this phone needs internet access for it. <a href="./">Back to the smoker page</a></p>'); };
-  doc.body.appendChild(s);
-} else {
-  start();
-}
+start();

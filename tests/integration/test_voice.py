@@ -47,8 +47,18 @@ async def test_voice(hass: HomeAssistant):
         calls.append((call.domain, call.service, d))
 
     for dom, svc in [("number", "set_value"), ("switch", "turn_on"), ("esphome", "gravity980_fuel_level"),
-                     ("esphome", "gravity980_fuel_refilled"), ("esphome", "gravity980_fuel_added")]:
+                     ("esphome", "gravity980_fuel_refilled"), ("esphome", "gravity980_fuel_added"),
+                     ("esphome", "gravity980_start_program")]:
         hass.services.async_register(dom, svc, rec)
+
+    async def select(call: ServiceCall):
+        hass.states.async_set("select.smoker_program_preset", call.data["option"], {"options": options})
+
+    options = ["Custom", "Brisket (overnight)", "Pork shoulder"]
+    hass.services.async_register("select", "select_option", select)
+    hass.states.async_set("select.smoker_program_preset", "Custom", {"options": options})
+    assert await async_setup_component(hass, "input_text", {"input_text": {
+        k: v for k, v in pkg["input_text"].items() if k == "smoker_voice_pending"}})
 
     assert "251 degrees" in await _ask(hass, "how hot is the smoker")
     a = await _ask(hass, "when will the brisket be done")
@@ -95,3 +105,34 @@ async def test_voice(hass: HomeAssistant):
     assert "between 93 and 371" in a, a
     await _ask(hass, "I added half a hopper")
     assert calls[-1] == ("esphome", "gravity980_fuel_added", {"percent": 50.0}), calls[-1]
+
+    # Starting a cook takes two steps: the preset is loaded, and only "confirm smoker start" (within a minute) starts it.
+    n = len(calls)
+    a = await _ask(hass, "confirm smoker start")
+    assert "no smoker program waiting" in a and len(calls) == n, a
+    a = await _ask(hass, "start the brisket program")
+    assert "loaded" in a and "confirm smoker start" in a, a
+    assert hass.states.get("select.smoker_program_preset").state == "Brisket (overnight)"
+    assert not [c for c in calls if c[1] == "gravity980_start_program"]
+    # Someone changed the preset in between: nothing starts.
+    hass.states.async_set("select.smoker_program_preset", "Pork shoulder", {"options": options})
+    a = await _ask(hass, "confirm smoker start")
+    assert not [c for c in calls if c[1] == "gravity980_start_program"], a
+    await _ask(hass, "start the brisket program")
+    a = await _ask(hass, "confirm smoker start")
+    assert "Starting the Brisket (overnight) program" in a and calls[-1][1] == "gravity980_start_program", a
+    # Once only.
+    a = await _ask(hass, "confirm smoker start")
+    assert "no smoker program waiting" in a and len([c for c in calls if c[1] == "gravity980_start_program"]) == 1
+    # Too late: more than a minute after loading.
+    import time
+
+    await _ask(hass, "start the brisket program")
+    hass.states.async_set("input_text.smoker_voice_pending", f"Brisket (overnight)|{int(time.time()) - 120}")
+    a = await _ask(hass, "confirm smoker start")
+    assert "no smoker program waiting" in a and len([c for c in calls if c[1] == "gravity980_start_program"]) == 1
+    # With a program running, nothing is loaded over it.
+    hass.states.async_set("sensor.smoker_program_state", "Running")
+    hass.states.async_set("select.smoker_program_preset", "Custom", {"options": options})
+    a = await _ask(hass, "start the pork shoulder program")
+    assert "already running" in a and hass.states.get("select.smoker_program_preset").state == "Custom", a

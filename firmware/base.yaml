@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.46"
+  project_version: "0.2.47"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -29,9 +29,11 @@ esphome:
   on_boot:
     priority: -100
     then:
-      # Upgrade: the ntfy topic moves from a (readable) text entity into the controller's write-only secrets.
+      # Upgrade: the ntfy topic moves from a (readable) text entity into the controller's write-only secrets. The old
+      # field is emptied whatever happens (a topic too long to move is dropped: set it again on the device page).
       - lambda: |-
-          if (id(local).migrate_ntfy_topic(id(ntfy_topic).state))
+          id(local).migrate_ntfy_topic(id(ntfy_topic).state);
+          if (!id(ntfy_topic).state.empty())
             id(ntfy_topic).make_call().set_value("").perform();
 
 esp32:
@@ -49,7 +51,9 @@ logger:
   level: DEBUG
 
 ota:
-  # Updates come from the signed GitHub release (http_request, the Firmware update entity) only. No LAN upload: an
+  # Updates come from this project's GitHub release only (http_request, the Firmware update entity): the manifest and
+  # the image are fetched over HTTPS from GitHub Pages (certificate checked) and the image is checked against the MD5
+  # in that same manifest. They aren't signed: the protection is HTTPS to GitHub. No LAN upload: an
   # open ESPHome OTA port would let anyone on the Wi-Fi flash their own firmware and skip the page's PIN. Building
   # in the ESPHome dashboard? Add `- platform: esphome` with a `password:` in your own YAML (docs/install.md).
   - platform: http_request
@@ -71,25 +75,37 @@ wifi:
   # A grill at the edge of Wi-Fi: keep trying rather than rebooting (the BLE link to the grill can carry on).
   reboot_timeout: 0s
   ap:
-    # Open setup hotspot (after 90 s without Wi-Fi). It only offers Wi-Fi setup; the device web page's own
-    # firmware upload is off, but the setup portal is unauthenticated while it's up: keep that in mind.
+    # Open setup hotspot (after 90 s without Wi-Fi) with an unauthenticated setup portal, so it only comes up when
+    # it's needed: a new controller, or one that can't reach its Wi-Fi since it started (then only within the
+    # provisioning window below). Once it has joined the Wi-Fi it never comes back until a restart: knocking the
+    # controller off the Wi-Fi doesn't hand its setup to whoever is nearby.
     ssid: "${friendly_name} setup"
   on_connect:
     - logger.log: Wi-Fi connected
+    - lambda: wifi::global_wifi_component->set_ap_timeout(0);   # 0 = no fallback hotspot (until a restart)
+
+# Setup window (ESPHome's provisioning): the open setup hotspot, Improv and Home Assistant adopting the controller
+# (the native API starts without a key; Home Assistant sets one when you add the device) work only in the first 15
+# minutes after the controller starts. Once Home Assistant has set its key the API needs it. Missed it? Restart the
+# controller (power off and on) and add it again within 15 minutes.
+provisioning:
+  timeout: 15min
 
 captive_portal:
 improv_serial:
 improv_ble:
-  authorizer: none
+  # Wi-Fi setup over Bluetooth only after a press of the controller's BOOT button (someone at the grill).
+  authorizer: boot_button
 
 web_server:
   port: 80
   version: 3
   ota: false   # no firmware upload from the device web page on the LAN
   include_internal: true   # the Wi-Fi password field is internal (kept out of Home Assistant) but set from this page
+  log: false   # the controller's log isn't for anyone on the Wi-Fi (Home Assistant and USB still have it)
   # The smoker's own page (firmware/device-ui), stored gzipped in flash and served as /0.js and /0.css, so
-  # http://gravity980.local works with no internet. An empty js_url drops ESPHome's hosted stock page;
-  # http://gravity980.local/?classic still loads it (from oi.esphome.io, so that view needs internet).
+  # http://gravity980.local works with no internet. An empty js_url drops ESPHome's hosted stock page (it would load
+  # scripts from the internet into the page that holds the PIN session).
   js_url: ""
   js_include: device-ui/ui.js
   css_include: device-ui/ui.css
@@ -185,7 +201,7 @@ text:
     internal: true
     icon: mdi:bell-ring
     entity_category: config
-    mode: text
+    mode: password   # never shown on the device page's event stream
     optimistic: true
     restore_value: true
     initial_value: ""
@@ -337,7 +353,8 @@ sensor:
       entity_category: diagnostic
 
 binary_sensor:
-  # The board's BOOT button: hold it 10 s to clear the device page's PIN (someone at the grill, not on the network).
+  # The board's BOOT button: hold it 10 s to clear the device page's PIN (someone at the grill, not on the network);
+  # a short press allows Wi-Fi setup over Bluetooth (Improv) for a minute.
   - platform: gpio
     id: boot_button
     internal: true

@@ -1,5 +1,7 @@
 #include "protocol.h"
 
+#include <cstdlib>
+
 namespace g980proto {
 
 static uint16_t be16(const uint8_t *p) { return (uint16_t(p[0]) << 8) | p[1]; }
@@ -126,7 +128,7 @@ bool parse_wifi_scan_result(const uint8_t *data, size_t len, WifiScanResult &out
   if (len < 5 || data[0] != 0x00 || data[1] != 0x10)
     return false;
   size_t n = data[4];
-  if (len < 5 + n + 9)
+  if (n > WIFI_SSID_MAX || len < 5 + n + 9)
     return false;
   out.ssid.clear();
   for (size_t i = 0; i < n; i++) {
@@ -150,6 +152,83 @@ bool build_wifi_credentials(const uint8_t bssid[6], const std::string &password,
   out.push_back(uint8_t(password.size()));
   out.insert(out.end(), password.begin(), password.end());
   return true;
+}
+
+std::string credentials_refusal(const CredentialCheck &c) {
+  if (c.peer == 0)
+    return "the grill isn't connected over Bluetooth";
+  if (c.fixed != 0) {
+    if (c.peer != c.fixed)
+      return "the device connected over Bluetooth isn't the grill set in the YAML (bluetooth: mac_address)";
+  } else {
+    if (c.remembered == 0 || c.peer != c.remembered)
+      return "the device connected over Bluetooth isn't a known grill yet: keep it connected for 12 minutes, or set "
+             "its address in the YAML (bluetooth: mac_address)";
+    if (!c.remembered_at_boot && c.now - c.remembered_at < GRILL_TRUST_MS) {
+      unsigned left = unsigned((GRILL_TRUST_MS - (c.now - c.remembered_at) + 59999) / 60000);
+      return "this grill was only found this session: try again in " + std::to_string(left) +
+             " min, or set its address in the YAML (bluetooth: mac_address)";
+    }
+  }
+  if (!c.status_on_link)
+    return "the device connected over Bluetooth hasn't sent the grill's status yet";
+  if (c.rssi != 0 && c.rssi < CREDENTIALS_MIN_RSSI)
+    return "the Bluetooth signal is too weak (" + std::to_string(c.rssi) +
+           " dBm; move the controller closer to the grill)";
+  return "";
+}
+
+GrillMatch grill_match(const std::string &name, const std::string &prefix, bool has_service) {
+  if (!prefix.empty() && name.compare(0, prefix.size(), prefix) == 0) {
+    const bool dash = prefix.back() == '-' ? name.size() > prefix.size()
+                                           : name.size() > prefix.size() + 1 && name[prefix.size()] == '-';
+    return dash ? GrillMatch::NAME : GrillMatch::WEAK;
+  }
+  if (name == "BLEWIFI APP" || has_service)
+    return GrillMatch::WEAK;
+  return GrillMatch::NONE;
+}
+
+bool may_take_over(const TakeoverCheck &t) {
+  if (t.candidate == 0 || t.match == GrillMatch::NONE || t.wifi_setup_pending)
+    return false;
+  const uint64_t current = t.current != 0 ? t.current : t.remembered;
+  if (t.candidate == current)
+    return false;
+  if (current == 0)
+    return true;  // nothing chosen yet: the first grill heard
+  if (!t.idle)
+    return false;
+  const uint32_t silent = t.now - t.current_seen_at;  // seen_at 0: millis() started at 0, so it counts from boot
+  if (t.remembered != 0)
+    return t.match == GrillMatch::NAME && silent >= TAKEOVER_SILENT_MS;
+  return silent >= TAKEOVER_SILENT_NEW_MS;
+}
+
+bool grill_ip_ok(uint32_t ip, uint32_t own, uint32_t mask) {
+  const bool priv = (ip >> 24) == 10 || (ip >> 20) == ((172u << 4) | 1u) || (ip >> 16) == ((192u << 8) | 168u);
+  if (!priv || own == 0 || ip == own)
+    return false;
+  if (mask == 0)
+    mask = 0xFFFFFF00u;
+  if ((ip & mask) != (own & mask))
+    return false;
+  const uint32_t host = ip & ~mask;
+  return host != 0 && host != (~mask);
+}
+
+bool statuses_disagree(const Status &a, const Status &b) {
+  const auto &pa = a.probe[PROBE_PIT], &pb = b.probe[PROBE_PIT];
+  if (pa.present != pb.present)
+    return true;
+  if (pa.present && std::abs(int(pa.temp_f) - int(pb.temp_f)) > LINK_PIT_TOLERANCE_F)
+    return true;
+  for (int p = 0; p < PROBE_COUNT; p++) {
+    const auto &x = a.probe[p], &y = b.probe[p];
+    if (x.has_target != y.has_target || (x.has_target && x.target_f != y.target_f))
+      return true;
+  }
+  return false;
 }
 
 }  // namespace g980proto

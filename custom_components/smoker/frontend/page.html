@@ -892,7 +892,7 @@ window.act = {
     planBusy = Date.now(); renderPlan();
     H().service('script', 'smoker_plan_cook', { request: t })
       .then(() => { clean('plantext'); planBusy = 0; renderPlan(); const ok = !/^Rejected/.test(val(byName('Smoker AI plan', ['input_text'])) || '');
-        toast(ok ? 'Plan ready: it\'s loaded as the cook program (Start when you\'re ready)' : 'The controller didn\'t take the AI\'s program: see the Plan card');
+        toast(ok ? 'Plan ready: it\'s loaded as the cook program (Start when you\'re ready)' : 'The AI\'s program wasn\'t loaded: see the Plan card');
         const c = $('aiplanbox'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'center' }); })
       .catch(e => { planBusy = 0; renderPlan(); fail(e); });
   },
@@ -955,7 +955,7 @@ window.act = {
     const items = (journal.draft.items || []).filter(i => i.id !== id);
     api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); }).catch(fail);
   },
-  rate(id, n) { api('POST', '/api/smoker/journal/' + id, { rating: n }).then(() => loadJournal(true)).catch(fail); },
+  rate(id, n) { api('POST', '/api/smoker/journal/' + id, { rating: +n }).then(() => loadJournal(true)).catch(fail); },
   tag(id, t) {
     const e = journal.entries.find(x => x.id === id); if (!e) return;
     const now = new Set(e.tags || []); now.has(t) ? now.delete(t) : now.add(t);
@@ -1147,7 +1147,7 @@ function findPhoto() {  // asked once Home Assistant is connected (see render)
     const tryOne = list => { if (!list.length) return; const img = new Image();
       img.onload = () => { grillPhoto = list[0]; rerender(); sendPhotoToController(list[0]); };
       img.onerror = () => tryOne(list.slice(1)); img.src = list[0]; };
-    tryOne(['/api/smoker/grill_photo/image', '/local/smoker/grill.png', '/local/smoker/grill.jpg', '/local/smoker/grill.webp']);
+    tryOne(['/local/smoker/grill.png', '/local/smoker/grill.jpg', '/local/smoker/grill.webp']);
   };
   if (!hasApi()) { viaImage(); return; }
   api('GET', '/api/smoker/grill_photo').then(r => {
@@ -1177,6 +1177,18 @@ function sendPhotoToController(url) {
   const abs = origin + url;
   if (val(txt) !== abs) H().call('text', 'set_value', txt, { value: abs }).catch(() => {});
 }
+// Buttons and fields that carry data (entity ids, journal ids, tags) name their action in data-act (click) or data-chg
+// (change) and their arguments in data-a / data-b: never pasted into an inline onclick="act.x('…')", where an id with a
+// quote in it would become code.
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const f = act[b.dataset.act]; if (typeof f !== 'function') return;
+  'b' in b.dataset ? f(b.dataset.a, b.dataset.b) : f(b.dataset.a);
+});
+document.addEventListener('change', e => {
+  const el = e.target.closest && e.target.closest('[data-chg]'); if (!el) return;
+  const f = act[el.dataset.chg]; if (typeof f === 'function') f(el.dataset.a, el.value);
+});
 document.addEventListener('click', e => {  // a part of the grill → its section
   const g = e.target.closest && e.target.closest('#grillpic [data-go]'); if (!g) return;
   e.preventDefault();
@@ -1276,7 +1288,7 @@ function renderControl() {
   const bleE = bleSwitch(), ble = val(bleE) === 'on';
   const bridge = E('Bridge enabled', ['switch']), wifi = val(E('Grill Wi-Fi', ['sensor'])), ip = val(E('Grill IP address', ['text']));
   const tog = (e, on, label, note) => e ? `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span>
-    <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" onclick="act.toggle('${esc(e)}')" aria-label="${esc(label.replace(/<[^>]+>/g, ''))}"></button></div>` : '';
+    <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" data-act="toggle" data-a="${esc(e)}" aria-label="${esc(label.replace(/<[^>]+>/g, ''))}"></button></div>` : '';
   put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? linkWords(via).txt : 'not connected'}</span></h3>
     ${(st => st && !/^(unknown|unavailable)$/.test(st) ? `<div class="row"><span>Status</span><span class="r" style="white-space:normal">${esc(st)}</span></div>` : '')(val(E('Grill link status', ['sensor'])))}
     ${controlRow()}
@@ -1340,7 +1352,7 @@ function renderAI() {
   const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
   const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
   if (!hasPkg()) return put('aicard', `<h3>AI pitmaster</h3>${pkgNote('The AI advisor')}`);
-  put('aicard', `<h3>Finish estimate <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" onclick="act.toggle('${esc(onE || '')}')" aria-label="AI advisor on/off"></button></h3>
+  put('aicard', `<h3>Finish estimate <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" data-act="toggle" data-a="${esc(onE || '')}" aria-label="AI advisor on/off"></button></h3>
     <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span>${left != null && left > 0 ? EXP('A language model reading the cook so far; not learned from your grill.') : ''}</div>
     <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
     ${sug ? `<div class="row"><span>Tip</span><span class="small" style="text-align:right">${esc(sug)}</span></div>` : ''}
@@ -1512,7 +1524,7 @@ function renderSupplies() {
   if (!SUP('charcoal in stock')) return put('supplycard', `<h3>Supplies and maintenance</h3>${pkgNote('Charcoal stock and maintenance reminders')}`);
   const box = (n, label, unit, step) => { const e = SUP(n), v = num(e);
     return `<div class="row"><span>${label}</span><span class="entry"><input type="number" inputmode="decimal" min="0" step="${step}" value="${v != null ? v : ''}" style="width:90px"
-      aria-label="${esc(label)}" onchange="act.inum('${esc(e)}', this.value)"> <span class="muted small">${unit}</span></span></div>`; };
+      aria-label="${esc(label)}" data-chg="inum" data-a="${esc(e)}"> <span class="muted small">${unit}</span></span></div>`; };
   put('supplycard', `<h3>Supplies and maintenance</h3>
     <p class="small muted" style="margin:0 0 6px">Charcoal burned comes off the stock; below one bag it goes on your to-do list. The cost per cook appears on the Charcoal card.</p>
     ${box('charcoal bag size', 'Bag size', 'kg', 0.1)}${box('charcoal bag price', 'Bag price', '', 0.01)}${box('charcoal in stock', 'In stock', 'kg', 0.1)}
@@ -1520,7 +1532,7 @@ function renderSupplies() {
     ${MAINT.map(([n, label, due]) => { const e = SUP(n), v = num(e) || 0;
       return `<div class="row"><span>${esc(label)}<br><span class="muted small">every ~${due} h</span></span><span class="r">
         <span class="chip ${v >= due ? 'warn' : ''}">${fmt(v, 1)} h${v >= due ? ' · due' : ''}</span>
-        <button class="btn" onclick="act.inum('${esc(e)}', 0)" aria-label="${esc(label)}: done">Done</button></span></div>`; }).join('')}`);
+        <button class="btn" data-act="inum" data-a="${esc(e)}" data-b="0" aria-label="${esc(label)}: done">Done</button></span></div>`; }).join('')}`);
 }
 
 // ---------------------------------------------------------------- what's cooking (package photos -> AI)
@@ -1579,7 +1591,7 @@ const TASTE = [['juicy', 'tender', 'dry', 'tough'], ['undercooked', 'just right'
   ['good smoke', 'too smoky', 'too little smoke'], ['fat rendered', 'fat not rendered']];
 const TASTE_GROUPS = ['Texture', 'Doneness', 'Bark', 'Smoke', 'Fat'];
 const tasteHTML = e => `<details class="more"${(e.tags || []).length ? '' : ' open'}><summary>How was it?${(e.tags || []).length ? ' · ' + esc(e.tags.join(', ')) : ''}</summary>
-  <div class="taste">${TASTE.map((g, k) => `<span class="grp">${TASTE_GROUPS[k]}</span>` + g.map(t => `<button aria-pressed="${(e.tags || []).includes(t)}" onclick="act.tag('${esc(e.id)}', '${t}')">${t}</button>`).join('')).join('')}</div></details>`;
+  <div class="taste">${TASTE.map((g, k) => `<span class="grp">${TASTE_GROUPS[k]}</span>` + g.map(t => `<button aria-pressed="${(e.tags || []).includes(t)}" data-act="tag" data-a="${esc(e.id)}" data-b="${esc(t)}">${t}</button>`).join('')).join('')}</div></details>`;
 const recWords = r => [r.cut, r.weight_lb != null ? r.weight_lb + ' lb' : '', r.pit_f != null ? 'pit ' + r.pit_f + '°F' : '',
   r.stall_h != null ? 'stall ' + r.stall_h + ' h' : '', r.total_h + ' h total', r.wrapped === true ? 'wrapped' : r.wrapped === false ? 'not wrapped' : '',
   r.outside_f != null ? r.outside_f + '–' + (r.outside_f + 5) + '°F outside' : '', r.season, r.rating ? r.rating + '★' : '', (r.tags || []).join(', ')].filter(Boolean).join(' · ');
@@ -1611,8 +1623,8 @@ function renderShare() {
   const wait = !pend && share.enabled && (share.entries || []).some(x => x.status === 'waiting');
   if (wait) return put('jshare', `<p class="small muted" style="margin:0 0 10px">Rate your latest cook and tick how it was: then it can be shared with Open Pitmaster${share.auto ? ' (automatically)' : ''}.</p>`);
   put('jshare', pend && je ? `<div class="sharebox"><div class="row"><span><b>Share this cook?</b><br><span class="small muted">${esc(recWords(pend.record))}</span></span></div>
-      <div class="btns"><button class="btn pri" onclick="act.shareOne('${esc(pend.entry)}')">Share it</button>
-        <button class="btn" onclick="act.shareNo('${esc(pend.entry)}')">Not this one</button></div>${sharePreview(pend.record)}</div>` : '');
+      <div class="btns"><button class="btn pri" data-act="shareOne" data-a="${esc(pend.entry)}">Share it</button>
+        <button class="btn" data-act="shareNo" data-a="${esc(pend.entry)}">Not this one</button></div>${sharePreview(pend.record)}</div>` : '');
 }
 const cToU = c => c == null ? null : (isF() ? c * 9 / 5 + 32 : c);
 function renderJournal(force) {
@@ -1623,14 +1635,14 @@ function renderJournal(force) {
         <span class="small muted">${dayLabel(d)} · ${esc(e.probe_name || '')}</span></div>
       <div class="chips"><span class="chip">${fmt(e.total_h, 1)} h total</span>${e.stall_h ? `<span class="chip warn">stall ${fmt(e.stall_h, 1)} h</span>` : ''}
         ${e.pit_c != null ? `<span class="chip hot">pit ${fmt(cToU(e.pit_c))}${esc(TU())}</span>` : ''}${e.ambient_c != null ? `<span class="chip">outside ${fmt(cToU(e.ambient_c))}${esc(TU())}</span>` : ''}
-        ${e.wrapped ? '<span class="chip">wrapped</span>' : ''}${(s => s && s.status === 'shared' ? '<span class="chip ok">shared</span>' : s && share.enabled && s.status === 'declined' ? `<button class="btn" style="min-height:26px;padding:2px 8px" onclick="act.shareOne('${esc(e.id)}')">Share</button>` : '')(shareFor(e.id))}</div>
+        ${e.wrapped ? '<span class="chip">wrapped</span>' : ''}${(s => s && s.status === 'shared' ? '<span class="chip ok">shared</span>' : s && share.enabled && s.status === 'declined' ? `<button class="btn" style="min-height:26px;padding:2px 8px" data-act="shareOne" data-a="${esc(e.id)}">Share</button>` : '')(shareFor(e.id))}</div>
       ${(e.items || []).length ? `<div class="small">${e.items.map(i => esc(i.name) + (i.weight_lb ? ' (' + fmt(i.weight_lb, 1) + ' lb)' : '')).join(' · ')}</div>` : ''}
       ${(e.photos || []).length ? `<div class="thumbs">${e.photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
-      <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" onclick="act.rate('${esc(e.id)}', ${n})" aria-label="${n} stars">★</button>`).join('')}</span>
-        <span><button class="btn" onclick="act.compare('${esc(e.id)}')">Compare</button> <button class="btn" onclick="act.summary('${esc(e.id)}')">Summary</button></span></div>
+      <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" data-act="rate" data-a="${esc(e.id)}" data-b="${n}" aria-label="${n} stars">★</button>`).join('')}</span>
+        <span><button class="btn" data-act="compare" data-a="${esc(e.id)}">Compare</button> <button class="btn" data-act="summary" data-a="${esc(e.id)}">Summary</button></span></div>
       ${tasteHTML(e)}
       <textarea id="jn-${esc(e.id)}" placeholder="Notes: bark, tenderness, what you'd change…" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:13.5px">${esc(e.notes || '')}</textarea>
-      <div class="btns" style="margin-top:6px"><button class="btn" onclick="act.note('${esc(e.id)}')">Save notes</button></div></div>`;
+      <div class="btns" style="margin-top:6px"><button class="btn" data-act="note" data-a="${esc(e.id)}">Save notes</button></div></div>`;
   }).join('') + (list.length > shown.length ? `<div class="btns"><button class="btn" onclick="act.jall()">Show all ${list.length}</button></div>` : '')
     : '<div class="empty">No cooks yet. Each finished cook is added here automatically; rate it and add notes so the AI can learn from it.</div>';
   if (force) { const el = $('jlist'); if (el) el._h = null; }

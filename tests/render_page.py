@@ -514,7 +514,7 @@ def main():
                     const x = c.getContext('2d'); for (let i = 0; i < 400; i++) { x.fillStyle = `hsl(${i*7},70%,50%)`; x.fillRect((i*37)%3000, (i*53)%2000, 120, 90); }
                     const big = await new Promise(r => c.toBlob(r, 'image/png'));
                     let sent = null; const keep = window.hdHA.api;
-                    window.hdHA.api = (m, p, body) => { if (p === '/api/smoker/grill_photo' && m === 'POST') sent = body.get('photo'); return Promise.resolve({ url: '/api/smoker/grill_photo/image?v=1' }); };
+                    window.hdHA.api = (m, p, body) => { if (p === '/api/smoker/grill_photo' && m === 'POST') sent = body.get('photo'); return Promise.resolve({ url: '/api/smoker/grill_photo/image/0123456789abcdef0123456789abcdef?v=1' }); };
                     const inp = { files: [new File([big], 'big.png', { type: 'image/png' })], value: 'x' };
                     await act.grillPhoto(inp); await new Promise(r => setTimeout(r, 300));
                     window.hdHA.api = keep; window.setGrillPhoto(null);
@@ -736,7 +736,11 @@ def main():
                     if bl[0] == "none" or "★★★★" not in bl[1] or bl[2] < 1:
                         failures.append(f"this cook vs your best: {bl}")
                     # One-page cook summary: opens with the facts and a chart; Close hides it.
-                    fr.evaluate("act.summary('abc123def456')"); time.sleep(0.8)
+                    # (through the page's delegated handler: buttons carry the cook's id in data-a, not in an onclick)
+                    if not fr.evaluate("""(() => { const b = document.querySelector('[data-act="summary"][data-a="abc123def456"]');
+                            if (!b) return false; b.click(); return true; })()"""):
+                        failures.append("cook summary: no Summary button with the cook's id in data-a")
+                    time.sleep(0.8)
                     sm = fr.evaluate("[!document.getElementById('summary').hidden, document.getElementById('summary').textContent]")
                     if not sm[0] or "Total" not in sm[1] or "Great bark" not in sm[1] or "Print or save as PDF" not in sm[1]:
                         failures.append(f"cook summary: {sm[1][:160]!r}")

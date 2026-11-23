@@ -38,21 +38,41 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
     auto r = h5198::decode(d.data(), d.size());
     if (r.first_probe < 0)
       return this->address_ != 0;  // not a probe packet (other Govee devices share the company id)
+    const uint32_t now = millis();
     if (this->address_ == 0) {
-      // Lock onto the first device that sends real probe packets, and remember it.
-      this->address_ = device.address_uint64();
-      ESP_LOGI(TAG, "Found a Govee H5198 (RSSI %d); using it from now on", device.get_rssi());
-      if (!this->fixed_) {
-        uint64_t a = this->address_;
-        this->pref_.save(&a);
+      // Use the first device that sends real probe packets, and remember it once it has been heard steadily for a
+      // minute (a look-alike passing by isn't remembered for good).
+      const uint64_t a = device.address_uint64();
+      const auto v = this->cand_.heard(a, now);
+      if (v == h5198::Candidate::IGNORE)
+        return false;
+      if (a != this->cand_used_) {
+        this->cand_used_ = a;
+        for (auto &f : this->filter_)
+          f.reset();
+        ESP_LOGI(TAG, "Hearing a Govee H5198 (RSSI %d); remembered once it's been heard for a minute",
+                 device.get_rssi());
+      }
+      if (v == h5198::Candidate::LOCK) {
+        this->address_ = a;
+        this->cand_.reset();
+        ESP_LOGI(TAG, "Using this H5198 from now on");
+        if (!this->fixed_) {
+          uint64_t sa = a;
+          this->pref_.save(&sa);
+        }
       }
     }
-    const uint32_t now = millis();
     this->last_packet_ = now;
     for (int k = 0; k < 2; k++) {
       int i = r.first_probe + k;
       auto *s = this->probes_[i];
       float c = r.temp_c[k];
+      // A reading that jumps 15 °C within 10 s counts only once it repeats (3 advertisements in a row).
+      if (!this->filter_[i].accept(c, now)) {
+        ESP_LOGD(TAG, "Probe %d: ignoring a sudden jump to %.1f °C (waiting for it to repeat)", i + 1, c);
+        continue;
+      }
       if (!std::isnan(c))
         this->last_seen_[i] = now;
       if (s == nullptr)
@@ -104,6 +124,10 @@ void GoveeH5198::forget() {
     return;
   }
   this->address_ = 0;
+  this->cand_.reset();
+  this->cand_used_ = 0;
+  for (auto &f : this->filter_)
+    f.reset();
   uint64_t z = 0;
   this->pref_.save(&z);
   ESP_LOGI(TAG, "Forgot the H5198: the next one heard is used");

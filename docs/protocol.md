@@ -48,7 +48,8 @@ boundaries and resyncs on errors (see `components/gravity980/protocol.cpp`, unit
 
 **Turbo** (the panel's fan button) shows as byte 15 bit 4 in the status frame. That was confirmed on a real 980 in
 November 2026: four presses, and nothing else in the frame changed. No remote command for it is known yet. The
-`test_command` action and the *Command tests* switch exist to look for one, one command at a time.
+`test_command` action and the *Command tests* switch exist to look for one, one command at a time (never ids
+`0x01`/`0x04`/`0x05`, and never the setpoint ids `0x00`/`0x02`/`0x03`: use the target entities, which check the range).
 Tested on 23 Nov 2026 over Bluetooth, with a cook started on the panel (pit target writes were accepted): `0x06`
 with values 0, 1, 2, 0x10, 100, 255, 0x0100 and 0x1000, and ids `0x07`-`0x1F` with value 1. None changed turbo, the
 fan or any other byte of the status frame, and none upset the grill. The bridge's **Boost** raises the pit target
@@ -56,3 +57,27 @@ instead (see the changelog for 0.2.46).
 
 The bridge confirms every target change against the next status frames and reverts the HA entity (with a log
 warning) if the grill didn't take it.
+
+## Trust
+
+Nothing here is authenticated: anything in Bluetooth range can advertise as a Gravity 980, and anything on the network
+can listen on port 3333. The bridge therefore (`components/gravity980/protocol.h`, unit-tested):
+
+- **Chooses the grill carefully.** With no `bluetooth: mac_address`, the first grill heard is used and is
+  **remembered** (in flash) once it has delivered valid status for 2 minutes. Once one is remembered, another device
+  takes over only if it advertises as `Gravity980-…` (not `BLEWIFI APP` or just the `0xAAAA` service), the remembered
+  one has been silent for 10 minutes (counted from boot if it hasn't been heard since), the link is idle and no grill
+  Wi-Fi setup is under way. *Forget grill* clears the remembered address.
+- **Sends the Wi-Fi password only to a trusted grill**: the address set in the YAML, or the remembered grill
+  (remembered before this boot, or at least 10 minutes ago), which has delivered status on this connection, with a
+  Bluetooth signal of at least −75 dBm when known. Otherwise the *Grill Wi-Fi* text says why nothing was sent; when it
+  is sent, it names the receiving device (last 3 bytes of its Bluetooth address). A join waiting for its scan is
+  cancelled if the Bluetooth link drops.
+- **Uses a reported grill IP only when it asked for it.** A `0x07` Wi-Fi info notification sets the Wi-Fi address
+  (when *Grill IP address* is empty) only within 30 s of the bridge's own join request or credential send, only for a
+  private (RFC 1918) address on the bridge's own subnet, and is forgotten when a different Bluetooth device connects.
+- **Cross-checks the two links.** When Wi-Fi and Bluetooth both deliver and disagree (pit more than 15 °F apart, or any
+  target different) for 30 s, the Wi-Fi link is dropped with a log warning: a reported IP is then not used again until
+  a restart, and a configured *Grill IP address* is retried after 10 minutes.
+- **Bounds what it accepts.** Wi-Fi scan results (`0x10`) count only while a scan runs, at most 32 networks, SSIDs of
+  at most 32 bytes; the TCP reader takes at most 1 KiB per main-loop pass.

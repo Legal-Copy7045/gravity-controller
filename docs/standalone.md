@@ -39,7 +39,11 @@ How it's protected:
 - **Hashed, never stored:** the PIN is hashed with PBKDF2-HMAC-SHA256 (20,000 rounds, random salt). Only the salt
   and the hash are stored.
 - **Rules:** at least 6 characters; repeated or sequential ones (111111, 123456) are refused.
-- **Lockout:** 5 wrong PINs lock the page for 30 s, then 60 s, doubling up to an hour.
+- **Setting the first PIN:** only within 15 minutes of powering the controller on (or of holding its BOOT button
+  for 10 s, which clears a forgotten PIN), so someone else on your Wi-Fi can't set one first and lock you out. A
+  restart from the page doesn't reopen that window; unplugging it does.
+- **Lockout:** 5 wrong PINs from one device lock that device out for 30 s, then 60 s, doubling up to an hour; other
+  devices aren't affected. Empty or malformed PINs aren't counted.
 - **Sessions:** unlocking gives this browser a random 256-bit session, valid for 12 hours after its last change. At
   most 4 are live, and changing the PIN ends them all.
 - **Other websites:** they can't send changes on your behalf; the web server refuses cross-origin requests.

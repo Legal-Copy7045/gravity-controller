@@ -934,6 +934,92 @@ static void test_pin_auth() {
   // Recovery clears everything.
   g.clear();
   CHECK(!g.pin_set() && g.login("739215") == "");
+
+  // The first PIN: only within 15 minutes of starting (or of a clear), so a late-comer on the Wi-Fi can't claim it.
+  {
+    uint32_t c = 5000;
+    uint8_t sd = 3;
+    Guard f([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(f.first_pin_for() == 900);
+    c += 14 * 60 * 1000;
+    CHECK(f.first_pin_for() == 60);
+    c += 61 * 1000;
+    f.tick();
+    CHECK(f.first_pin_for() == 0 && f.set_pin("482913", "") == FIRST_PIN_CLOSED && !f.pin_set());
+    c += 0x80000000u;  // millis() wrapping doesn't reopen it
+    c += 0x7ffff000u;
+    CHECK(f.first_pin_for() == 0);
+    f.clear();  // the BOOT button or Home Assistant: open again
+    CHECK(f.first_pin_for() == 900 && f.set_pin("482913", "") == "" && f.pin_set());
+    CHECK(f.first_pin_for() == 0);
+    // Changing it later needs only the current PIN, whenever.
+    c += 3600 * 1000;
+    f.tick();
+    CHECK(f.set_pin("739215", "482913") == "");
+  }
+
+  // Lockout per client: one machine's wrong PINs don't lock another out; not-a-PIN isn't counted.
+  {
+    uint32_t c = 1000;
+    uint8_t sd = 9;
+    Guard h([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(h.set_pin("482913", "") == "");
+    for (int i = 0; i < 20; i++) CHECK(h.login("", "10.0.0.66") == "" && h.login("12", "10.0.0.66") == "");
+    CHECK(h.login(std::string(40, '9'), "10.0.0.66") == "");
+    CHECK(h.locked_for("10.0.0.66") == 0);
+    CHECK(h.set_pin("739215", "", "10.0.0.66") != "" && h.locked_for("10.0.0.66") == 0);
+    for (int i = 0; i < 5; i++) h.login("999999", "10.0.0.66");
+    CHECK(h.locked_for("10.0.0.66") == 30);
+    CHECK(h.login("482913", "10.0.0.66") == "");             // locked: even the right PIN waits
+    CHECK(h.locked_for("10.0.0.7") == 0 && h.login("482913", "10.0.0.7").size() == 64);
+    c += 31000;
+    h.tick();
+    CHECK(h.locked_for("10.0.0.66") == 0);
+    h.login("999999", "10.0.0.66");
+    CHECK(h.locked_for("10.0.0.66") == 60);                  // still doubling
+    c += 61000;
+    CHECK(h.login("482913", "10.0.0.66").size() == 64);      // a right PIN resets it
+    h.login("999999", "10.0.0.66");
+    CHECK(h.locked_for("10.0.0.66") == 0);
+    // A quiet day forgets a client's wrong PINs.
+    for (int i = 0; i < 3; i++) h.login("999999", "10.0.0.5");
+    c += 25UL * 3600 * 1000;
+    h.tick();
+    h.login("999999", "10.0.0.5");
+    h.login("999999", "10.0.0.5");
+    CHECK(h.locked_for("10.0.0.5") == 0);
+    // Only CLIENTS are remembered: a new one replaces the least recent that isn't locked out.
+    for (int i = 0; i < 5; i++) h.login("999999", "10.0.0.66");
+    CHECK(h.locked_for("10.0.0.66") == 30);
+    for (int k = 0; k < 10; k++) {
+      c += 10;
+      h.login("999999", "10.0.1." + std::to_string(k));
+    }
+    CHECK(h.locked_for("10.0.0.66") == 30);  // the locked client wasn't dropped to make room
+  }
+
+  // Everyone together: 50 wrong PINs an hour, then everyone waits; each is forgiven after 72 s.
+  {
+    uint32_t c = 0x7fffff00u;  // across the 2^31 boundary too
+    uint8_t sd = 11;
+    Guard e([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(e.set_pin("482913", "") == "");
+    for (int k = 0; k < 49; k++) e.login("999999", "192.168.1." + std::to_string(k / 4));  // 4 each: none locked
+    CHECK(e.locked_for("192.168.1.200") == 0 && e.locked_for("192.168.1.3") == 0);
+    e.login("999999", "192.168.1.100");
+    CHECK(e.locked_for("192.168.1.200") == 72 && e.locked_for("fe80::1") == 72);
+    CHECK(e.login("482913", "192.168.1.200") == "");         // the backstop holds even the right PIN
+    c += 73000;
+    CHECK(e.locked_for("192.168.1.200") == 0);
+    e.login("999999", "192.168.1.101");                       // 50 outstanding again: about another 72 s
+    CHECK(e.locked_for("192.168.1.200") == 71);
+    c += 3700UL * 1000;                                       // an hour later all are forgiven
+    e.tick();
+    for (int k = 0; k < 40; k++) e.login("999999", "192.168.2." + std::to_string(k / 4));
+    CHECK(e.locked_for("192.168.1.200") == 0 && e.login("482913", "192.168.1.200").size() == 64);
+    e.clear();
+    CHECK(e.locked_for("192.168.2.0") == 0);
+  }
   printf("pin auth ok\n");
 }
 
@@ -954,3 +1040,212 @@ int main() {
   std::printf("\nall tests passed\n");
   return 0;
 }
+
+// ---------------------------------------------------------------- link security (BLE takeover, credentials, grill IP,
+// link cross-check, Wi-Fi scan limits, H5198 plausibility). Runs before main() through a static initialiser so this
+// section stays self-contained at the end of the file (failures are counted by main()).
+
+static void test_link_security() {
+  std::printf("link security\n");
+  using namespace g980proto;
+  const uint64_t GRILL = 0xA4C138001122ull, FAKE = 0x112233445566ull, OTHER = 0xA4C138009999ull;
+  const uint32_t MIN = 60000;
+
+  // --- Who gets the Wi-Fi password.
+  CredentialCheck c;
+  c.peer = GRILL;
+  c.remembered = GRILL;
+  c.remembered_at_boot = true;
+  c.now = 5 * MIN;
+  c.status_on_link = true;
+  c.rssi = -60;
+  CHECK(credentials_refusal(c).empty());           // the grill remembered before this boot
+  { CredentialCheck d = c; d.peer = 0; CHECK(!credentials_refusal(d).empty()); }
+  { CredentialCheck d = c; d.peer = FAKE; CHECK(!credentials_refusal(d).empty()); }  // someone else
+  { CredentialCheck d = c; d.status_on_link = false; CHECK(!credentials_refusal(d).empty()); }
+  { CredentialCheck d = c; d.rssi = -80; CHECK(credentials_refusal(d).find("weak") != std::string::npos); }
+  { CredentialCheck d = c; d.rssi = 0; CHECK(credentials_refusal(d).empty()); }  // RSSI unknown: not held against it
+  { CredentialCheck d = c; d.remembered = 0; CHECK(!credentials_refusal(d).empty()); }  // nothing remembered yet
+  {
+    // Remembered this boot: only after 10 minutes.
+    CredentialCheck d = c;
+    d.remembered_at_boot = false;
+    d.remembered_at = 3 * MIN;
+    d.now = 8 * MIN;
+    std::string why = credentials_refusal(d);
+    CHECK(why.find("5 min") != std::string::npos);
+    d.now = 13 * MIN;
+    CHECK(credentials_refusal(d).empty());
+    d.remembered_at = 0xFFFFFFFFu - MIN;  // across the millis() wrap
+    d.now = 2 * MIN;
+    CHECK(!credentials_refusal(d).empty());
+    d.now = 10 * MIN;
+    CHECK(credentials_refusal(d).empty());
+  }
+  {
+    // The address set in the YAML: only that one, whatever is remembered.
+    CredentialCheck d = c;
+    d.fixed = GRILL;
+    d.remembered = 0;
+    d.remembered_at_boot = false;
+    CHECK(credentials_refusal(d).empty());
+    d.peer = FAKE;
+    d.remembered = FAKE;
+    d.remembered_at_boot = true;
+    CHECK(!credentials_refusal(d).empty());
+  }
+
+  // --- What an advertisement is.
+  CHECK(grill_match("Gravity980-1A2B", "Gravity980", false) == GrillMatch::NAME);
+  CHECK(grill_match("Gravity980", "Gravity980", false) == GrillMatch::WEAK);
+  CHECK(grill_match("Gravity980X", "Gravity980", false) == GrillMatch::WEAK);
+  CHECK(grill_match("BLEWIFI APP", "Gravity980", false) == GrillMatch::WEAK);
+  CHECK(grill_match("", "Gravity980", true) == GrillMatch::WEAK);
+  CHECK(grill_match("Phone", "Gravity980", false) == GrillMatch::NONE);
+  CHECK(grill_match("Akorn-77", "Akorn-", false) == GrillMatch::NAME);
+  CHECK(grill_match("anything", "", false) == GrillMatch::NONE);
+
+  // --- Who may take the link over.
+  TakeoverCheck t;
+  t.current = GRILL;
+  t.candidate = FAKE;
+  t.remembered = GRILL;
+  t.match = GrillMatch::NAME;
+  t.idle = true;
+  t.now = 5 * MIN;
+  t.current_seen_at = 0;  // not heard since boot
+  CHECK(!may_take_over(t));  // 5 min after boot: the remembered grill still has time to appear
+  t.now = 11 * MIN;
+  CHECK(may_take_over(t));   // 11 min, never heard: a "Gravity980-" name may take over
+  { TakeoverCheck u = t; u.match = GrillMatch::WEAK; CHECK(!may_take_over(u)); }  // never "BLEWIFI APP"/UUID only
+  { TakeoverCheck u = t; u.idle = false; CHECK(!may_take_over(u)); }
+  { TakeoverCheck u = t; u.wifi_setup_pending = true; CHECK(!may_take_over(u)); }
+  { TakeoverCheck u = t; u.current_seen_at = 10 * MIN; CHECK(!may_take_over(u)); }  // heard a minute ago
+  { TakeoverCheck u = t; u.current_seen_at = 1 * MIN; CHECK(may_take_over(u)); }    // silent for 10 min
+  { TakeoverCheck u = t; u.candidate = GRILL; CHECK(!may_take_over(u)); }
+  { TakeoverCheck u = t; u.match = GrillMatch::NONE; CHECK(!may_take_over(u)); }
+  {
+    // A cancelled connection cleared the address: the remembered grill counts as the current one.
+    TakeoverCheck u = t;
+    u.current = 0;
+    u.now = 2 * MIN;
+    CHECK(!may_take_over(u));
+  }
+  {
+    // Nothing remembered or chosen yet: the first grill heard, even a weak match.
+    TakeoverCheck u;
+    u.candidate = OTHER;
+    u.match = GrillMatch::WEAK;
+    u.now = 1000;
+    CHECK(may_take_over(u));
+    u.wifi_setup_pending = true;
+    CHECK(!may_take_over(u));
+  }
+  {
+    // Found this boot, not remembered yet: the old minute rule, weak matches included.
+    TakeoverCheck u;
+    u.current = OTHER;
+    u.candidate = FAKE;
+    u.match = GrillMatch::WEAK;
+    u.idle = true;
+    u.now = 20 * MIN;
+    u.current_seen_at = 20 * MIN - 30000;
+    CHECK(!may_take_over(u));
+    u.current_seen_at = 20 * MIN - 61000;
+    CHECK(may_take_over(u));
+  }
+
+  // --- The grill's reported IP address.
+  auto ip = [](unsigned a, unsigned b, unsigned c2, unsigned d) { return (a << 24) | (b << 16) | (c2 << 8) | d; };
+  const uint32_t own = ip(192, 168, 1, 20), m24 = 0xFFFFFF00u;
+  CHECK(grill_ip_ok(ip(192, 168, 1, 57), own, m24));
+  CHECK(grill_ip_ok(ip(192, 168, 1, 57), own, 0));               // mask unknown: /24
+  CHECK(!grill_ip_ok(ip(192, 168, 2, 57), own, m24));            // another subnet
+  CHECK(grill_ip_ok(ip(192, 168, 2, 57), own, 0xFFFFF800u));     // ...unless the netmask covers it (/21)
+  CHECK(!grill_ip_ok(ip(8, 8, 8, 8), ip(8, 8, 8, 1), m24));      // public
+  CHECK(!grill_ip_ok(ip(192, 168, 1, 20), own, m24));            // the bridge itself
+  CHECK(!grill_ip_ok(ip(192, 168, 1, 0), own, m24));             // network
+  CHECK(!grill_ip_ok(ip(192, 168, 1, 255), own, m24));           // broadcast
+  CHECK(!grill_ip_ok(ip(192, 168, 1, 57), 0, m24));              // own address unknown
+  CHECK(grill_ip_ok(ip(10, 0, 0, 9), ip(10, 0, 0, 2), m24));
+  CHECK(grill_ip_ok(ip(172, 20, 3, 9), ip(172, 20, 3, 2), m24));
+  CHECK(!grill_ip_ok(ip(172, 32, 3, 9), ip(172, 32, 3, 2), m24));  // 172.32 isn't private
+  CHECK(!grill_ip_ok(ip(127, 0, 0, 1), ip(127, 0, 0, 2), m24));
+
+  // --- Wi-Fi and Bluetooth must agree.
+  Status a, b;
+  CHECK(parse_status(frame(225, 250, 140, 203, TEMP_ABSENT, TARGET_NONE, false, true, false).data(), 16, a));
+  CHECK(parse_status(frame(235, 250, 141, 203, TEMP_ABSENT, TARGET_NONE, false, true, false).data(), 16, b));
+  CHECK(!statuses_disagree(a, b));  // 10 °F apart: fine
+  CHECK(parse_status(frame(245, 250, 141, 203, TEMP_ABSENT, TARGET_NONE, false, true, false).data(), 16, b));
+  CHECK(statuses_disagree(a, b));   // 20 °F apart
+  CHECK(parse_status(frame(225, 275, 140, 203, TEMP_ABSENT, TARGET_NONE, false, true, false).data(), 16, b));
+  CHECK(statuses_disagree(a, b));   // pit targets differ
+  CHECK(parse_status(frame(225, 250, 140, TARGET_NONE, TEMP_ABSENT, TARGET_NONE, false, true, false).data(), 16, b));
+  CHECK(statuses_disagree(a, b));   // a food target only on one
+  LinkCrossCheck x;
+  CHECK(!x.update(true, 0));        // millis() 0 still starts the timer
+  CHECK(!x.update(true, 29999));
+  CHECK(x.update(true, 30000));
+  CHECK(!x.update(false, 31000));   // agreeing again resets it
+  CHECK(!x.update(true, 32000) && !x.update(true, 61000) && x.update(true, 62000));
+  x.reset();
+  CHECK(!x.update(true, 0xFFFFFFF0u) && x.update(true, 30000u - 0x10u));  // across the wrap
+
+  // --- Wi-Fi scan results: SSIDs longer than 32 bytes are rejected.
+  {
+    std::vector<uint8_t> n = {0x00, 0x10, 0x00, 0x00, 33};
+    n.insert(n.end(), 33, 'A');
+    n.insert(n.end(), 9, 0);
+    WifiScanResult r;
+    CHECK(!parse_wifi_scan_result(n.data(), n.size(), r));
+    n[4] = 32;
+    n.pop_back();
+    CHECK(parse_wifi_scan_result(n.data(), n.size(), r) && r.ssid.size() == 32);
+    CHECK(WIFI_SCAN_MAX == 32);
+  }
+
+  // --- H5198: sudden jumps count only once they repeat; a new thermometer is remembered after a steady minute.
+  {
+    h5198::ProbeFilter f;
+    CHECK(f.accept(60.0f, 1000));
+    CHECK(f.accept(62.0f, 1500));
+    CHECK(!f.accept(110.0f, 2000));  // +48 °C in half a second
+    CHECK(f.accept(62.5f, 2500));    // the real probe in between: the jump is forgotten
+    CHECK(!f.accept(110.0f, 3000));
+    CHECK(!f.accept(110.5f, 3500));
+    CHECK(f.accept(111.0f, 4000));   // three in a row: a probe really moved (e.g. into the pit)
+    CHECK(f.accept(112.0f, 4500));
+    CHECK(f.accept(20.0f, 15000));   // more than 10 s since the last reading: taken
+    CHECK(!f.accept(NAN, 15500));    // unplugged: also a jump
+    CHECK(!f.accept(NAN, 16000));
+    CHECK(f.accept(NAN, 16500));
+    CHECK(!f.accept(85.0f, 17000));  // plugged into hot meat: after 3 packets
+    CHECK(!f.accept(85.0f, 17200));
+    CHECK(f.accept(85.1f, 17400));
+    f.reset();
+    CHECK(f.accept(200.0f, 17600));  // after a reset the first reading is taken
+  }
+  {
+    using h5198::Candidate;
+    Candidate k;
+    const uint64_t T1 = 0xA4C1380000AAull, T2 = 0xA4C1380000BBull;
+    CHECK(k.heard(T1, 0) == Candidate::USE);
+    CHECK(k.heard(T2, 500) == Candidate::IGNORE);  // another one while the first keeps advertising
+    for (uint32_t t = 5000; t < 60000; t += 5000)
+      CHECK(k.heard(T1, t) == Candidate::USE);
+    CHECK(k.heard(T1, 60000) == Candidate::LOCK);
+    Candidate k2;
+    CHECK(k2.heard(T1, 1000) == Candidate::USE);
+    CHECK(k2.heard(T1, 5000) == Candidate::USE);
+    CHECK(k2.heard(T2, 20000) == Candidate::USE);  // T1 went quiet: T2 starts over
+    CHECK(k2.heard(T1, 21000) == Candidate::IGNORE);
+    CHECK(k2.heard(T2, 75000) == Candidate::USE);  // T2 quiet for 55 s: dropped, then heard again...
+    CHECK(k2.address() == T2);
+    for (uint32_t t = 80000; t < 135000; t += 5000)
+      CHECK(k2.heard(T2, t) == Candidate::USE);    // ...and its minute restarted at 75 s
+    CHECK(k2.heard(T2, 135000) == Candidate::LOCK);
+  }
+  std::printf("link security ok\n");
+}
+static const bool link_security_ran = (test_link_security(), true);

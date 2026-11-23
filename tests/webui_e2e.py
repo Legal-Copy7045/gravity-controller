@@ -5,8 +5,8 @@
     (ESPHome web_server's /events + REST, which the host platform lacks)  <-HTTP->  the page in Chromium
 
 Checks at 1440 and 390 px: no console errors, the pit temperature and a food card render, pressing pit + changes
-the target the grill reports, a probe-source select reaches the device, no horizontal overflow; ?classic loads
-ESPHome's stock page. Every request off 127.0.0.1 is blocked (the page must work offline).
+the target the grill reports, a probe-source select reaches the device, no horizontal overflow; ?classic no longer
+loads ESPHome's stock page from the internet. Every request off 127.0.0.1 is blocked (the page must work offline).
 
     esphome compile tests/host-bridge.yaml
     python3 tests/webui_e2e.py [screenshot dir]
@@ -103,7 +103,7 @@ def main():
             b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
             for width, height in ((1440, 1000), (390, 844)):
                 run_page(b, width, height, shots)
-            classic(b)
+            no_classic(b)
             pin_flow(b)  # last: once a PIN is set, a fresh browser is locked
             b.close()
     finally:
@@ -500,28 +500,26 @@ def program_editor(pg, width, shots):
         check(ok, "the device's Program error shows in the program card")
 
 
-def classic(browser):
-    print("-- ?classic")
+def no_classic(browser):
+    """?classic used to load ESPHome's stock page from oi.esphome.io into this origin (where the session token is)."""
+    print("-- no ?classic")
     ctx = browser.new_context()
     asked = []
 
     def route(r):
-        if r.request.url.startswith("https://oi.esphome.io/"):
-            asked.append(r.request.url)
-            r.fulfill(body="document.body.setAttribute('data-stock','1')", content_type="text/javascript")
-        elif r.request.url.startswith(BASE):
+        if r.request.url.startswith(BASE):
             r.continue_()
         else:
+            asked.append(r.request.url)
             r.abort()
 
     ctx.route("**/*", route)
     pg = ctx.new_page()
     pg.goto(BASE + "/?classic")
-    pg.wait_for_function("document.body.dataset.stock === '1'", timeout=10000)
-    check(asked == ["https://oi.esphome.io/v3/www.js"], "?classic loads ESPHome's stock page")
-    check(pg.locator(".wrap").count() == 0 and pg.locator("esp-app").count() == 1, "?classic leaves the custom page out")
+    pg.wait_for_selector(".wrap", timeout=10000)
+    check(not asked, f"?classic loads nothing from other sites {asked[:2]}")
+    check(pg.locator(".wrap").count() == 1, "?classic shows the smoker page")
     ctx.close()
-
 
 if __name__ == "__main__":
     main()

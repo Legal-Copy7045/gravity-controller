@@ -11,9 +11,12 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import math
 import re
+import secrets
 import time
 import uuid
 from pathlib import Path
@@ -32,6 +35,8 @@ STORE_VERSION = 1
 MAX_ENTRIES = 200
 MAX_PHOTOS = 6
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
+MAX_UPLOAD_BYTES = 4 * MAX_PHOTO_BYTES  # all the photos of one scan together
+MAX_PIXELS = 40_000_000  # bigger than any phone photo; refused before it's decoded (a "decompression bomb")
 SCAN_DIR = "smoker_scans"  # our own folder under the media directory
 SCAN_NAME = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}-\d\.(jpg|png)")  # only files we wrote are ever tidied away
 PROFILES = ["Auto", "Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"]
@@ -51,6 +56,25 @@ NAME | PROFILE | WEIGHT_LB | BARCODE | NOTES
 - NOTES: anything useful for cooking (e.g. "enhanced with solution", "prime grade", "bone-in"), or empty.
 Read the printed label text (net weight, product name) rather than guessing from the barcode alone; store barcodes for
 weighed meat (starting with 2) encode price or weight, not the product. One line per item, nothing else."""
+
+
+def _num(v: Any, lo: float, hi: float) -> float | None:
+    """A finite number within lo..hi, else None (the cook summary comes from a device: never trusted as is)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    v = float(v)
+    return v if math.isfinite(v) and lo <= v <= hi else None
+
+
+def from_smoker(hass: HomeAssistant, event: Event) -> bool:
+    """The event came from the smoker controller (any ESPHome device can fire esphome.* events)."""
+    from homeassistant.helpers import device_registry as dr
+
+    from .watchdog import is_smoker_device
+
+    device_id = event.data.get("device_id")
+    device = dr.async_get(hass).async_get(device_id) if isinstance(device_id, str) else None
+    return device is not None and is_smoker_device(device)
 
 
 def _entity_slug(key: str) -> str:
@@ -123,14 +147,22 @@ class Journal:
     # ---- entries ----
     @callback
     def handle_cook_complete(self, event: Event) -> None:
+        if not from_smoker(self.hass, event):
+            _LOGGER.debug("Ignored a cook summary that didn't come from the smoker controller")
+            return
         try:
             s = json.loads(event.data.get("summary") or "{}")
         except (TypeError, ValueError):
-            _LOGGER.warning("Unreadable cook summary: %s", event.data.get("summary"))
+            _LOGGER.warning("Unreadable cook summary: %.200s", event.data.get("summary"))
+            return
+        if not isinstance(s, dict):
+            _LOGGER.warning("Unreadable cook summary: %.200s", event.data.get("summary"))
             return
         now = time.time()
-        total_h = float(s.get("total_h") or 0)
-        probe = s.get("probe")
+        total_h = _num(s.get("total_h"), 0, 72) or 0.0
+        probe = s.get("probe") if isinstance(s.get("probe"), str) and re.fullmatch(r"[a-z0-9_]{1,16}", s["probe"]) else None
+        name = s.get("name")
+        wrapped = s.get("wrapped")
         draft_items = self.data["draft"]["items"]
         mine = [i for i in draft_items if i.get("probe") == probe]
         if not mine and draft_items and all(not i.get("probe") for i in draft_items):
@@ -140,15 +172,15 @@ class Journal:
             "started": now - total_h * 3600,
             "ended": now,
             "probe": probe,
-            "probe_name": s.get("name"),
-            "profile": s.get("profile"),
-            "weight_kg": s.get("weight_kg"),
-            "wrapped": s.get("wrapped"),
-            "pit_c": s.get("pit_c"),
-            "target_c": s.get("target_c"),
-            "stall_h": s.get("stall_h"),
+            "probe_name": name[:40] if isinstance(name, str) else None,
+            "profile": s.get("profile") if s.get("profile") in PROFILES else "Auto",
+            "weight_kg": _num(s.get("weight_kg"), 0, 100),
+            "wrapped": wrapped if isinstance(wrapped, bool) else None,
+            "pit_c": _num(s.get("pit_c"), -50, 500),
+            "target_c": _num(s.get("target_c"), -50, 300),
+            "stall_h": _num(s.get("stall_h"), 0, 72),
             "total_h": total_h,
-            "ambient_c": s.get("ambient_c"),
+            "ambient_c": _num(s.get("ambient_c"), -60, 70),
             "items": mine,
             "photos": list(self.data["draft"].get("photos", [])) if mine else [],
             "notes": "",
@@ -249,7 +281,9 @@ class Journal:
             st = self.hass.states.get(eid) if eid else None
             return st is not None and bool(int(st.attributes.get("supported_features") or 0) & 2)  # SUPPORT_ATTACHMENTS
 
-        if requested:
+        if requested:  # only an AI task Home Assistant has (it's a query parameter from the page)
+            if not re.fullmatch(r"ai_task\.[a-z0-9_]+", requested) or self.hass.states.get(requested) is None:
+                raise ValueError(f"there's no AI task called {requested[:60]!r}")
             return requested
         from .package_install import _previous_choices
 
@@ -278,7 +312,7 @@ class Journal:
         raise ValueError("there's no AI in Home Assistant that can read photos. Add one (e.g. Google Generative AI "
                          "under Settings > Devices & services) and try again")
 
-    async def identify(self, images: list[tuple[str, bytes]], ai_entity: str | None) -> list[dict]:
+    async def identify(self, images: list[tuple[str, bytes]], ai_entity: str | None, context=None) -> list[dict]:
         if not images:
             raise ValueError("no photos")
         entity = await self.pick_ai_entity(ai_entity)  # before saving anything: say early if there's no AI
@@ -303,9 +337,13 @@ class Journal:
                 for f in folder.glob("*.*"):
                     if SCAN_NAME.fullmatch(f.name) and f.name not in keep and f.stat().st_mtime < old:
                         f.unlink(missing_ok=True)
-            for n, (ctype, body) in enumerate(images[:MAX_PHOTOS]):
-                ext = ".png" if "png" in ctype else ".jpg"
-                name = f"{stamp}-{uuid.uuid4().hex[:6]}-{n}{ext}"
+            # Re-encoded without EXIF first: a phone photo can carry where it was taken, and these are kept and sent
+            # to the AI provider. Anything that isn't a picture is refused here.
+            clean = []
+            for ctype, body in images[:MAX_PHOTOS]:
+                clean.append(strip_metadata(body, "png" if "png" in ctype else "jpg"))
+            for n, (body, ext) in enumerate(clean):
+                name = f"{stamp}-{uuid.uuid4().hex[:6]}-{n}.{ext}"
                 (media_root / name).write_bytes(body)
                 (self.photo_dir / name).write_bytes(body)
                 saved.append(name)
@@ -320,7 +358,8 @@ class Journal:
             "attachments": attachments,
         }
         data["entity_id"] = entity
-        resp = await self.hass.services.async_call("ai_task", "generate_data", data, blocking=True, return_response=True)
+        resp = await self.hass.services.async_call("ai_task", "generate_data", data, blocking=True, return_response=True,
+                                                   context=context)
         text = (resp or {}).get("data") if isinstance(resp, dict) else None
         items = parse_items(text if isinstance(text, str) else json.dumps(text))
         # Append to the draft (several scans before a cook add up).
@@ -397,9 +436,22 @@ class IdentifyView(HomeAssistantView):
     name = "api:smoker:identify"
     requires_auth = True
 
+    busy: set[str] = set()  # users with a scan in progress: one at a time each (each one is an AI call)
+
     async def post(self, request: web.Request) -> web.Response:
         j = _journal(request)
+        user = request["hass_user"].id
+        if user in self.busy:
+            return self.json_message("a scan is already being read: wait for it to finish", 429)
+        self.busy.add(user)
+        try:
+            return await self._identify(request, j)
+        finally:
+            self.busy.discard(user)
+
+    async def _identify(self, request: web.Request, j: Journal) -> web.Response:
         images: list[tuple[str, bytes]] = []
+        total = 0
         try:
             reader = await request.multipart()
         except (AssertionError, ValueError, KeyError):
@@ -415,9 +467,12 @@ class IdentifyView(HomeAssistantView):
                 body.extend(chunk)
                 if len(body) > MAX_PHOTO_BYTES:
                     return self.json_message("photo too large (max 8 MB)", 413)
+                if total + len(body) > MAX_UPLOAD_BYTES:
+                    return self.json_message(f"photos too large together (max {MAX_UPLOAD_BYTES // 2**20} MB)", 413)
+            total += len(body)
             images.append((ctype, bytes(body)))
         try:
-            items = await j.identify(images, request.query.get("ai_task") or None)
+            items = await j.identify(images, request.query.get("ai_task") or None, self.context(request))
         except Exception as err:  # noqa: BLE001 - report AI/config problems to the page
             _LOGGER.warning("Identify failed: %s", err)
             return self.json_message(f"Couldn't identify: {err}", 400)
@@ -428,14 +483,26 @@ GRILL_PHOTO_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"
 
 
 def strip_metadata(body: bytes, ext: str) -> tuple[bytes, str]:
-    """The grill photo without EXIF (a phone photo can carry where it was taken) and anything else but the pixels: it's
-    served without a login. Re-encoded as JPEG (PNG keeps transparency); unreadable: refused rather than kept as is."""
+    """A photo without EXIF (a phone photo can carry where it was taken) and anything else but the pixels: the grill
+    photo is served to the controller, label photos go to the AI provider. Re-encoded as JPEG (PNG keeps
+    transparency); unreadable or absurdly large: refused rather than kept as is."""
     import io
+    import warnings
 
     from PIL import Image, ImageOps
 
+    # Opening only reads the header: the size is checked here, before anything is decoded. (Pillow's own
+    # Image.MAX_IMAGE_PIXELS is left alone: it's shared with every other integration in Home Assistant.)
     try:
-        img = Image.open(io.BytesIO(body))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            img = Image.open(io.BytesIO(body))
+        w, h = img.size
+    except Exception as err:  # noqa: BLE001
+        raise ValueError("couldn't read that photo") from err
+    if w * h > MAX_PIXELS:
+        raise ValueError("that photo has too many pixels")
+    try:
         img = ImageOps.exif_transpose(img)  # keep the way up the phone meant, then drop the EXIF
     except Exception as err:  # noqa: BLE001
         raise ValueError("couldn't read that photo") from err
@@ -455,12 +522,35 @@ def _uploaded_grill_photo(hass) -> Path | None:
     return None
 
 
+def _grill_photo_key(hass, new: bool = False) -> str:
+    """The secret part of the grill photo's address (blocking). A new one with every upload, so an address handed out
+    for an earlier photo stops working; made on first use for a photo uploaded before addresses had one."""
+    f = Path(hass.config.path(".storage", "smoker_photos", "grill.key"))
+    if not new:
+        try:
+            key = f.read_text(encoding="utf-8").strip()
+            if re.fullmatch(r"[0-9a-f]{32}", key):
+                return key
+        except OSError:
+            pass
+    key = secrets.token_hex(16)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(key, encoding="utf-8")
+    return key
+
+
+def _grill_photo_url(hass, photo: Path) -> str:
+    """Where the controller and the page load the uploaded photo (blocking)."""
+    return f"/api/smoker/grill_photo/image/{_grill_photo_key(hass)}?v={int(photo.stat().st_mtime)}"
+
+
 class GrillPhotoView(HomeAssistantView):
     """The user's own grill photo, shown (with the live readings pinned on it) instead of the drawing.
 
-    GET    -> {"url": ...}: a photo uploaded from the dashboard (Setup → Grill photo), or one saved by hand as
-              www/smoker/grill.(png|jpg|jpeg|webp); null if there's none.
-    POST   -> upload one (multipart field "photo", JPEG/PNG/WebP, max 8 MB); replaces the previous one.
+    GET    -> {"url": ...}: a photo uploaded from the dashboard (Setup → Grill photo), at an address with a secret
+              part (see GrillPhotoImageView), or one saved by hand as www/smoker/grill.(png|jpg|jpeg|webp); null if
+              there's none.
+    POST   -> upload one (multipart field "photo", JPEG/PNG/WebP, max 8 MB); replaces the previous one (admin).
     DELETE -> remove the uploaded one (admin).
     """
 
@@ -474,7 +564,7 @@ class GrillPhotoView(HomeAssistantView):
         def find():
             up = _uploaded_grill_photo(hass)
             if up is not None:
-                return f"{GrillPhotoImageView.url}?v={int(up.stat().st_mtime)}"
+                return _grill_photo_url(hass, up)
             for ext in ("png", "jpg", "jpeg", "webp"):
                 f = Path(hass.config.path("www", "smoker", f"grill.{ext}"))
                 if f.is_file():
@@ -484,6 +574,8 @@ class GrillPhotoView(HomeAssistantView):
         return self.json({"url": await hass.async_add_executor_job(find)})
 
     async def post(self, request: web.Request) -> web.Response:
+        if not request["hass_user"].is_admin:
+            return self.json_message("admin only", 403)
         hass = request.app["hass"]
         try:
             reader = await request.multipart()
@@ -515,13 +607,14 @@ class GrillPhotoView(HomeAssistantView):
                 old.unlink(missing_ok=True)
             f = folder / f"grill.{out_ext}"
             f.write_bytes(data)
-            return int(f.stat().st_mtime)
+            _grill_photo_key(hass, new=True)
+            return _grill_photo_url(hass, f)
 
         try:
-            mtime = await hass.async_add_executor_job(save)
+            url = await hass.async_add_executor_job(save)
         except ValueError as err:
             return self.json_message(str(err), 400)
-        return self.json({"url": f"{GrillPhotoImageView.url}?v={mtime}"})
+        return self.json({"url": url})
 
     async def delete(self, request: web.Request) -> web.Response:
         if not request["hass_user"].is_admin:
@@ -532,6 +625,7 @@ class GrillPhotoView(HomeAssistantView):
             up = _uploaded_grill_photo(hass)
             if up is not None:
                 up.unlink(missing_ok=True)
+            Path(hass.config.path(".storage", "smoker_photos", "grill.key")).unlink(missing_ok=True)
 
         await hass.async_add_executor_job(remove)
         return self.json({"url": None})
@@ -539,17 +633,28 @@ class GrillPhotoView(HomeAssistantView):
 
 class GrillPhotoImageView(HomeAssistantView):
     """The uploaded grill photo itself. Not behind a login so the smoker controller's own page (another address on
-    the network) can show it too; it's only ever the photo of the grill the user chose to upload."""
+    the network, which has no Home Assistant login) can show it too, but only at its address with the secret part:
+    /api/smoker/grill_photo/image/<key>, which logged-in users get from GET /api/smoker/grill_photo and the page passes
+    to the controller ("Grill photo URL"). (Not a Home Assistant signed path: those stop working at every restart,
+    and the controller keeps the address.)"""
 
-    url = "/api/smoker/grill_photo/image"
+    url = "/api/smoker/grill_photo/image/{key}"
     name = "api:smoker:grill_photo_image"
     requires_auth = False
 
-    async def get(self, request: web.Request) -> web.StreamResponse:
-        f = await request.app["hass"].async_add_executor_job(_uploaded_grill_photo, request.app["hass"])
+    async def get(self, request: web.Request, key: str) -> web.StreamResponse:
+        hass = request.app["hass"]
+
+        def find():
+            f = _uploaded_grill_photo(hass)
+            if f is None or not re.fullmatch(r"[0-9a-f]{32}", key):
+                return None
+            return f if hmac.compare_digest(_grill_photo_key(hass), key) else None
+
+        f = await hass.async_add_executor_job(find)
         if f is None:
             return self.json_message("not found", 404)
-        return web.FileResponse(f, headers={"Cache-Control": "public, max-age=86400"})
+        return web.FileResponse(f, headers={"Cache-Control": "private, max-age=86400"})
 
 
 class PhotoView(HomeAssistantView):

@@ -97,6 +97,8 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   uint32_t grill_seen_at() const { return this->grill_seen_at_; }  // last advertisement from the grill (0 = never)
   uint32_t any_adv_at() const { return this->any_adv_at_; }        // last advertisement from anything
   bool has_fixed_address() const { return this->fixed_address_ != 0; }
+  uint64_t fixed_address() const { return this->fixed_address_; }
+  void clear_link_rssi() { this->link_rssi_at_ = 0; }  // a new connection: the last reading was another link's
 
  protected:
   Gravity980Component *parent_{nullptr};
@@ -107,7 +109,6 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
   int link_rssi_{0};
   uint32_t link_rssi_at_{0};
   int adv_rssi_{0};
-  bool is_grill_(const esp32_ble_tracker::ESPBTDevice &device) const;
   uint32_t any_adv_at_{0};
   uint16_t notify_handle_{0};
   uint16_t write_handle_{0};
@@ -121,6 +122,15 @@ class Gravity980Component : public Component {
   void remember_grill(uint64_t a);
   /// Forget it: the next Gravity 980 heard is used (a different or replaced grill).
   void forget_grill();
+  uint64_t remembered_grill() const { return this->remembered_grill_; }
+  /// A grill Wi-Fi scan, join or credential send is under way (the Bluetooth peer must not change meanwhile).
+  bool wifi_setup_pending() const {
+#ifdef USE_TEXT_SENSOR
+    return this->wifi_scan_at_ != 0 || this->wifi_cred_at_ != 0 || !this->wifi_join_ssid_.empty();
+#else
+    return false;
+#endif
+  }
   enum class Transport : uint8_t { NONE, TCP, BLE };
 
   // --- configuration ---
@@ -213,6 +223,9 @@ class Gravity980Component : public Component {
  protected:
   ESPPreferenceObject grill_pref_;
   uint64_t remembered_grill_{0};
+  bool remembered_at_boot_{false};  // remembered_grill_ was saved before this boot
+  uint32_t remembered_at_{0};       // when it was remembered this boot
+  uint32_t ble_status_since_{0};    // valid status frames on this Bluetooth connection since (0 = none yet)
   enum class TcpState : uint8_t { IDLE, CONNECTING, CONNECTED };
   void tcp_start_connect_();
   void tcp_check_connect_();
@@ -235,6 +248,15 @@ class Gravity980Component : public Component {
 
   std::string host_;
   std::string auto_host_;  // the IP the grill reports over BLE, used when host_ is empty
+  uint64_t auto_host_peer_{0};   // the Bluetooth device that reported it
+  bool auto_host_blocked_{false};  // the reported IP's data disagreed with Bluetooth: not used again until a restart
+  uint32_t wifi_info_req_at_{0};   // when we asked the grill for its Wi-Fi info (0 = not waiting)
+  void clear_auto_host_(const char *why);
+  // Both links delivering: their readings must agree, or the Wi-Fi link is dropped (see LinkCrossCheck).
+  Status tcp_seen_{}, ble_seen_{};
+  uint32_t tcp_seen_at_{0}, ble_seen_at_{0};
+  LinkCrossCheck cross_check_;
+  uint32_t tcp_hold_at_{0};  // Wi-Fi link dropped for disagreeing at (a configured host waits 10 min; 0 = none)
   const std::string &host_for_tcp_() const { return this->host_.empty() ? this->auto_host_ : this->host_; }
   uint16_t port_{3333};
   bool fahrenheit_{true};
@@ -339,6 +361,7 @@ class Gravity980Component : public Component {
   void wifi_status_(const std::string &msg);
   void wifi_scan_done_();
   bool wifi_send_credentials_(const WifiNet &net, const std::string &password);
+  std::string credentials_refusal_();  // "" when the connected Bluetooth peer may get the Wi-Fi password
   bool ble_raw_(const std::vector<uint8_t> &data, const char *what);
 #endif
 #ifdef USE_NUMBER

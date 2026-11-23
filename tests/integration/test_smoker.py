@@ -2,6 +2,7 @@ from pathlib import Path
 """Smoker integration: panel, journal, draft from scanned packages, photo identification (AI mocked)."""
 
 import json
+import re
 
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.setup import async_setup_component
@@ -35,7 +36,31 @@ Mystery cut | Wagyu | | |"""
     assert items[2]["profile"] == "Auto" and items[2]["weight_lb"] is None
 
 
-async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
+def _jpeg(color=(200, 90, 40), gps=False) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    exif = Image.Exif()
+    if gps:
+        exif[0x8825] = {2: (40.0, 26.0, 0.0)}  # GPSInfo: latitude
+    Image.new("RGB", (40, 30), color).save(buf, "JPEG", exif=exif)
+    return buf.getvalue()
+
+
+def _png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (20, 20), (0, 0, 0, 0)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+async def test_journal_flow(hass: HomeAssistant, hass_client, hass_client_no_auth, hass_admin_user, tmp_path, smoker_device_id,
+                            other_device_id):
     await _setup(hass, tmp_path)
     client = await hass_client()
 
@@ -68,8 +93,8 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
 
     def photos():
         form = aiohttp.FormData()
-        form.add_field("photo", b"\xff\xd8\xff fake jpeg", filename="a.jpg", content_type="image/jpeg")
-        form.add_field("photo", b"\x89PNG fake", filename="b.png", content_type="image/png")
+        form.add_field("photo", _jpeg(gps=True), filename="a.jpg", content_type="image/jpeg")
+        form.add_field("photo", _png(), filename="b.png", content_type="image/png")
         return form
 
     # No AI task that can read photos (and no default set): a plain reason, not HA's "no preferred entity".
@@ -77,6 +102,16 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     assert r.status == 400 and "no AI in Home Assistant that can read photos" in (await r.json())["message"]
     hass.states.async_set("ai_task.text_only", "unknown", {"supported_features": 1})
     hass.states.async_set("ai_task.vision", "unknown", {"supported_features": 3})
+    # Only an AI task Home Assistant has can be asked for by name.
+    r = await client.post("/api/smoker/identify?ai_task=notify.somebody", data=photos())
+    assert r.status == 400 and "no AI task called" in (await r.json())["message"]
+    r = await client.post("/api/smoker/identify?ai_task=ai_task.missing", data=photos())
+    assert r.status == 400 and not seen
+    # Not a picture: refused before anything is saved or sent.
+    junk = aiohttp.FormData()
+    junk.add_field("photo", b"\xff\xd8\xff not really a jpeg", filename="j.jpg", content_type="image/jpeg")
+    r = await client.post("/api/smoker/identify", data=junk)
+    assert r.status == 400 and "couldn't read that photo" in (await r.json())["message"] and not seen
     r = await client.post("/api/smoker/identify", data=photos())
     assert r.status == 200, await r.text()
     assert seen["entity_id"] == "ai_task.vision"  # picked one that can read photos
@@ -88,6 +123,14 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     photo = body["draft"]["photos"][0]
     r = await client.get(f"/api/smoker/photo/{photo}")
     assert r.status == 200
+    from PIL import Image as _Image
+    import io as _io
+
+    # Saved (and sent to the AI) without the EXIF location the phone put in it.
+    assert len(_Image.open(_io.BytesIO(await r.read())).getexif()) == 0
+    saved = (tmp_path / "media" / "smoker_scans" / photo).read_bytes()
+    assert len(_Image.open(_io.BytesIO(saved)).getexif()) == 0
+    assert body["draft"]["photos"][1].endswith(".png")
     assert (await client.get("/api/smoker/photo/..%2Fsecrets.yaml")).status in (400, 404)  # HA filter or our check
     assert (await client.get("/api/smoker/photo/secrets.yaml")).status == 404
 
@@ -103,9 +146,14 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     # The controller reports a finished cook on food1: a journal entry with the pork, not the chicken.
     summary = {"probe": "food1", "name": "Food 1", "profile": "Pork shoulder", "weight_kg": 3.86, "wrapped": False,
                "pit_c": 107.5, "target_c": 95, "stall_h": 3.2, "total_h": 11.5, "ambient_c": 4.0}
-    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(summary)})
-    await hass.async_block_till_done()
     j = hass.data[DATA]
+    # Another ESPHome device (or none) can't add a cook to the journal.
+    for data in ({"summary": json.dumps(summary)}, {"summary": json.dumps(summary), "device_id": other_device_id}):
+        hass.bus.async_fire("esphome.smoker_cook_complete", data)
+        await hass.async_block_till_done()
+    assert j.data["entries"] == []
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(summary), "device_id": smoker_device_id})
+    await hass.async_block_till_done()
     entry = j.data["entries"][-1]
     assert entry["profile"] == "Pork shoulder" and entry["total_h"] == 11.5
     assert [i["name"] for i in entry["items"]] == ["Pork butt"]
@@ -135,6 +183,12 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     big = aiohttp.FormData()
     big.add_field("photo", b"\xff" * (jmod.MAX_PHOTO_BYTES + 1), filename="c.jpg", content_type="image/jpeg")
     assert (await client.post("/api/smoker/identify", data=big)).status == 413
+    # ...and so are photos that are too big together.
+    many = aiohttp.FormData()
+    for k in range(5):
+        many.add_field("photo", b"\xff" * (jmod.MAX_PHOTO_BYTES - 10), filename=f"m{k}.jpg", content_type="image/jpeg")
+    r = await client.post("/api/smoker/identify", data=many)
+    assert r.status == 413 and "together" in (await r.json())["message"]
 
     # The user's own grill photo (www/smoker/grill.*): reported only when it's there.
     # (the test config folder is shared between runs: remove the photo again whatever happens)
@@ -149,52 +203,123 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, tmp_path):
     finally:
         pic.unlink(missing_ok=True)
 
-    # Uploading a grill photo from the dashboard: stored by the integration, served without a login (the controller's
-    # own page loads it from another address), replaced by the next upload, removed by an admin.
-    form = aiohttp.FormData()
-    # A real JPEG with a GPS tag in its EXIF: stored re-encoded, without it (it's served without a login).
+    # Uploading a grill photo from the dashboard (an admin): stored by the integration, served without a login (the
+    # controller's own page loads it from another address) but only at its address with a secret part, replaced by
+    # the next upload (a new address), removed by an admin.
     import io
 
     from PIL import Image
 
-    buf = io.BytesIO()
-    exif = Image.Exif()
-    exif[0x8825] = {2: (40.0, 26.0, 0.0)}  # GPSInfo: latitude
-    Image.new("RGB", (40, 30), (200, 90, 40)).save(buf, "JPEG", exif=exif)
-    assert b"GPS" in buf.getvalue() or len(Image.open(io.BytesIO(buf.getvalue())).getexif()) > 0
-    form.add_field("photo", buf.getvalue(), filename="grill.jpg", content_type="image/jpeg")
-    r = await client.post("/api/smoker/grill_photo", data=form)
+    def grill_form(body):
+        form = aiohttp.FormData()
+        form.add_field("photo", body, filename="grill.jpg", content_type="image/jpeg")
+        return form
+
+    # A real JPEG with a GPS tag in its EXIF: stored re-encoded, without it.
+    gps = _jpeg(gps=True)
+    assert len(Image.open(io.BytesIO(gps)).getexif()) > 0
+    r = await client.post("/api/smoker/grill_photo", data=grill_form(gps))
     assert r.status == 200, await r.text()
     url = (await r.json())["url"]
-    assert url.startswith("/api/smoker/grill_photo/image?v="), url
+    assert re.fullmatch(r"/api/smoker/grill_photo/image/[0-9a-f]{32}\?v=\d+", url), url
     assert (await (await client.get("/api/smoker/grill_photo")).json())["url"] == url
-    img = await client.get("/api/smoker/grill_photo/image")
+    anon = await hass_client_no_auth()  # no login, like the controller
+    img = await anon.get(url)
     got = await img.read()
-    assert img.status == 200 and got.startswith(b"\xff\xd8\xff")
+    assert img.status == 200 and got.startswith(b"\xff\xd8\xff") and "public" not in img.headers["Cache-Control"]
     assert len(Image.open(io.BytesIO(got)).getexif()) == 0  # no EXIF (no location) in what's served
+    for wrong in ("/api/smoker/grill_photo/image", "/api/smoker/grill_photo/image/" + "0" * 32,
+                  "/api/smoker/grill_photo/image/" + url.split("/")[-1].split("?")[0][:-1] + "é"):
+        assert (await anon.get(wrong)).status in (401, 404), wrong
+    # A new photo, a new address: the old one stops working.
+    r = await client.post("/api/smoker/grill_photo", data=grill_form(_jpeg((10, 20, 30))))
+    url2 = (await r.json())["url"]
+    assert url2.split("?")[0] != url.split("?")[0] and (await anon.get(url)).status == 404
+    assert (await anon.get(url2)).status == 200
     bad = aiohttp.FormData()
     bad.add_field("photo", b"<svg/>", filename="x.svg", content_type="image/svg+xml")
     assert (await client.post("/api/smoker/grill_photo", data=bad)).status == 400  # only JPEG/PNG/WebP
+    # Something that only says it's a JPEG, and a "decompression bomb" (a huge picture in a small file): refused.
+    assert (await client.post("/api/smoker/grill_photo", data=grill_form(b"\xff\xd8\xff nope"))).status == 400
+    buf = io.BytesIO()
+    Image.new("1", (8000, 6000)).save(buf, "PNG")  # 48 megapixels, a few kB
+    form = aiohttp.FormData()
+    form.add_field("photo", buf.getvalue(), filename="bomb.png", content_type="image/png")
+    r = await client.post("/api/smoker/grill_photo", data=form)
+    assert r.status == 400 and "pixels" in (await r.json())["message"]
+    # Only an administrator can change it.
+    hass_admin_user.groups = []
+    assert (await client.post("/api/smoker/grill_photo", data=grill_form(_jpeg()))).status == 403
+    assert (await client.delete("/api/smoker/grill_photo")).status == 403
+    from homeassistant.auth.const import GROUP_ID_ADMIN
+
+    hass_admin_user.groups = [await hass.auth.async_get_group(GROUP_ID_ADMIN)]
     assert (await client.delete("/api/smoker/grill_photo")).status == 200
     assert (await (await client.get("/api/smoker/grill_photo")).json())["url"] is None
-    assert (await client.get("/api/smoker/grill_photo/image")).status == 404
+    assert (await anon.get(url2)).status == 404
 
-    # A garbled summary is ignored.
-    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": "not json"})
-    await hass.async_block_till_done()
+    # A garbled summary is ignored, and odd values in one are left out or cut short.
+    for bad in ("not json", "[1, 2]", json.dumps({"total_h": "lots"}) + "x"):
+        hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": bad, "device_id": smoker_device_id})
+        await hass.async_block_till_done()
     assert len(j.data["entries"]) == 1
+    odd = {"probe": "food1'><script>", "name": "N" * 500, "profile": "Wagyu<script>", "weight_kg": "heavy",
+           "pit_c": float("nan"), "target_c": True, "stall_h": -3, "total_h": 1e9, "wrapped": "yes", "ambient_c": 21}
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(odd), "device_id": smoker_device_id})
+    await hass.async_block_till_done()
+    e = j.data["entries"][-1]
+    assert e["probe"] is None and len(e["probe_name"]) == 40 and e["profile"] == "Auto" and e["ambient_c"] == 21
+    assert all(e[k] is None for k in ("weight_kg", "pit_c", "target_c", "stall_h", "wrapped")) and e["total_h"] == 0
 
 
-async def test_unload_and_reload(hass: HomeAssistant, tmp_path):
+async def test_one_scan_at_a_time(hass: HomeAssistant, hass_client, tmp_path):
+    """Each scan is an AI call: a user's second scan waits for the first."""
+    import asyncio
+
+    import aiohttp
+
+    await _setup(hass, tmp_path)
+    client = await hass_client()
+    hass.states.async_set("ai_task.vision", "unknown", {"supported_features": 3})
+    gate, seen = asyncio.Event(), []
+
+    async def slow(call: ServiceCall):
+        seen.append(call.context.user_id)
+        await gate.wait()
+        return {"data": "Ribs | Ribs | 3 | |"}
+
+    hass.services.async_register("ai_task", "generate_data", slow, supports_response=SupportsResponse.ONLY)
+
+    def form():
+        f = aiohttp.FormData()
+        f.add_field("photo", _jpeg(), filename="a.jpg", content_type="image/jpeg")
+        return f
+
+    first = asyncio.ensure_future(client.post("/api/smoker/identify", data=form()))
+    for _ in range(100):
+        if seen:
+            break
+        await asyncio.sleep(0.01)
+    assert seen and seen[0] is not None  # asked as the user who sent it (their context)
+    r = await client.post("/api/smoker/identify", data=form())
+    assert r.status == 429
+    gate.set()
+    assert (await first).status == 200
+    assert (await client.post("/api/smoker/identify", data=form())).status == 200
+
+
+async def test_unload_and_reload(hass: HomeAssistant, tmp_path, smoker_device_id):
     entry = await _setup(hass, tmp_path)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps({"probe": "food1", "total_h": 1})})
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps({"probe": "food1", "total_h": 1}),
+                                                          "device_id": smoker_device_id})
     await hass.async_block_till_done()
     assert hass.data[DATA].data["entries"] == []  # not listening while unloaded
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps({"probe": "food1", "total_h": 1})})
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps({"probe": "food1", "total_h": 1}),
+                                                          "device_id": smoker_device_id})
     await hass.async_block_till_done()
     assert len(hass.data[DATA].data["entries"]) == 1
 

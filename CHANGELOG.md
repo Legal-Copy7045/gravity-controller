@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.2.47] - 2026-11-23
+
+**Security release: the fixes from a full audit.** It looked for anything that would let someone else control the
+grill, the controller or Home Assistant, or use one to get into another.
+
+**The controller**
+- **First 15 minutes only:** until Home Assistant adopts the controller (and sets its encryption key), it accepts a new
+  connection only for 15 minutes after power-on. The same goes for its setup hotspot and Bluetooth Wi-Fi setup.
+  - Bluetooth Wi-Fi setup also needs a short press of the BOOT button.
+  - The setup hotspot no longer comes back once the controller has joined your Wi-Fi.
+- **The first device-page PIN:** it can be set only within 15 minutes of powering on, or of holding BOOT for 10 s.
+  **No PIN yet? Unplug the controller and plug it back in, then set one.**
+- **Wrong PINs:** they now lock out only the device that sent them. A global limit stays as a backstop, and empty
+  PINs aren't counted.
+- **ntfy:**
+  - Changing the ntfy server clears the topic; enter it again.
+  - The server must be a public https name. **A self-hosted ntfy on a LAN-only name no longer works.**
+  - Redirects are never followed.
+- **Requests addressed to another hostname** (DNS rebinding) are refused, reads included. Logs no longer stream to
+  the page.
+- **Before you unlock:** the AI plan, advice and the serve-by time are hidden.
+- **Removed:** `?classic` and the web fonts. The page loads nothing from other sites.
+
+**The grill link**
+- **Grill Wi-Fi setup:** the password goes only to the grill the controller already knows.
+  - That means one remembered before the last restart, or for 10+ minutes, or `bluetooth: mac_address`.
+  - It must also be sending status and have a strong signal.
+  - The page shows which device got it.
+- **Look-alike grills:**
+  - Only a "Gravity980-" device can take over from the remembered grill, and only after 10 minutes of silence.
+  - A new grill is remembered only after 2 minutes of good data.
+- **The address the grill reports:** used only right after a Wi-Fi setup, and only if it's on the controller's own
+  network.
+- **Wi-Fi and Bluetooth disagree** for 30 s: Wi-Fi is dropped.
+- **Limits and checks:**
+  - Scan results only during a scan, capped.
+  - Test commands can't send setpoints.
+  - TCP reads capped per loop.
+- **Govee H5198:** impossible jumps are ignored, and a thermometer is remembered only after a steady minute.
+- **Community averages** that don't look like Open Pitmaster's own are dropped before they reach the AI.
+
+**Home Assistant**
+- **Notification buttons:** they carry a one-time code. A forged button event from another phone or a webhook does
+  nothing. **Buttons on notifications sent before this update won't work.**
+- **AI plans:** checked before loading.
+  - Pit or hold above *Smoker AI max pit* (400°F) is refused, and so are links or anything that isn't a program.
+  - The notification shows the program itself.
+  - Your notes, scanned labels and community data go to the AI marked as data, shortened.
+- **ESPHome events:** smoker events are accepted only from the smoker controller.
+  - Cook summaries are checked field by field.
+  - Notification buttons can't be injected through a tag.
+- **Label photos:** stripped of location (EXIF) before saving or sending to the AI. One scan at a time per user, with
+  a size cap.
+- **Grill photo:**
+  - Only an administrator can upload it.
+  - It's served at an unguessable address that changes with each upload.
+  - Huge images are refused.
+- **Voice:** "start a cook" now asks you to confirm ("confirm smoker start").
+- **Smaller fixes:**
+  - Calendar notifications show the event name without links.
+  - Sharing a declined cook needs an administrator.
+  - The page passes data through data- attributes, not inline handlers.
+
+**Releases**
+- **The publishing job:** the published firmware is built in a job with ESPHome only; the test tools run separately,
+  pinned.
+- **Attestations:** made in their own default-branch job. Releases are attested before they're published, and never
+  cancelled midway.
+- **Privacy check:** it runs the default branch's copy of itself.
+- **The web installer** loads nothing from other sites and has a strict CSP.
+
 ## [0.2.46] - 2026-11-23
 
 - **Boost (both dashboards, next to the pit target), standing in for the panel's turbo button:**
