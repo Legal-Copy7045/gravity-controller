@@ -58,7 +58,12 @@ async def test_plan_refresh_ignores_reconnects(hass: HomeAssistant):
     assert not [c for c in calls if c[1] == "smoker_ai_advise"]
     eid = "automation.smoker_refresh_the_ai_plan_when_the_cook_plan_changes"
     assert hass.states.get(eid).attributes.get("last_triggered") is None
-    # A real edit does start it (it then waits 2 minutes for more edits before asking the AI).
+    # A real edit with nothing cooking or planned doesn't (no AI credits on an idle grill)...
+    hass.states.async_set("number.smoker_food_1_weight", "9.0")
+    await hass.async_block_till_done()
+    assert hass.states.get(eid).attributes.get("last_triggered") is None
+    # ...but during a cook it does (it then waits 2 minutes for more edits before asking the AI).
+    hass.states.async_set("binary_sensor.smoker_cook_active", "on")
     hass.states.async_set("number.smoker_food_1_weight", "9.5")
     import asyncio
 
@@ -66,3 +71,41 @@ async def test_plan_refresh_ignores_reconnects(hass: HomeAssistant):
         await asyncio.sleep(0.01)
     assert hass.states.get(eid).attributes.get("last_triggered") is not None
     await hass.services.async_call("automation", "turn_off", {"entity_id": eid, "stop_actions": True}, blocking=True)
+
+
+async def test_ai_advisor_only_for_a_cook(hass: HomeAssistant):
+    """The AI pitmaster script asks nothing unless a cook is underway or planned (serve-by within two days)."""
+    import datetime as dt
+
+    from homeassistant.util import dt as dt_util
+
+    pkg = yaml.load(PKG.read_text(), Loader=_Loader)
+    calls = []
+
+    async def rec(call: ServiceCall):
+        calls.append((call.domain, call.service, dict(call.data)))
+
+    for dom, svc in [("input_text", "set_value"), ("esphome", "gravity980_request_context")]:
+        hass.services.async_register(dom, svc, rec)
+    assert await async_setup_component(hass, "script", {"script": {"smoker_ai_advise": pkg["script"]["smoker_ai_advise"]}})
+    hass.states.async_set("binary_sensor.smoker_cook_active", "off")
+    hass.states.async_set("input_datetime.smoker_serve_time", "unknown")
+    await hass.services.async_call("script", "smoker_ai_advise", {}, blocking=True)
+    assert not [c for c in calls if c[0] == "esphome"], calls
+    assert any("Nothing's cooking" in c[2].get("value", "") for c in calls), calls
+    # A serve-by next week isn't "planned" yet either.
+    week = dt_util.now() + dt.timedelta(days=7)
+    hass.states.async_set("input_datetime.smoker_serve_time", week.strftime("%Y-%m-%d %H:%M:%S"))
+    await hass.services.async_call("script", "smoker_ai_advise", {}, blocking=True)
+    assert not [c for c in calls if c[0] == "esphome"], calls
+    # Tomorrow's cook is.
+    soon = dt_util.now() + dt.timedelta(hours=20)
+    hass.states.async_set("input_datetime.smoker_serve_time", soon.strftime("%Y-%m-%d %H:%M:%S"))
+    try:
+        await hass.services.async_call("script", "smoker_ai_advise", {}, blocking=False)
+        for _ in range(20):
+            import asyncio
+            await asyncio.sleep(0.01)
+    finally:
+        await hass.services.async_call("script", "turn_off", {"entity_id": "script.smoker_ai_advise"}, blocking=True)
+    assert [c for c in calls if c[0] == "esphome"], calls

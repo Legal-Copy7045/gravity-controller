@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.32] - 2026-11-23
+
+- **Home Assistant reconnects to a controller it has lost.** Home Assistant's link to the controller can get stuck:
+  the controller keeps running (its page answers) while everything in Home Assistant shows unavailable.
+  - The integration now checks every minute. After 3 minutes like that, if the controller's page answers, it
+    reloads the connection. If the page doesn't answer either, it tries once after 15 minutes.
+  - The controller helps from its side: once Home Assistant has used it, 10 minutes without Home Assistant makes it
+    reconnect its Wi-Fi (every 30 minutes while it lasts). After an hour it restarts once, never during a cook, and
+    not again until Home Assistant is back. A controller used without Home Assistant is left alone.
+- **The AI only works on a cook.** It asks nothing unless a cook is underway or planned (a serve-by time within the
+  next two days), on the controller and in Home Assistant:
+  - the AI pitmaster's *Ask now* is greyed out on an idle grill;
+  - the plan refresh no longer fires when you edit a probe's cut with nothing on;
+  - Plan with AI and label reading are still there when you're planning.
+  - The controller also caps AI questions at 40 a day, so a fault can't run up a bill.
+
 ## [0.2.31] - 2026-11-23
 
 Running without Home Assistant, part 3: the AI on the controller, with your own key (docs/standalone.md).

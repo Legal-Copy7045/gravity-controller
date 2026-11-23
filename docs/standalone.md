@@ -97,6 +97,11 @@ Once it's set up, an **AI pitmaster** section appears on the page:
 - **What's cooking:** **Take a photo** or **Choose a photo** of the package label. The page shrinks it, the AI reads
   the cut and weight, and **Set** puts them on a Food slot.
 
+**It only works on a cook.** Nothing is asked unless a cook is underway (the pit is up, or a program is running) or
+planned (**Serve by** within the next two days). On an idle grill **Ask now** is greyed out and the 30-minute check
+doesn't run; Plan with AI and label reading still work, because that's planning. As a backstop, the controller asks
+at most 40 questions a day.
+
 What's sent: the live readings and settings, this grill's learned cooks, your journal entries (stars, tags, notes), the
 Open Pitmaster averages for your cuts and the weather numbers. Never your area, Wi-Fi, PIN or other keys. Label photos
 go to the provider and aren't kept on the controller.

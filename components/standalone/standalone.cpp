@@ -148,6 +148,7 @@ void Standalone::dump_config() {
 void Standalone::loop() {
   const uint32_t now = millis();
   this->loop_cook_(now);
+  this->loop_ha_watch_(now);
   if (this->save_pending_.exchange(false))
     this->save_();
   // Weather: every 30 min while a location is set (and straight away after it changes).

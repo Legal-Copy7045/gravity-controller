@@ -465,6 +465,17 @@ script:
     mode: single
     max_exceeded: silent
     sequence:
+      # Only for a cook: one underway, or planned (serve-by within the next two days). Never on an idle grill.
+      - if:
+          - condition: template
+            value_template: >
+              {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) - as_timestamp(now()) %}
+              {{ not is_state('binary_sensor.smoker_cook_active', 'on') and not (0 < serve < 172800) }}
+        then:
+          - action: input_text.set_value
+            target: {entity_id: input_text.smoker_ai_summary}
+            data: {value: "Nothing's cooking or planned: the AI pitmaster waits for a cook (or a serve-by time)."}
+          - stop: Nothing to advise on
       # The controller answers with an esphome.smoker_context event, captured by sensor.smoker_ai_context below.
       - action: esphome.gravity980_request_context
         continue_on_error: true
@@ -706,6 +717,12 @@ automation:
              and trigger.from_state.state not in ['unknown', 'unavailable']
              and trigger.to_state.state not in ['unknown', 'unavailable']
              and trigger.from_state.state != trigger.to_state.state }}
+      - condition: template
+        # Only while a cook is underway or planned (serve-by in the next two days): editing a probe's cut on an idle
+        # grill doesn't spend AI credits.
+        value_template: >
+          {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) - as_timestamp(now()) %}
+          {{ is_state('binary_sensor.smoker_cook_active', 'on') or 0 < serve < 172800 }}
     actions:
       - delay: "00:02:00"   # let a burst of edits settle
       - action: script.smoker_ai_advise

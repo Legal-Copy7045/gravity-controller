@@ -228,6 +228,15 @@ class Standalone : public Component {
   int ai_assign_probe_{0};
   float ai_assign_lb_{NAN};
   uint32_t ai_last_auto_{0};
+  // Home Assistant dropped the controller (standalone_ai.cpp): reconnect Wi-Fi, then restart once.
+  void loop_ha_watch_(uint32_t now);
+  ESPPreferenceObject ha_pref_;
+  uint8_t ha_state_{0};          // persisted: bit0 = Home Assistant has used this controller, bit1 = restarted for an outage
+  bool ha_loaded_{false};
+  uint32_t ha_lost_at_{0}, ha_bounced_at_{0};
+  uint16_t ai_calls_today_{0};
+  uint32_t ai_day_{0};
+  bool ai_cook_on_();            // a cook underway, or one planned for the next two days
   int8_t fuel_mode_{-1};  // a charcoal log from the device page, applied in the main loop
   float fuel_pct_{NAN};
 };

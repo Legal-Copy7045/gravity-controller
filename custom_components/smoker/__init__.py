@@ -18,6 +18,7 @@ from .journal import async_setup_journal, async_unload_journal
 from .sharing import async_setup_sharing, async_unload_sharing
 from .package_install import async_setup_package_install
 from .panel import async_remove_panel, async_setup_panel
+from .watchdog import async_setup_watchdog, async_unload_watchdog
 
 DOMAIN = "smoker"
 
@@ -29,6 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         lambda: json.loads((Path(__file__).parent / "manifest.json").read_text())["version"])
     await async_setup_sharing(hass, journal, version)
     await async_setup_package_install(hass, version)
+    await async_setup_watchdog(hass)
     return True
 
 
@@ -36,4 +38,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_unload_journal(hass)
     async_unload_sharing(hass)
     async_remove_panel(hass)
+    async_unload_watchdog(hass)
     return True

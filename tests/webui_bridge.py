@@ -234,7 +234,7 @@ class Local:
                   "location": False, "tz": False, "lat": None, "lon": None,
                   "plan": {"serve_by": 0, "rest_min": 60, "now": 0}}
         self.ai = {"provider": "", "model": "", "default_model": "", "auto": False, "interval": 30, "error": "",
-                   "test": "", "busy": {"advise": False, "plan": False, "label": False, "test": False}}
+                   "test": "", "cook_on": True, "calls_today": 0, "daily_limit": 40, "busy": {"advise": False, "plan": False, "label": False, "test": False}}
         self.ai_calls = []
         rec = {"v": 1, "id": "0123456789abcdef0123456789abcdef", "grill": "gravity980", "release": "0.2.29",
                "season": "autumn", "cut": "Pork shoulder", "weight_lb": 8.5, "wrapped": True, "pit_f": 250,

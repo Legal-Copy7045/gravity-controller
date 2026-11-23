@@ -1115,7 +1115,8 @@ function renderAI() {
       ${A.provider ? `<div class="row"><span>API key<br><span class="muted small">${esc(AI_KEYS[A.provider] || '')}</span></span><span class="entry"><input id="sec-ai_key" type="password" autocomplete="off" placeholder="${A.key ? 'set · type to replace' : 'paste the key'}" aria-label="AI API key" style="width:160px"><button class="btn" data-a="secret" data-k="ai_key">Save</button></span></div>
       <div class="row"><span>Model<br><span class="muted small">default ${esc(A.default_model)}</span></span><span class="entry"><input id="aimodel" type="text" autocomplete="off" spellcheck="false" maxlength="47" value="${esc(A.model === A.default_model ? '' : A.model)}" placeholder="${esc(A.default_model)}" style="width:160px" aria-label="AI model"><button class="btn" data-a="aimodel">Save</button></span></div>
       ${A.key ? `<div class="btns"><button class="btn" data-a="aitest"${busy.test ? ' disabled' : ''}>${busy.test ? 'Checking…' : 'Test the key'}</button><button class="btn" data-a="secret" data-k="ai_key" data-clear="1">Remove the key</button></div>` : ''}
-      ${A.test ? `<p class="note">${esc(A.test)}</p>` : ''}` : ''}` : lockNote('set up the AI')}`);
+      ${A.test ? `<p class="note">${esc(A.test)}</p>` : ''}
+      ${A.key && A.calls_today != null ? `<p class="note">${fmt(A.calls_today)} of ${fmt(A.daily_limit)} questions today (a daily limit, so a fault can't run up a bill). It only asks on its own during a cook.</p>` : ''}` : ''}` : lockNote('set up the AI')}`);
   if (!ready) return;
   put('aisub', busy.advise || busy.plan || busy.label ? 'thinking…' : esc((AI_PROVIDERS.find(p => p[0] === A.provider) || [])[1] || ''));
   const adv = A.advice, err = A.error && !busy.advise && !busy.plan && !busy.label ? `<p class="err" role="alert">${esc(A.error)}</p>` : '';
@@ -1124,7 +1125,8 @@ function renderAI() {
       ${typeof adv.finish_estimate_min === 'number' ? row('AI\'s finish estimate', '~' + mins(adv.finish_estimate_min)) : ''}${aiRecs(adv.recommendations)}`
     : '<p class="note" style="margin-top:0">Ask during a cook: it reads the pit, the probes, the weather, this grill\'s past cooks and your journal.</p>'}
     ${err}
-    ${au ? `<div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>
+    ${au && A.cook_on === false ? '<p class="note">The AI only works on a cook: it waits until one is underway, or planned (Serve by, under Plan a cook), so it never spends your credits on an idle grill.</p>' : ''}
+    ${au ? `<div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise || A.cook_on === false ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>
       <div class="row"><span>Every ${fmt(A.interval)} min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg${A.auto ? ' on' : ''}" data-a="aiauto" data-v="${A.auto ? 0 : 1}" role="switch" aria-checked="${!!A.auto}" aria-label="Ask the AI every ${fmt(A.interval)} minutes during a cook"></button></div>` : lockNote('ask the AI')}`);
   const pl = A.plan;
   put('aiplan', `<h3><span>Plan with AI</span>${pl ? aiWhen(pl.at) : ''}</h3>

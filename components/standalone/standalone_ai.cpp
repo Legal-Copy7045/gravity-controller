@@ -11,10 +11,17 @@
 #include <cstring>
 #include <ctime>
 
+#include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "../cook_assistant/cook_assistant.h"
+#ifdef USE_API
+#include "esphome/components/api/api_server.h"
+#endif
+#ifdef USE_WIFI
+#include "esphome/components/wifi/wifi_component.h"
+#endif
 
 namespace esphome {
 namespace standalone {
@@ -114,6 +121,11 @@ bool Standalone::ai_ask_(const std::string &kind, const std::string &system, con
                          const std::string &image_b64, std::string &why) {
   if (!this->ai_ready_()) { why = "Set up the AI first (Setup > AI: provider and key)"; return false; }
   if (this->ai_busy_ & (1u << this->ai_kind_(kind))) { why = "Already asking: give it a moment"; return false; }
+  // A cap on the owner's credits, whatever else goes wrong: 40 questions a day.
+  const uint32_t day = ::time(nullptr) > 1700000000 ? uint32_t(::time(nullptr) / 86400) : millis() / 86400000u;
+  if (day != this->ai_day_) { this->ai_day_ = day; this->ai_calls_today_ = 0; }
+  if (this->ai_calls_today_ >= 40) { why = "That's 40 AI questions today, the daily limit: it resets tomorrow"; return false; }
+  this->ai_calls_today_++;
   const std::string p = this->s_.ai_provider, model = this->ai_model_();
   Job j;
   j.what = "ai:" + kind;
@@ -240,8 +252,16 @@ void Standalone::ai_done_(const std::string &what, int code, const std::string &
   ESP_LOGI(TAG, "%s: answered", kind.c_str());
 }
 
+// The AI only works on a cook: one underway, or one planned (serve-by within the next two days).
+bool Standalone::ai_cook_on_() {
+  if (this->cook_ != nullptr && this->cook_->cook_active()) return true;
+  const time_t t = ::time(nullptr);
+  return this->s2_.serve_by && t > 1700000000 && this->s2_.serve_by > uint32_t(t) && this->s2_.serve_by - uint32_t(t) < 48 * 3600;
+}
+
 std::string Standalone::ai_advise_() {
   std::string why;
+  if (!this->ai_cook_on_()) return "Nothing's cooking or planned: start a cook, or set Serve by under Plan a cook";
   this->ai_ask_("advise",
                 "You are an experienced pitmaster giving a second opinion on a live cook on a Char-Griller Gravity 980 "
                 "charcoal smoker, using the controller's data. Be specific and practical; don't repeat the numbers back. "
@@ -303,6 +323,9 @@ std::string Standalone::ai_json_() {
     b["plan"] = (this->ai_busy_ & 2) != 0;
     b["label"] = (this->ai_busy_ & 4) != 0;
     b["test"] = (this->ai_busy_ & 8) != 0;
+    o["cook_on"] = this->ai_cook_on_();
+    o["calls_today"] = this->ai_calls_today_;
+    o["daily_limit"] = 40;
     o["error"] = this->ai_error_;
     o["test"] = this->ai_test_;
   }).c_str();
@@ -395,5 +418,46 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
   return err(404, "not found");
 }
 
+// ---------------------------------------------------------------- Home Assistant dropped the controller
+// Home Assistant normally reconnects by itself. If it has used this controller and hasn't been back for 10 minutes,
+// reconnect Wi-Fi (Home Assistant notices the controller announcing itself again); every 30 minutes after that, again.
+// After an hour, restart the controller once, never during a cook, and not again until Home Assistant has been back.
+// A controller that has never seen Home Assistant (standalone) is left alone.
+void Standalone::loop_ha_watch_(uint32_t now) {
+#ifdef USE_API
+  if (api::global_api_server == nullptr) return;
+  if (!this->ha_loaded_) {
+    this->ha_loaded_ = true;
+    this->ha_pref_ = global_preferences->make_preference<uint8_t>(fnv1_hash("standalone_ha_watch_v1"));
+    if (!this->ha_pref_.load(&this->ha_state_)) this->ha_state_ = 0;
+  }
+  if (api::global_api_server->is_connected()) {
+    if (this->ha_state_ != 1) { this->ha_state_ = 1; this->ha_pref_.save(&this->ha_state_); }
+    this->ha_lost_at_ = this->ha_bounced_at_ = 0;
+    return;
+  }
+  if (!(this->ha_state_ & 1) || now < 120000) return;  // never used with Home Assistant, or just started
+  if (this->ha_lost_at_ == 0) { this->ha_lost_at_ = now | 1; return; }
+  const uint32_t lost = now - this->ha_lost_at_;
+#ifdef USE_WIFI
+  if (lost > 10 * 60000 && (this->ha_bounced_at_ == 0 || now - this->ha_bounced_at_ > 30 * 60000) &&
+      wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected()) {
+    this->ha_bounced_at_ = now | 1;
+    ESP_LOGW(TAG, "Home Assistant hasn't reconnected for %u min: reconnecting Wi-Fi", unsigned(lost / 60000));
+    wifi::global_wifi_component->disable();
+    this->set_timeout("ha_wifi_back", 3000, []() { wifi::global_wifi_component->enable(); });
+  }
+#endif
+  if (lost > 60 * 60000 && !(this->ha_state_ & 2) && !(this->cook_ != nullptr && this->cook_->cook_active())) {
+    this->ha_state_ |= 2;
+    this->ha_pref_.save(&this->ha_state_);
+    global_preferences->sync();
+    ESP_LOGW(TAG, "Home Assistant hasn't reconnected for an hour: restarting once");
+    this->set_timeout("ha_reboot", 1000, []() { App.safe_reboot(); });
+  }
+#endif
+}
+
 }  // namespace standalone
 }  // namespace esphome
+
