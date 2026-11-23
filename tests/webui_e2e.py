@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -103,6 +104,7 @@ def main():
             for width, height in ((1440, 1000), (390, 844)):
                 run_page(b, width, height, shots)
             classic(b)
+            pin_flow(b)  # last: once a PIN is set, a fresh browser is locked
             b.close()
     finally:
         for pr in procs:
@@ -201,6 +203,67 @@ def run_page(browser, width, height, shots):
         pg.screenshot(path=os.path.join(shots, f"device-{width}-dark.png"), full_page=True)
     ctx.close()
     PAGE = None
+
+
+def pin_flow(browser):
+    """The device page's PIN: set it, store a key (write-only), lock, refused changes, unlock."""
+    print("-- PIN")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    offline(ctx)
+    pg = ctx.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(BASE + "/")
+    pg.wait_for_selector("#lock h3", timeout=15000)
+    check("not set" in pg.inner_text("#lock"), "a new controller asks for a PIN")
+    check("Set a PIN" in pg.inner_text("#notif"), "keys can't be stored before a PIN")
+    pg.fill("#pin1", "123456")
+    pg.fill("#pin2", "123456")
+    pg.click("#lock [data-a=pinset]")
+    pg.wait_for_timeout(500)
+    check("not set" in pg.inner_text("#lock"), "an easy PIN (123456) is refused")
+    pg.fill("#pin1", "482913")
+    pg.fill("#pin2", "482913")
+    pg.click("#lock [data-a=pinset]")
+    pg.wait_for_function("document.querySelector('#lock').innerText.includes('unlocked')", timeout=5000)
+    check(True, "PIN set: this browser is unlocked")
+    # A key: saved, shown only as set, never read back.
+    pg.click("#notif details[data-k=ntfy] summary")
+    pg.fill("#sec-ntfy_topic", "smoker-test-topic-k3v9")
+    pg.click("#notif [data-a=secret][data-k=ntfy_topic]")
+    pg.wait_for_function("document.querySelector('#notif').innerText.includes('ntfy ✓')", timeout=5000)
+    check("smoker-test-topic-k3v9" not in pg.content(), "the ntfy topic is never shown back")
+    # Time zone from the browser: offsets and DST rules.
+    pg.click("#place [data-a=tz]")
+    pg.wait_for_timeout(500)
+    tz = json.loads(urllib.request.urlopen(BASE + "/local/status", timeout=5).read())
+    check(tz["tz"] is True, "time zone sent")
+    # Lock: a change is refused (401) and the grill target doesn't move; anyone without the PIN is refused too.
+    pg.click("#lock [data-a=logout]")
+    pg.wait_for_function("document.querySelector('#lock').innerText.includes('locked')", timeout=5000)
+    before = value("number", "Pit target")
+    pg.locator("#pit [data-a=pit][data-d='1']").click()
+    pg.wait_for_timeout(1500)
+    check(value("number", "Pit target") == before, f"locked: pit + changed nothing ({before} -> {value('number', 'Pit target')})")
+    check("Enter the PIN" in pg.inner_text("#toast"), "locked: the page says to enter the PIN")
+    try:
+        post("/number/Pit target/set", value="300")
+        check(False, "a POST without the PIN was accepted")
+    except urllib.error.HTTPError as e:
+        check(e.code == 401, f"a POST without the PIN is refused ({e.code})")
+    # Wrong then right PIN.
+    pg.fill("#pinin", "000000")
+    pg.click("#lock [data-a=login]")
+    pg.wait_for_timeout(500)
+    check("locked" in pg.inner_text("#lock"), "a wrong PIN doesn't unlock")
+    pg.fill("#pinin", "482913")
+    pg.click("#lock [data-a=login]")
+    pg.wait_for_function("document.querySelector('#lock').innerText.includes('unlocked')", timeout=5000)
+    pg.wait_for_timeout(2600)
+    pg.locator("#pit [data-a=pit][data-d='1']").click()
+    check(wait(lambda: (value("number", "Pit target") or 0) > (before or 0), 10, "the new target"), "unlocked: pit + works")
+    check(not errors, f"no page errors in the PIN flow {errors[:3]}")
+    ctx.close()
 
 
 LOAD_PROGRAM = """

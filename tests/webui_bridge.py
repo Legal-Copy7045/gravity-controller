@@ -189,6 +189,8 @@ class Bridge:
         return web.json_response(self.json(key, request.query.get("detail") == "all"))
 
     async def post(self, request):
+        if not LOCAL.gate(request):
+            return web.json_response({"error": "Enter the PIN to make changes", "pin": True}, status=401)
         key, dom = self.find(request)
         act = request.match_info["action"]
         if key is None:
@@ -217,6 +219,81 @@ class Bridge:
         else:
             return web.Response(status=404)
         return web.Response(status=200)
+
+
+LOCAL = None
+
+
+class Local:
+    """Stand-in for components/standalone's /local/ API and its PIN gate (the crypto itself is tested in test_core)."""
+
+    def __init__(self):
+        self.pin, self.tokens, self.fails = None, set(), 0
+        self.s = {"route": "auto", "ntfy_server": "https://ntfy.sh", "set": {"ntfy": False, "pushover": False,
+                                                                            "telegram": False, "ai": False},
+                  "location": False, "tz": False, "lat": None, "lon": None}
+
+    def authed(self, request):
+        return self.pin is not None and request.headers.get("X-Smoker-Token", "") in self.tokens
+
+    def status(self, request):
+        a = self.authed(request)
+        return {**self.s, "pin": self.pin is not None, "authed": a, "locked": 0, "ha": True, "ai_provider": "",
+                "ai_model": "", "weather_age_min": -1, "last": {"ntfy": "", "pushover": "", "telegram": ""},
+                **({} if a else {"lat": None, "lon": None})}
+
+    def gate(self, request):  # writes need the PIN once one is set
+        return self.pin is None or self.authed(request)
+
+    def token(self):
+        t = os.urandom(32).hex()
+        self.tokens.add(t)
+        return t
+
+    async def handle(self, request):
+        path = request.match_info["path"]
+        if request.method == "GET":
+            return web.json_response(self.status(request))
+        body = await request.json() if request.can_read_body else {}
+        err = lambda m, c=400: web.json_response({"error": m}, status=c)  # noqa: E731
+        if path == "pin":
+            if self.pin is not None and body.get("current") != self.pin:
+                return err("The current PIN is wrong")
+            p = body.get("pin", "")
+            if len(p) < 6 or len(set(p)) == 1 or p in ("123456", "654321"):
+                return err("Use at least 6 characters")
+            self.pin, self.tokens = p, set()
+            return web.json_response({"token": self.token()})
+        if path == "login":
+            if body.get("pin") != self.pin:
+                return err("Wrong PIN", 401)
+            return web.json_response({"token": self.token()})
+        if path == "logout":
+            self.tokens.discard(request.headers.get("X-Smoker-Token", ""))
+            return web.json_response({})
+        if self.pin is None:
+            return err("Set a PIN for the device page first", 409)
+        if not self.authed(request):
+            return err("Enter the PIN", 401)
+        if path == "secret":
+            k = body.get("name", "").split("_")[0]
+            self.s["set"][k] = bool(body.get("value"))
+        elif path == "settings":
+            for k in ("route", "ntfy_server"):
+                if k in body:
+                    self.s[k] = body[k]
+            if "lat" in body:
+                self.s.update(location=True, lat=round(body["lat"], 2), lon=round(body["lon"], 2))
+            if body.get("clear_location"):
+                self.s.update(location=False, lat=None, lon=None)
+            if "tz" in body:
+                self.s["tz"] = True
+                self.s["tz_rules"] = body["tz"]
+        elif path == "test-notify":
+            self.s["last_test"] = True
+        else:
+            return err("not found", 404)
+        return web.json_response(self.status(request))
 
 
 async def main():
@@ -254,6 +331,8 @@ async def main():
                 br.by_name[(dom, e.name)] = e.key
     cli.subscribe_states(br.on_state)
 
+    global LOCAL
+    LOCAL = Local()
     app = web.Application()
 
     async def root(_):
@@ -267,6 +346,7 @@ async def main():
     for p in files:
         app.router.add_get(p, static(p))
     app.router.add_get("/events", br.events)
+    app.router.add_route("*", "/local/{path}", LOCAL.handle)
     app.router.add_get("/{domain}/{name}", br.get)
     app.router.add_post("/{domain}/{name}/{action}", br.post)
     runner = web.AppRunner(app)

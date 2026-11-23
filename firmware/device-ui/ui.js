@@ -35,10 +35,11 @@ function start() {
   <section class="sect" id="s-food"><h2 class="sec">${ic('food')}Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
   <section class="sect" id="s-pit"><h2 class="sec">${ic('grill')}Pit &amp; program</h2><div class="grid"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
   <section class="sect" id="s-fuel"><h2 class="sec">${ic('hopper')}Charcoal</h2><div class="card" id="fuel"></div></section>
-  <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><div class="grid"><div class="card" id="conn"></div><div class="card" id="sources"></div><div class="card" id="dev"></div></div></section>
+  <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><div class="grid"><div class="card" id="lock"></div><div class="card" id="conn"></div><div class="card" id="notif"></div><div class="card" id="place"></div><div class="card" id="sources"></div><div class="card" id="dev"></div></div></section>
   <footer id="foot"></footer></div><div id="toast" role="status" aria-live="polite"></div>`);
   wire();
   connect();
+  loadLocal(); setInterval(loadLocal, 60000);
   setInterval(() => { render(); }, 5000);  // the connection dot and "ago" texts
 }
 
@@ -98,13 +99,50 @@ const row = (l, r) => `<div class="row"><span>${l}</span><span class="r">${r}</s
 
 // ---------------------------------------------------------------- REST actions
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
+// The device page's PIN (components/standalone): once one is set, every change needs this browser's session token.
+const TOK = {
+  get() { try { return localStorage.getItem('smokerToken') || ''; } catch (e) { return ''; } },
+  set(t) { try { t ? localStorage.setItem('smokerToken', t) : localStorage.removeItem('smokerToken'); } catch (e) { /* private mode */ } },
+};
+const needPin = () => { toast('Enter the PIN (Setup → This page\'s PIN) to make changes'); const c = $('lock'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
 async function post(dom, name, action, params) {
   const q = params ? '?' + new URLSearchParams(params) : '';
   try {
-    const r = await fetch(`/${dom}/${encodeURIComponent(name)}/${action}${q}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    const r = await fetch(`/${dom}/${encodeURIComponent(name)}/${action}${q}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Smoker-Token': TOK.get() } });
+    if (r.status === 401) { if (LOCAL) LOCAL.authed = false; renderLocal(); needPin(); return false; }
     if (!r.ok) throw new Error(r.status === 404 ? 'not found' : 'HTTP ' + r.status);
     return true;
   } catch (e) { toast('Couldn\'t change ' + name + ': ' + e.message); return false; }
+}
+// /local/...: the PIN, write-only keys, notifications, location and time zone.
+let LOCAL = null;
+async function local(path, body) {
+  const r = await fetch('/local/' + path, body === undefined ? { headers: { 'X-Smoker-Token': TOK.get() } }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Smoker-Token': TOK.get() }, body: JSON.stringify(body) });
+  let d = {}; try { d = await r.json(); } catch (e) { /* empty */ }
+  if (!r.ok) { if (r.status === 401 && LOCAL) { LOCAL.authed = false; renderLocal(); } throw new Error(d.error || 'HTTP ' + r.status); }
+  return d;
+}
+async function loadLocal() {
+  try { LOCAL = await local('status'); } catch (e) { LOCAL = LOCAL || null; }
+  if (LOCAL && LOCAL.pin && !LOCAL.authed && TOK.get()) TOK.set('');
+  renderLocal();
+}
+// The browser's time zone as offsets and daylight-saving rules (what the controller needs; it can't look zones up).
+function tzRules() {
+  const y = new Date().getFullYear(), off = t => new Date(t).getTimezoneOffset();
+  const ch = []; let prev = off(Date.UTC(y, 0, 1));
+  for (let t = Date.UTC(y, 0, 1); t < Date.UTC(y + 1, 0, 1); t += 3600e3) {
+    const o = off(t); if (o === prev) continue;
+    let lo = t - 3600e3, hi = t;
+    while (hi - lo > 60e3) { const m = lo + Math.floor((hi - lo) / 120e3) * 60e3; if (off(m) === prev) lo = m; else hi = m; }
+    ch.push({ at: hi, from: prev, to: o }); prev = o;
+  }
+  const rule = c => { const d = new Date(c.at - c.from * 60e3), day = d.getUTCDate(), dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    return { m: d.getUTCMonth() + 1, w: day + 7 > dim ? 5 : Math.ceil(day / 7), d: d.getUTCDay(), t: d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 }; };
+  if (ch.length < 2) return { std: off(Date.now()) * 60, dst: off(Date.now()) * 60 };
+  const start = ch.find(c => c.to < c.from), end = ch.find(c => c.to > c.from);
+  return { std: Math.max(start.from, end.to) * 60, dst: Math.min(start.to, end.from) * 60, start: rule(start), end: rule(end) };
 }
 // The value to step from: a target just sent counts until the device reports one (rapid taps add up).
 const sent = {};
@@ -140,6 +178,46 @@ const ACT = {
     ['wifissid', 'wifipass'].forEach(k => { const f = $(k); if (f) { delete f.dataset.dirty; if (k === 'wifipass') f.value = ''; } });
     toast('Sent to the grill: watch "Grill\'s Wi-Fi"');
   },
+  async pinset() {
+    const a = ($('pin1') || {}).value || '', b = ($('pin2') || {}).value || '';
+    if (a !== b) return toast('The two PINs differ');
+    try { const d = await local('pin', { pin: a, current: ($('pin0') || {}).value || '' }); TOK.set(d.token); ['pin0', 'pin1', 'pin2'].forEach(k => { const f = $(k); if (f) { f.value = ''; delete f.dataset.dirty; } }); toast('PIN set: this browser stays unlocked for 12 h'); }
+    catch (e) { toast(e.message); }
+    loadLocal();
+  },
+  async login() {
+    try { const d = await local('login', { pin: ($('pinin') || {}).value || '' }); TOK.set(d.token); const f = $('pinin'); if (f) { f.value = ''; delete f.dataset.dirty; } toast('Unlocked for 12 h in this browser'); }
+    catch (e) { toast(e.message); }
+    loadLocal();
+  },
+  async logout() { try { await local('logout', {}); } catch (e) { /* gone anyway */ } TOK.set(''); loadLocal(); toast('Locked'); },
+  async secret(el) {
+    const k = el.dataset.k, f = $('sec-' + k), v = el.dataset.clear ? '' : (f ? f.value.trim() : '');
+    if (!el.dataset.clear && !v) return toast('Type it first');
+    try { LOCAL = await local('secret', { name: k, value: v }); if (f) { f.value = ''; delete f.dataset.dirty; } toast(v ? 'Saved (it can\'t be read back, only replaced)' : 'Removed'); renderLocal(); }
+    catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+  },
+  async ntfyserver() {
+    const f = $('ntfysrv'); try { LOCAL = await local('settings', { ntfy_server: f.value.trim() }); delete f.dataset.dirty; toast('ntfy server saved'); renderLocal(); } catch (e) { toast(e.message); }
+  },
+  async testnotify() { try { LOCAL = await local('test-notify', {}); toast('Test sent: check your phone'); renderLocal(); setTimeout(loadLocal, 8000); } catch (e) { toast(e.message); } },
+  async geo() {
+    const q = (($('geoq') || {}).value || '').trim(); if (!q) return toast('Type a town or postcode');
+    const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (m) return ACT.place({ dataset: { lat: m[1], lon: m[2], n: 'that spot' } });
+    try {  // the search goes from this browser to Open-Meteo, not through the controller
+      const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=5&name=' + encodeURIComponent(q));
+      geoHits = ((await r.json()).results || []).map(x => ({ n: [x.name, x.admin1, x.country].filter(Boolean).join(', '), lat: x.latitude, lon: x.longitude }));
+      if (!geoHits.length) toast('Nothing found: try a nearby town, or type "latitude, longitude"');
+    } catch (e) { toast('Search needs internet on this phone; or type "latitude, longitude"'); }
+    renderLocal();
+  },
+  async place(el) {
+    try { LOCAL = await local('settings', { lat: parseFloat(el.dataset.lat), lon: parseFloat(el.dataset.lon) }); geoHits = []; const f = $('geoq'); if (f) { f.value = ''; delete f.dataset.dirty; } toast('Weather for ' + el.dataset.n + ' (rounded to about 1 km)'); renderLocal(); }
+    catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+  },
+  async clearplace() { try { LOCAL = await local('settings', { clear_location: true }); toast('Location removed: weather comes from Home Assistant again'); renderLocal(); } catch (e) { toast(e.message); } },
+  async tz() { try { LOCAL = await local('settings', { tz: tzRules() }); toast('Time zone set from this browser'); renderLocal(); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); } },
   ip() { const v = $('ipin').value.trim(); post('text', 'Grill IP address', 'set', { value: v }).then(ok => { if (ok) { delete $('ipin').dataset.dirty; toast(v ? 'Grill address set' : 'Finding the grill automatically'); } }); },
 };
 function wire() {
@@ -153,11 +231,12 @@ function wire() {
   doc.addEventListener('change', e => {
     const t = e.target, n = t.dataset && t.dataset.n; if (!n) return;
     if (n === 'Program preset') { progEd.state.touched = false; progEd.state.sent = null; }  // the editor follows the preset
+    if (t.dataset.c === 'route') { local('settings', { route: t.value }).then(d => { LOCAL = d; renderLocal(); toast('Notifications: ' + t.selectedOptions[0].text); }).catch(err => { if (/PIN/.test(err.message)) needPin(); else toast(err.message); }); return; }
     if (t.dataset.c === 'select') post('select', n, 'set', { option: t.value }).then(ok => ok && toast(n + ': ' + t.value));
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
   doc.addEventListener('input', e => { if (e.target.id) e.target.dataset.dirty = '1'; });
-  doc.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'pitin') ACT.pitset(); if (e.key === 'Enter' && e.target.id === 'ipin') ACT.ip(); });
+  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo' }[e.target.id]; if (k) ACT[k](); });
   doc.addEventListener('focusout', () => setTimeout(render, 0));  // redraw what was held back while a field had focus
   // section bar: mark the section in view
   const links = [...doc.querySelectorAll('.secbar a')];
@@ -738,6 +817,61 @@ function wifiSetup() {
     <div class="row"><span>Password</span><span class="entry"><input id="wifipass" type="password" autocomplete="new-password" maxlength="63" aria-label="Wi-Fi password">
       <button class="btn pri" data-a="wifijoin">Set up</button></span></div>
     <p class="note">The password goes to the controller and on to the grill; it isn't stored.</p></details>`;
+}
+
+// ---------------------------------------------------------------- without Home Assistant: PIN, notifications, place
+let geoHits = [];
+function renderLocal() {
+  const L = LOCAL;
+  if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
+  const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
+  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or press "Clear the device page PIN" in Home Assistant.</p>';
+  if (!L.pin) put('lock', `<h3><span>This page's PIN</span><span class="chip warn">not set</span></h3>
+    <p class="note" style="margin-top:0">Anyone on your Wi-Fi can open this page. A PIN stops them changing anything, and it's needed before
+      notification or AI keys can be stored. 6+ characters; not 123456 or 111111.</p>
+    <div class="row"><span>New PIN</span><span class="entry">${pw('pin1', 'PIN', 'new-password')}</span></div>
+    <div class="row"><span>Again</span><span class="entry">${pw('pin2', 'Same PIN', 'new-password')}<button class="btn pri" data-a="pinset">Set PIN</button></span></div>`);
+  else if (!L.authed) put('lock', `<h3><span>This page's PIN</span><span class="chip bad">locked</span></h3>
+    <p class="note" style="margin-top:0">Readings are open; enter the PIN to change anything from this browser.</p>
+    <div class="row"><span>PIN</span><span class="entry">${pw('pinin', 'PIN')}<button class="btn pri" data-a="login">Unlock</button></span></div>
+    ${L.locked ? `<p class="note">Too many wrong PINs: try again in ${fmt(L.locked)} s.</p>` : ''}${forgot}`);
+  else put('lock', `<h3><span>This page's PIN</span><span class="chip ok">unlocked</span></h3>
+    <p class="note" style="margin-top:0">This browser can make changes for 12 hours from its last change.</p>
+    <div class="btns"><button class="btn" data-a="logout">Lock now</button></div>
+    <details class="more" data-k="chpin"><summary>Change the PIN</summary>
+      <div class="row"><span>Current</span><span class="entry">${pw('pin0', 'Current PIN')}</span></div>
+      <div class="row"><span>New</span><span class="entry">${pw('pin1', 'New PIN', 'new-password')}</span></div>
+      <div class="row"><span>Again</span><span class="entry">${pw('pin2', 'New PIN again', 'new-password')}<button class="btn" data-a="pinset">Change</button></span></div></details>${forgot}`);
+
+  const sec = (k, label, ph) => `<div class="row"><span>${label}</span><span class="entry"><input id="sec-${k}" type="password" autocomplete="off" placeholder="${esc(ph)}" aria-label="${esc(label)}" style="width:160px"><button class="btn" data-a="secret" data-k="${k}">Save</button></span></div>`;
+  const svc = (name, on, last) => `<span class="chip ${on ? 'ok' : ''}">${name}${on ? ' ✓' : ''}</span>${last ? ` <span class="muted small">${esc(last)}</span>` : ''}`;
+  const routes = [['auto', 'Automatic: via Home Assistant when it\'s connected, straight to my phone when it isn\'t'], ['ha', 'Only via Home Assistant'], ['direct', 'Only straight to my phone'], ['both', 'Both (you may get two)']];
+  put('notif', `<h3><span>Notifications</span>${L.ha ? '<span class="chip ok">Home Assistant connected</span>' : '<span class="chip">no Home Assistant</span>'}</h3>
+    <div class="row"><span>Send them</span><select data-c="route" aria-label="Where notifications go">${routes.map(([v, t]) => `<option value="${v}"${L.route === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+    <p class="note">Critical alarms (fire out, way too hot) always go straight to your phone too, when a service below is set up.</p>
+    <div class="chips" style="margin:6px 0">${svc('ntfy', L.set.ntfy, L.last.ntfy)} ${svc('Pushover', L.set.pushover, L.last.pushover)} ${svc('Telegram', L.set.telegram, L.last.telegram)}</div>
+    ${L.authed ? `<details class="more" data-k="ntfy"><summary>ntfy (free app; pick a long random topic)</summary>
+        <div class="row"><span>Server</span><span class="entry"><input id="ntfysrv" type="url" value="${esc(L.ntfy_server || 'https://ntfy.sh')}" style="width:160px" aria-label="ntfy server"><button class="btn" data-a="ntfyserver">Save</button></span></div>
+        ${sec('ntfy_topic', 'Topic', L.set.ntfy ? 'set · type to replace' : 'e.g. smoker-k3v9x2q7')}
+        ${L.set.ntfy ? '<div class="btns"><button class="btn" data-a="secret" data-k="ntfy_topic" data-clear="1">Remove ntfy</button></div>' : ''}</details>
+      <details class="more" data-k="po"><summary>Pushover</summary>
+        ${sec('pushover_user', 'User key', L.set.pushover ? 'set · type to replace' : 'from pushover.net')}${sec('pushover_token', 'App token', L.set.pushover ? 'set · type to replace' : 'create an app on pushover.net')}
+        ${L.set.pushover ? '<div class="btns"><button class="btn" data-a="secret" data-k="pushover_user" data-clear="1">Remove Pushover</button></div>' : ''}</details>
+      <details class="more" data-k="tg"><summary>Telegram</summary>
+        ${sec('telegram_token', 'Bot token', L.set.telegram ? 'set · type to replace' : 'from @BotFather')}${sec('telegram_chat', 'Chat ID', L.set.telegram ? 'set · type to replace' : 'your chat with the bot')}
+        ${L.set.telegram ? '<div class="btns"><button class="btn" data-a="secret" data-k="telegram_token" data-clear="1">Remove Telegram</button></div>' : ''}</details>
+      <p class="note">Keys are stored on the controller and can be replaced or removed, never read back.</p>
+      <div class="btns"><button class="btn" data-a="testnotify"${L.set.ntfy || L.set.pushover || L.set.telegram ? '' : ' disabled'}>Send a test</button></div>`
+    : `<p class="note">${L.pin ? 'Unlock this page (PIN above) to set up ntfy, Pushover or Telegram.' : 'Set a PIN for this page (above) to set up ntfy, Pushover or Telegram.'}</p>`}`);
+
+  put('place', `<h3><span>Weather and time</span>${L.location ? '<span class="chip ok">weather here</span>' : ''}</h3>
+    <div class="row"><span>Weather from</span><span class="r">${L.location ? 'Open-Meteo, for your area' + (L.weather_age_min >= 0 ? ' · ' + mins(L.weather_age_min) + ' ago' : '') : L.ha ? 'Home Assistant' : 'nowhere yet'}</span></div>
+    ${L.authed ? `${L.location ? `<div class="row"><span>Area</span><span class="r">${fmt(L.lat, 2)}, ${fmt(L.lon, 2)} <button class="btn" data-a="clearplace">Remove</button></span></div>` : ''}
+      <div class="row"><span>${L.location ? 'Move to' : 'Your area'}</span><span class="entry"><input id="geoq" type="search" placeholder="Town or postcode" autocomplete="off" style="width:150px" aria-label="Town or postcode"><button class="btn" data-a="geo">Find</button></span></div>
+      ${geoHits.map(h => `<div class="row"><span class="small">${esc(h.n)}</span><button class="btn" data-a="place" data-lat="${h.lat}" data-lon="${h.lon}" data-n="${esc(h.n)}">Use</button></div>`).join('')}
+      <p class="note">Stored on the controller, rounded to about 1 km, and only sent to Open-Meteo for the forecast. Searching asks Open-Meteo from this phone.</p>
+      <div class="row"><span>Time zone<br><span class="muted small">${L.tz ? 'set' : L.ha ? 'from Home Assistant' : 'not set: clock times are UTC'}</span></span><button class="btn" data-a="tz">Use this phone's (${esc((Intl.DateTimeFormat().resolvedOptions().timeZone || '').replace(/_/g, ' '))})</button></div>`
+    : `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page to set your area (for the weather) and time zone.</p>`}`);
 }
 
 function renderSetup(u) {

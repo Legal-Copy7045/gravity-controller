@@ -13,6 +13,7 @@
 #include "../components/cook_assistant/predictor.h"
 #include "../components/cook_assistant/program.h"
 #include "../components/gravity980/protocol.h"
+#include "../components/standalone/pin_auth.h"
 
 static int failures = 0;
 #define CHECK(cond)                                                     \
@@ -838,7 +839,63 @@ static void test_sources_and_upgrade() {
   CHECK(sizeof(cook::CookRecord) == 56);
 }
 
+static void test_pin_auth() {
+  using namespace pinauth;
+  auto hex = [](const Digest &d) { return to_hex(d.data(), d.size()); };
+  // Published vectors: FIPS 180-2, RFC 4231 case 1, RFC 7914 / PBKDF2-HMAC-SHA256.
+  CHECK(hex(sha256((const uint8_t *) "abc", 3)) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  uint8_t k[20];
+  memset(k, 0x0b, 20);
+  CHECK(hex(hmac_sha256(k, 20, (const uint8_t *) "Hi There", 8)) ==
+        "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+  uint8_t out[32];
+  pbkdf2_sha256((const uint8_t *) "password", 8, (const uint8_t *) "salt", 4, 1, out, 32);
+  CHECK(to_hex(out, 32) == "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+  pbkdf2_sha256((const uint8_t *) "password", 8, (const uint8_t *) "salt", 4, 4096, out, 32);
+  CHECK(to_hex(out, 32) == "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a");
+
+  CHECK(pin_problem("12345") != "");    // too short
+  CHECK(pin_problem("123456") != "");   // sequence
+  CHECK(pin_problem("111111") != "");   // repeated
+  CHECK(pin_problem("482913") == "");
+
+  uint32_t clock = 1000;
+  uint8_t seed = 1;
+  Guard g([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = seed++; }, [&]() { return clock; });
+  CHECK(!g.pin_set());
+  CHECK(g.login("482913") == "");                // no PIN yet: nothing to log in to
+  CHECK(g.set_pin("482913", "") == "");
+  CHECK(g.pin_set());
+  // Only salt + hash are stored, never the PIN.
+  CHECK(memmem(&g.stored(), sizeof(Stored), "482913", 6) == nullptr);
+  std::string t = g.login("482913");
+  CHECK(t.size() == 64 && g.check(t) && !g.check(std::string(64, '0')));
+  // Changing needs the current PIN, and logs everyone out.
+  CHECK(g.set_pin("739215", "000000") != "");
+  CHECK(g.set_pin("739215", "482913") == "");
+  CHECK(!g.check(t));
+  // Five wrong PINs: locked 30 s, then doubling; a right PIN during the lockout is refused.
+  for (int i = 0; i < 4; i++) CHECK(g.login("999999") == "" && g.locked_for() == 0);
+  CHECK(g.login("999999") == "" && g.locked_for() == 30);
+  CHECK(g.login("739215") == "");
+  clock += 31000;
+  CHECK(g.login("999999") == "" && g.locked_for() == 60);
+  clock += 61000;
+  t = g.login("739215");
+  CHECK(t.size() == 64 && g.locked_for() == 0);
+  // Sessions last 12 h from their last use.
+  clock += 11UL * 3600 * 1000;
+  CHECK(g.check(t));
+  clock += 13UL * 3600 * 1000;
+  CHECK(!g.check(t));
+  // Recovery clears everything.
+  g.clear();
+  CHECK(!g.pin_set() && g.login("739215") == "");
+  printf("pin auth ok\n");
+}
+
 int main() {
+  test_pin_auth();
   test_protocol();
   test_wifi_setup();
   test_sources_and_upgrade();

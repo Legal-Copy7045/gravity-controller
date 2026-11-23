@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.27] - 2026-11-23
+
+Running without Home Assistant, part 1 (docs/standalone.md):
+- **A PIN for the device page.** Once set, every change through the page needs it; readings stay open.
+  - PBKDF2-SHA256 (20,000 rounds, salted).
+  - Lockout after 5 wrong PINs, then 12-hour sessions per browser.
+  - Forgotten: hold BOOT for 10 s, or "Clear the device page PIN" in Home Assistant.
+- **Notifications straight to your phone** through ntfy, Pushover or Telegram. Automatic (via Home Assistant when
+  it's there, direct when it isn't), Home Assistant only, direct only, or both. Critical alarms always go direct too.
+  Keys are write-only on the controller; a test button checks them. The old "ntfy topic" setting moves into the key
+  store automatically.
+- **Weather on the controller:** set your area on the device page and it fetches the conditions and the 24-hour
+  forecast from Open-Meteo (no account). This feeds the predictions; it wins over Home Assistant's weather while set.
+- **Internet time** alongside Home Assistant's. The device page sends your phone's time zone (offsets and
+  daylight-saving rules).
+- New diagnostic sensor *Outdoor temperature*.
+
 ## [0.2.26] - 2026-11-23
 
 - Sharing is now **Open Pitmaster**: the service is at `api.open-pitmaster.workers.dev`, and the dataset, the service's

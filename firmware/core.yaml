@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.26"
+  project_version: "0.2.27"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -26,6 +26,13 @@ esphome:
   project:
     name: legal-copy7045.gravity980-bridge
     version: ${project_version}
+  on_boot:
+    priority: -100
+    then:
+      # Upgrade: the ntfy topic moves from a (readable) text entity into the controller's write-only secrets.
+      - lambda: |-
+          if (id(local).migrate_ntfy_topic(id(ntfy_topic).state))
+            id(ntfy_topic).make_call().set_value("").perform();
 
 esp32:
   variant: esp32s3
@@ -96,7 +103,7 @@ api:
         minutes: float[]
         temps: float[]
       then:
-        - lambda: id(smoker).set_forecast(minutes, temps);
+        - lambda: if (!id(local).weather_here()) id(smoker).set_forecast(minutes, temps);
     # Context for the HA AI advisor: fires esphome.smoker_context with live state + cook history.
     - action: request_context
       then:
@@ -150,6 +157,21 @@ web_server:
 time:
   - platform: homeassistant
     id: ha_time
+  # Internet time, so clock times work without Home Assistant (the time zone comes from the device page then).
+  - platform: sntp
+    id: sntp_time
+    servers: [pool.ntp.org, time.cloudflare.com, time.google.com]
+
+# Running without Home Assistant (docs/standalone.md): the device page's PIN, write-only keys, notifications
+# straight to your phone, and the weather from Open-Meteo for a location stored only on the controller.
+standalone:
+  id: local
+  temperature_unit: ${weather_temperature_unit}
+  wind_speed_unit: ${wind_speed_unit}
+  outdoor_temperature: outdoor_temp
+  outdoor_humidity: outdoor_humidity
+  wind_speed: outdoor_wind
+  cook_assistant: smoker
 
 esp32_ble:
   # 1 for the grill's own BLE link + 3 proxy slots (e.g. the Govee H5198) + 1 spare.
@@ -222,9 +244,11 @@ text:
     optimistic: true
     restore_value: true
     initial_value: ""
+  # Old home of the ntfy topic: moved into the controller's secret store at boot, then emptied (kept for upgrades).
   - platform: template
     id: ntfy_topic
     name: ntfy topic
+    internal: true
     icon: mdi:bell-ring
     entity_category: config
     mode: text
@@ -259,21 +283,44 @@ sensor:
       id: grill_probe2_target_reported
       name: Grill probe 2 target (reported)
       entity_category: diagnostic
+  # Outdoor conditions: from Home Assistant's weather, or from Open-Meteo on the controller when a location is set on
+  # the device page (then that wins).
   - platform: homeassistant
-    id: outdoor_temp
+    id: ha_outdoor_temp
     entity_id: ${weather_entity}
     attribute: temperature
     internal: true
+    on_value:
+      - lambda: if (!id(local).weather_here()) id(outdoor_temp).publish_state(x);
   - platform: homeassistant
-    id: outdoor_humidity
+    id: ha_outdoor_humidity
     entity_id: ${weather_entity}
     attribute: humidity
     internal: true
+    on_value:
+      - lambda: if (!id(local).weather_here()) id(outdoor_humidity).publish_state(x);
   - platform: homeassistant
-    id: outdoor_wind
+    id: ha_outdoor_wind
     entity_id: ${weather_entity}
     attribute: wind_speed
     internal: true
+    on_value:
+      - lambda: if (!id(local).weather_here()) id(outdoor_wind).publish_state(x);
+  - platform: template
+    id: outdoor_temp
+    name: Outdoor temperature
+    unit_of_measurement: "°${weather_temperature_unit}"
+    device_class: temperature
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: outdoor_humidity
+    internal: true
+    update_interval: never
+  - platform: template
+    id: outdoor_wind
+    internal: true
+    update_interval: never
   # Wired probe 1: no reading unless firmware/wired-probes.yaml (ADS1115 + NTC probes) is included.
   - platform: template
     id: wired_probe1
@@ -371,6 +418,20 @@ sensor:
     entity_category: diagnostic
 
 binary_sensor:
+  # The board's BOOT button: hold it 10 s to clear the device page's PIN (someone at the grill, not on the network).
+  - platform: gpio
+    id: boot_button
+    internal: true
+    pin:
+      number: GPIO0
+      ignore_strapping_warning: true   # the BOOT button: read as a button after boot, which is safe
+      inverted: true
+      mode: {input: true, pullup: true}
+    on_click:
+      min_length: 10s
+      max_length: 60s
+      then:
+        - lambda: id(local).clear_pin();
   - platform: gravity980
     connected:
       id: grill_connected
@@ -428,6 +489,13 @@ number:
       entity_category: config
 
 button:
+  # Forgotten the device page's PIN? Press this in Home Assistant (or hold the controller's BOOT button for 10 s).
+  - platform: template
+    name: Clear the device page PIN
+    icon: mdi:lock-reset
+    entity_category: config
+    on_press:
+      - lambda: id(local).clear_pin();
   # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
   - platform: restart
     name: Restart
@@ -557,25 +625,20 @@ cook_assistant:
   on_set_pit:
     - lambda: id(smoker).pit_write_result(id(grill).request_target(esphome::gravity980::PROBE_PIT, x));
   on_notify:
-    - homeassistant.event:
-        event: esphome.smoker_notify
-        data:
-          title: !lambda return title;
-          message: !lambda return message;
-          priority: !lambda return priority;
-          tag: !lambda return tag;
-    # Critical alarms also go straight to ntfy, so they arrive even if HA is down.
+    # Via Home Assistant (its package forwards to your phone) and/or straight to your phone (ntfy, Pushover,
+    # Telegram), as chosen on the device page (Setup > Notifications). Critical alarms always go direct too.
     - if:
         condition:
-          lambda: return priority >= 2 && !id(ntfy_topic).state.empty();
+          lambda: return id(local).send_via_ha();
         then:
-          - http_request.post:
-              url: !lambda return std::string("${ntfy_server}/") + id(ntfy_topic).state;
-              request_headers:
-                Title: !lambda return title.c_str();
-                Priority: "urgent"
-                Tags: "fire,warning"
-              body: !lambda return message;
+          - homeassistant.event:
+              event: esphome.smoker_notify
+              data:
+                title: !lambda return title;
+                message: !lambda return message;
+                priority: !lambda return priority;
+                tag: !lambda return tag;
+    - lambda: id(local).notify(title, message, priority, tag);
   on_cook_complete:
     - homeassistant.event:
         event: esphome.smoker_cook_complete
