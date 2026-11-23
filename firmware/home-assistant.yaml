@@ -74,11 +74,29 @@ api:
     # Context for the HA AI advisor: fires esphome.smoker_context with live state + cook history.
     - action: request_context
       then:
-        - homeassistant.event:
-            event: esphome.smoker_context
-            data:
-              state: !lambda return id(smoker).state_json();
-              history: !lambda return id(smoker).history_json();
+        - if:
+            condition:
+              lambda: return id(local).event_secret().empty();
+            then:
+              - homeassistant.event:
+                  event: esphome.smoker_context
+                  data:
+                    state: !lambda return id(smoker).state_json();
+                    history: !lambda return id(smoker).history_json();
+            else:
+              - homeassistant.event:
+                  event: esphome.smoker_context
+                  data:
+                    state: !lambda return id(smoker).state_json();
+                    history: !lambda return id(smoker).history_json();
+                    secret: !lambda return id(local).event_secret();
+    # The Smoker integration's secret (it sets it on every connection): every event the controller fires carries it,
+    # so the integration can tell them from forged ones. Kept in flash; never shown or logged. Empty clears it.
+    - action: set_event_secret
+      variables:
+        secret: string
+      then:
+        - lambda: id(local).set_event_secret(secret);
 
 time:
   - platform: homeassistant
@@ -217,15 +235,38 @@ cook_assistant:
         condition:
           lambda: return id(local).send_via_ha();
         then:
-          - homeassistant.event:
-              event: esphome.smoker_notify
-              data:
-                title: !lambda return title;
-                message: !lambda return message;
-                priority: !lambda return priority;
-                tag: !lambda return tag;
+          - if:
+              condition:
+                lambda: return id(local).event_secret().empty();
+              then:
+                - homeassistant.event:
+                    event: esphome.smoker_notify
+                    data:
+                      title: !lambda return title;
+                      message: !lambda return message;
+                      priority: !lambda return priority;
+                      tag: !lambda return tag;
+              else:
+                - homeassistant.event:
+                    event: esphome.smoker_notify
+                    data:
+                      title: !lambda return title;
+                      message: !lambda return message;
+                      priority: !lambda return priority;
+                      tag: !lambda return tag;
+                      secret: !lambda return id(local).event_secret();
   on_cook_complete:
-    - homeassistant.event:
-        event: esphome.smoker_cook_complete
-        data:
-          summary: !lambda return json;
+    - if:
+        condition:
+          lambda: return id(local).event_secret().empty();
+        then:
+          - homeassistant.event:
+              event: esphome.smoker_cook_complete
+              data:
+                summary: !lambda return json;
+        else:
+          - homeassistant.event:
+              event: esphome.smoker_cook_complete
+              data:
+                summary: !lambda return json;
+                secret: !lambda return id(local).event_secret();

@@ -959,6 +959,11 @@ void CookAssistant::apply_outputs_(const cook::RunnerOutputs &o) {
     this->save_program_state_();
 }
 
+std::string CookAssistant::parsed_program() const {
+  if (!this->runner_.loaded()) return "";
+  return cook::format_program(this->runner_.program(), this->probe_keys(), this->fahrenheit_);
+}
+
 bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std::string &note, std::string &why) {
   cook::Program prog;
   if (!cook::parse_program(text, this->probe_keys(), this->fahrenheit_, prog, why))

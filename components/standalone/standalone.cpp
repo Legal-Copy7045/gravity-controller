@@ -340,6 +340,14 @@ void Standalone::setup() {
   Settings loaded{};
   if (this->pref_.load(&loaded) && loaded.version == 1)
     this->s_ = loaded;
+  this->evsec_pref_ = global_preferences->make_preference<EventSecret>(fnv1_hash("standalone_event_secret_v1"), true);
+  {
+    EventSecret es{};
+    if (this->evsec_pref_.load(&es) && es.set == 1) {
+      es.s[64] = 0;
+      this->event_secret_ = es.s;
+    }
+  }
   this->guard_ = new pinauth::Guard(fill_random, []() { return millis(); });  // NOLINT
   pinauth::Stored pin{};
   if (this->pin_pref_.load(&pin) && pin.set == 1)
@@ -591,6 +599,27 @@ void Standalone::clear_pin() {
   }
   ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page within 15 minutes");
   this->save_();
+}
+
+bool Standalone::set_event_secret(const std::string &secret) {
+  if (secret.size() > 64) {
+    ESP_LOGW(TAG, "Event secret refused: longer than 64 characters");
+    return false;
+  }
+  for (char c : secret)
+    if (c < 0x20 || c > 0x7e) {
+      ESP_LOGW(TAG, "Event secret refused: printable characters only");
+      return false;
+    }
+  if (secret == this->event_secret_) return true;  // set again on every reconnection: no flash write
+  EventSecret es{};
+  es.set = secret.empty() ? 0 : 1;
+  std::memcpy(es.s, secret.data(), secret.size());
+  this->evsec_pref_.save(&es);
+  global_preferences->sync();
+  this->event_secret_ = secret;
+  ESP_LOGI(TAG, "Event secret %s", secret.empty() ? "cleared" : "set");  // never the value
+  return true;
 }
 
 bool Standalone::migrate_ntfy_topic(const std::string &topic) {

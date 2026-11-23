@@ -424,6 +424,18 @@ text_sensor:
     icon: mdi:flask-outline
     entity_category: diagnostic
     update_interval: never
+  # The loaded cook program as the controller parsed it (its own syntax; empty = none), so Home Assistant can check
+  # what it actually runs. Home Assistant keeps states to 255 characters: a longer one says so instead.
+  - platform: template
+    id: program_parsed
+    name: Program (as parsed)
+    icon: mdi:script-text-outline
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: |-
+      std::string p = id(smoker).parsed_program();
+      if (p.size() > 255) return std::string("too long to show here (") + std::to_string(p.size()) + " characters)";
+      return p;
   - platform: debug
     reset_reason:
       name: Last restart reason

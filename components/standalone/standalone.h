@@ -140,6 +140,12 @@ class Standalone : public Component {
   /// PIN's window for themselves; the BOOT button still works.
   void clear_pin_from_ha();
 
+  // --- the secret Home Assistant's Smoker integration sets (action set_event_secret) and checks on every event the
+  // controller fires (smoker_notify, smoker_context, smoker_cook_complete): so a forged event is told apart. Stored
+  // in flash, never shown in an entity, /local/ or the log. "" = none (the events then carry no secret).
+  bool set_event_secret(const std::string &secret);
+  const std::string &event_secret() const { return this->event_secret_; }
+
   // --- one-time move of the old "ntfy topic" text entity into the secret store ---
   bool migrate_ntfy_topic(const std::string &topic);
 
@@ -183,7 +189,9 @@ class Standalone : public Component {
   uint32_t req_locked_{0}, req_first_pin_{0};
 
   Settings s_{};
-  ESPPreferenceObject pref_, pin_pref_;
+  ESPPreferenceObject pref_, pin_pref_, evsec_pref_;
+  struct EventSecret { uint8_t set; char s[65]; };
+  std::string event_secret_;
   pinauth::Guard *guard_{nullptr};
   std::recursive_mutex lock_;
   std::mutex guard_lock_;

@@ -230,6 +230,9 @@ class CookAssistant : public Component {
   bool fit_program(const std::string &text, std::string &fixed, std::string &note, std::string &why);
   /// The grill's pit range, in this controller's unit, for prompts: "200-700°F".
   std::string pit_range_text() const { return this->fmt_temp_(this->pit_min_c_) + " to " + this->fmt_temp_(this->pit_max_c_); }
+  /// The loaded program as this controller parsed it, in its own syntax ("" = none), so Home Assistant can check
+  /// what the controller actually runs (the "Program (as parsed)" text sensor).
+  std::string parsed_program() const;
   /// The range an AI-written program may use: the grill's, capped at the "AI max pit" number.
   std::string ai_pit_range_text() const { return this->fmt_temp_(this->pit_min_c_) + " to " + this->fmt_temp_(this->ai_max_c_()); }
   /// The highest pit an AI-written program may ask for (fit_program brings hotter steps down to it, with a note).
