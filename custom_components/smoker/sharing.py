@@ -267,6 +267,20 @@ class Sharing:
         """Delete every cook shared from here (the deletion keys prove they're ours)."""
         gone, failed = 0, 0
         session = async_get_clientsession(self.hass)
+        # Uploads whose reply was lost may be stored too: delete them as well (404 = never stored).
+        for entry_id, s in list(self.data.get("pending", {}).items()):
+            try:
+                async with session.delete(f"{self.url}/v1/cooks/{s['id']}", headers={"X-Delete-Key": s["key"]},
+                                          timeout=TIMEOUT) as r:
+                    ok = r.status in (200, 404)
+            except ClientError:
+                ok = False
+            if ok:
+                del self.data["pending"][entry_id]
+                if entry_id not in self.data["declined"]:
+                    self.data["declined"].append(entry_id)
+            else:
+                failed += 1
         for entry_id, s in list(self.data["shared"].items()):
             try:
                 async with session.delete(f"{self.url}/v1/cooks/{s['id']}", headers={"X-Delete-Key": s["key"]},
@@ -391,6 +405,8 @@ class SharingActionView(HomeAssistantView):
 async def async_setup_sharing(hass: HomeAssistant, journal, version: str) -> None:
     if DATA in hass.data:  # reloaded: views are still registered, listen again
         hass.data[DATA].attach()
+        if hass.data[DATA].community:  # its sensor was removed with the entry: put the last averages back
+            hass.data[DATA]._publish_community()
         return
     s = Sharing(hass, journal, version)
     await s.async_load()

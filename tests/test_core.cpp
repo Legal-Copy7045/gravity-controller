@@ -481,6 +481,12 @@ static void test_regressions() {
   CHECK(p.steps[0].until[0].hold_min == 30 && p.steps[0].until[1].value == 120);
   cook::Program p3;
   CHECK(cook::parse_program(cook::format_program(p, probes, true), probes, true, p3, err));
+  {  // a notify text with a double quote in it (an AI program said 'Rest it "tented"') reads back
+    cook::Program q, q2;
+    CHECK(cook::parse_program("hold 200 notify 'Rest it \"tented\"'", probes, true, q, err));
+    CHECK(cook::parse_program(cook::format_program(q, probes, true), probes, true, q2, err));
+    CHECK(q2.steps.size() == 1 && q2.steps[0].notify == q.steps[0].notify);
+  }
   CHECK(cook::parse_program("pit 250 until food1 >= 165 F", probes, true, p, err));
   NEAR(p.steps[0].until[0].value, 73.89f, 0.01f);
   CHECK(!cook::parse_program("pit 30m", probes, true, p, err));

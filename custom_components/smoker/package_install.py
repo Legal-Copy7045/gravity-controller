@@ -153,7 +153,7 @@ async def _reload(hass: HomeAssistant) -> list[str]:
     return failed
 
 
-async def async_update_installed(hass: HomeAssistant, version: str) -> dict:
+async def async_update_installed(hass: HomeAssistant, version: str, starting: bool = True) -> dict:
     """After an integration update: bring a package this integration installed up to date, then reload it."""
     res = await hass.async_add_executor_job(install, hass.config.config_dir, {}, version, True)
     if res.get("edited"):
@@ -164,7 +164,9 @@ async def async_update_installed(hass: HomeAssistant, version: str) -> dict:
         return res
     if not res.get("changed"):
         return res
-    failed = await _reload(hass)
+    # Reloading automations and scripts stops every running one in Home Assistant, not just the smoker's: only while
+    # Home Assistant is starting (nothing is running yet). Later (the integration reloaded) a restart finishes it.
+    failed = await _reload(hass) if starting else ["automation", "script (restart to finish)"]
     res["restart_needed"] = bool(failed)
     msg = f"Updated the Smoker package to {version} (the previous one is kept as {Path(res['backup']).name})"
     msg += (f". Couldn't reload {', '.join(failed)}: restart Home Assistant to finish." if failed
@@ -174,9 +176,11 @@ async def async_update_installed(hass: HomeAssistant, version: str) -> dict:
 
 
 async def async_setup_package_install(hass: HomeAssistant, version: str) -> None:
+    starting = not hass.is_running  # set up during start-up (not an integration reload at run time)
+
     async def at_started(_hass: HomeAssistant) -> None:
         try:
-            await async_update_installed(hass, version)
+            await async_update_installed(hass, version, starting)
         except Exception as err:  # noqa: BLE001 - never break the integration over this
             persistent_notification.async_create(
                 hass, f"Couldn't update the Smoker package: {err}", "Smoker package", "smoker_package")

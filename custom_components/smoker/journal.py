@@ -571,6 +571,7 @@ async def async_setup_journal(hass: HomeAssistant) -> Journal:
         j = hass.data[DATA]
         if getattr(j, "unsub", None) is None:
             j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
+        j._publish()  # its sensor was removed with the entry
         return j
     j = Journal(hass)
     await j.async_load()

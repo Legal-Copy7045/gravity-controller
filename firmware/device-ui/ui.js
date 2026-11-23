@@ -120,6 +120,7 @@ const TOK = {
   get() { try { return localStorage.getItem('smokerToken') || ''; } catch (e) { return ''; } },
   set(t) { try { t ? localStorage.setItem('smokerToken', t) : localStorage.removeItem('smokerToken'); } catch (e) { /* private mode */ } },
 };
+let pinReturn = null;  // what had focus before the PIN panel opened (it gets it back)
 // A change needs the PIN: ask for it right here (a small panel), not on the Setup page. With no PIN set yet, Setup.
 function needPin() {
   if (!LOCAL || !LOCAL.pin) { toast('Set a PIN for this page first (Setup → This page\'s PIN)'); openCard('lock'); return; }
@@ -131,8 +132,16 @@ function needPin() {
       <p class="note" id="pinsheet-msg"></p>
       <div class="btns"><button class="btn pri" data-a="pinsheetgo">Unlock</button><button class="btn" data-a="pinsheetclose">Cancel</button></div></div></div>`);
     d = $('pinsheet');
-    $('pinsheet-in').addEventListener('keydown', e => { if (e.key === 'Enter') ACT.pinsheetgo(); if (e.key === 'Escape') ACT.pinsheetclose(); });
+    $('pinsheet-in').addEventListener('keydown', e => { if (e.key === 'Enter') ACT.pinsheetgo(); });
+    d.addEventListener('keydown', e => {  // a modal: Escape closes it, Tab stays inside
+      if (e.key === 'Escape') { e.preventDefault(); ACT.pinsheetclose(); return; }
+      if (e.key !== 'Tab') return;
+      const f = [...d.querySelectorAll('input,button')], i = f.indexOf(doc.activeElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    });
   }
+  pinReturn = doc.activeElement;
   d.hidden = false; $('pinsheet-msg').textContent = ''; setTimeout(() => $('pinsheet-in').focus(), 30);
 }
 async function post(dom, name, action, params) {
@@ -253,10 +262,13 @@ const ACT = {
   async pinsheetgo() {
     const f = $('pinsheet-in'), m = $('pinsheet-msg');
     m.textContent = 'Checking…';
-    try { const d = await local('login', { pin: f.value }); TOK.set(d.token); f.value = ''; $('pinsheet').hidden = true; toast('Unlocked for 12 h in this browser: try again'); loadLocal(); }
+    try { const d = await local('login', { pin: f.value }); TOK.set(d.token); f.value = ''; ACT.pinsheetclose(); toast('Unlocked for 12 h in this browser: you can make changes now'); loadLocal(); }
     catch (e) { m.textContent = e.message; f.select(); }
   },
-  pinsheetclose() { const d = $('pinsheet'); if (d) d.hidden = true; },
+  pinsheetclose() {
+    const d = $('pinsheet'); if (d) d.hidden = true;
+    if (pinReturn && pinReturn.isConnected && pinReturn.focus) pinReturn.focus(); pinReturn = null;
+  },
   hidestart() { try { localStorage.setItem(WIZ_KEY, '1'); } catch (e) { /* shows again next time */ } renderStart(); },
   // ntfy in one tap: a long random topic (anyone who knows it can read it), stored write-only, shown here once to subscribe.
   async quickntfy() {
@@ -1271,15 +1283,31 @@ const SECT = (() => {
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};
   const sec = k => document.querySelector(`[data-sect="${k}"]`);
-  let inSetup = false, pushed = false;
+  let inSetup = false, pushed = false, after = null;
+  const setupLink = () => { const bar = document.getElementById('secbar'), st = sec('setup'); return bar && st && bar.querySelector(`a[href="#${st.id}"]`); };
   function view(setup, scroll) {
+    const was = inSetup;
     inSetup = !!setup;
     document.documentElement.classList.toggle('setup-view', inSetup);
     document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('view-off', inSetup ? s.dataset.sect !== 'setup' : s.dataset.sect === 'setup'));
-    const bar = document.getElementById('secbar'), st = sec('setup');
-    if (bar && st) bar.querySelectorAll('a').forEach(a => { if (a.getAttribute('href') === '#' + st.id) a.classList.toggle('on', inSetup); });
+    const a = setupLink(), st = sec('setup');
+    if (a) { a.classList.toggle('on', inSetup); if (inSetup) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
     if (inSetup) { peek.setup = true; apply('setup'); }
     if (scroll) window.scrollTo(0, 0);
+    // Focus follows the change of page (keyboard and screen-reader users aren't left on a hidden control).
+    if (was !== inSetup) {
+      if (inSetup) { const h = st && st.querySelector('h2.sec'); if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); } }
+      else if (a && document.activeElement && (document.activeElement === document.body || (st && st.contains(document.activeElement)))) a.focus({ preventScroll: true });
+      document.dispatchEvent(new CustomEvent('sect-view', { detail: { setup: inSetup } }));
+    }
+  }
+  // Leaving Setup for another section: the history entry Setup added is used up first (so the next Back leaves the
+  // page as expected), then the section is shown.
+  function goTo(id) {
+    const t = document.getElementById(id), bar = document.getElementById('secbar');
+    if (!t) return;
+    if (t.dataset.sect && t.classList.contains('folded')) { peek[t.dataset.sect] = true; apply(t.dataset.sect); }
+    window.scrollTo({ top: t.getBoundingClientRect().top + window.scrollY - (bar ? bar.offsetHeight : 0) - 10 });
   }
   function openSetup() {
     if (inSetup) return;
@@ -1314,7 +1342,10 @@ const SECT = (() => {
       b.setAttribute('aria-label', 'Show or hide ' + h.textContent.trim());
       b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
       h.append(m, b);
-      h.addEventListener('click', e => { if (!e.target.closest('a,input,select,textarea,.seg,button:not(.fold)')) toggle(k); });
+      h.addEventListener('click', e => {
+        if (k === 'setup' && inSetup) return;  // the Setup page's own title doesn't fold it away
+        if (!e.target.closest('a,input,select,textarea,.seg,button:not(.fold)')) toggle(k);
+      });
       apply(k);
     });
     // A section-bar link opens its section (for now: the remembered fold isn't changed); Setup opens its own page,
@@ -1324,7 +1355,13 @@ const SECT = (() => {
       const a = e.target.closest('a[href^="#"]'), s = a && document.getElementById(a.getAttribute('href').slice(1));
       if (!s || !s.dataset.sect) return;
       if (s.dataset.sect === 'setup') { e.preventDefault(); e.stopImmediatePropagation(); if (inSetup) closeSetup(); else openSetup(); return; }
-      if (inSetup) { pushed = false; view(false); }
+      if (inSetup && pushed) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        after = s.id; pushed = false;
+        try { history.back(); return; } catch (err) { /* below */ }
+        view(false); goTo(after); after = null; return;
+      }
+      if (inSetup) view(false);
       if (s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
     }, true);
     const st = sec('setup'), h = st && st.querySelector('h2.sec');
@@ -1333,7 +1370,13 @@ const SECT = (() => {
       b.textContent = '← Back to the cook'; b.addEventListener('click', closeSetup);
       st.insertBefore(b, h);
     }
-    window.addEventListener('popstate', () => { if (inSetup) { pushed = false; view(false, true); } });
+    window.addEventListener('popstate', () => {
+      if (!inSetup) return;
+      pushed = false;
+      const id = after; after = null;
+      view(false, !id);
+      if (id) goTo(id);
+    });
     view(false);
   }
   // How a section starts unless this browser chose (folded or not), and the line its heading shows while folded.

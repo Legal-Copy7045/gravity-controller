@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "program.h"
 
 #include <cctype>
@@ -390,8 +391,12 @@ std::string format_program(const Program &p, const std::vector<std::string> &pro
     std::string line;
     if (!std::isnan(st.pit_c))
       line += std::string(st.hold ? "hold " : "pit ") + fmt_temp(st.pit_c, f);
-    if (!st.notify.empty())
-      line += std::string(line.empty() ? "" : " ") + "notify \"" + st.notify + "\"";
+    if (!st.notify.empty()) {  // quoted with whichever quote the text doesn't contain (the parser takes both), so it reads back
+      const char q = st.notify.find('"') == std::string::npos ? '"' : '\'';
+      std::string n = st.notify;
+      n.erase(std::remove(n.begin(), n.end(), q), n.end());
+      line += std::string(line.empty() ? "" : " ") + "notify " + q + n + q;
+    }
     if (st.shutdown)
       line += std::string(line.empty() ? "" : " ") + "shutdown";
     for (size_t i = 0; i < st.until.size(); i++) {

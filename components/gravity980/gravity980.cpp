@@ -20,6 +20,12 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+
+#ifdef USE_ESP32
+#include <mutex>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#endif
 #ifdef USE_GRAVITY980_BLE
 #include "esphome/components/esp32_ble/ble.h"
 #endif
@@ -28,6 +34,46 @@ namespace esphome {
 namespace gravity980 {
 
 static const char *const TAG = "gravity980";
+
+// Looking a hostname up (getaddrinfo) can take several seconds when DNS is slow or the name doesn't answer (mDNS
+// retries for ~7 s): long enough for the main loop's 5 s watchdog to restart the controller. On the controller it
+// runs on a small task of its own; the main loop asks and picks the answer up on a later connection attempt.
+#ifdef USE_ESP32
+namespace {
+struct DnsLookup {
+  std::mutex m;
+  std::string want, got;
+  uint32_t addr{0};
+  bool busy{false}, done{false};
+  TaskHandle_t task{nullptr};
+};
+DnsLookup dns_;
+void dns_task(void *) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    std::string h;
+    {
+      std::lock_guard<std::mutex> g(dns_.m);
+      h = dns_.want;
+    }
+    struct addrinfo hints {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *res = nullptr;
+    uint32_t a = 0;
+    if (getaddrinfo(h.c_str(), nullptr, &hints, &res) == 0 && res != nullptr) {
+      a = reinterpret_cast<struct sockaddr_in *>(res->ai_addr)->sin_addr.s_addr;
+      freeaddrinfo(res);
+    }
+    std::lock_guard<std::mutex> g(dns_.m);
+    dns_.got = h;
+    dns_.addr = a;
+    dns_.busy = false;
+    dns_.done = true;
+  }
+}
+}  // namespace
+#endif
 
 std::string hex_dump(const uint8_t *data, size_t len) {
   static const char *const HEX = "0123456789ABCDEF";
@@ -254,11 +300,45 @@ void Gravity980Component::tcp_start_connect_() {
   if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
     // Hostname: resolving blocks the main loop, so do it rarely (an IP address / DHCP reservation is better).
     if (this->resolved_host_ == host && this->resolved_addr_ != 0 &&
-        int32_t(millis() - this->resolved_at_) < 600000) {
+        (millis() - this->resolved_at_) < 600000u) {
       addr.sin_addr.s_addr = this->resolved_addr_;
       goto have_addr;
     }
-    if (this->resolved_host_ == host && int32_t(millis() - this->resolved_at_) < 60000)
+#ifdef USE_ESP32
+    {
+      std::lock_guard<std::mutex> g(dns_.m);
+      if (dns_.done && dns_.got == host) {  // an answer from the lookup task
+        dns_.done = false;
+        this->resolved_host_ = host;
+        this->resolved_at_ = millis();
+        this->resolved_addr_ = dns_.addr;
+        if (dns_.addr == 0) {
+          ESP_LOGW(TAG, "Cannot resolve %s (use an IP address / DHCP reservation)", host.c_str());
+          return;
+        }
+        addr.sin_addr.s_addr = dns_.addr;
+        goto have_addr;
+      }
+      if (dns_.busy)
+        return;  // still looking it up
+      if (this->resolved_host_ == host && this->resolved_addr_ == 0 && (millis() - this->resolved_at_) < 60000u)
+        return;  // failed recently: back off
+      if (dns_.task == nullptr &&
+          xTaskCreatePinnedToCore(dns_task, "g980_dns", 4096, nullptr, 1, &dns_.task, 0) != pdPASS) {
+        dns_.task = nullptr;
+        return;
+      }
+      dns_.want = host;
+      dns_.busy = true;
+      dns_.done = false;
+      this->resolved_host_ = host;
+      this->resolved_at_ = millis();
+      this->resolved_addr_ = 0;
+    }
+    xTaskNotifyGive(dns_.task);
+    return;  // connect on a later attempt, once it has answered
+#else
+    if (this->resolved_host_ == host && (millis() - this->resolved_at_) < 60000u)
       return;  // failed recently: back off
     this->resolved_host_ = host;
     this->resolved_at_ = millis();
@@ -274,6 +354,7 @@ void Gravity980Component::tcp_start_connect_() {
     addr.sin_addr = reinterpret_cast<struct sockaddr_in *>(res->ai_addr)->sin_addr;
     this->resolved_addr_ = addr.sin_addr.s_addr;
     freeaddrinfo(res);
+#endif
   }
 have_addr:
   int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -917,7 +998,7 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
   // address, so while idle a name match from a new address takes over once the old one has gone quiet for 10 s.
   if (this->fixed_address_ == 0 && a != this->get_address() &&
       (this->get_address() == 0 ||
-       (this->state() == esp32_ble_tracker::ClientState::IDLE && int32_t(now - this->seen_at_) > 10000))) {
+       (this->state() == esp32_ble_tracker::ClientState::IDLE && (now - this->seen_at_) > 10000u))) {
     if (this->is_grill_(device)) {
       this->seen_at_ = this->grill_seen_at_ = now;
       auto name = device.get_name();

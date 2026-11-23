@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.38] - 2026-11-23
+
+Fixes from a second independent review:
+- **Security: the controller's buttons and settings needed the PIN only for some kinds of request.** ESPHome also
+  carries out actions sent as a plain link (GET), so any website you visited could press "Clear the device page
+  PIN", change the pit target or start an update. Those now need the PIN too, and are refused from other websites.
+  Requests that don't name the controller (its IP address or `.local` name) are refused, which stops a website
+  pretending to be it (DNS rebinding).
+- **Crash fix:** big pieces of data (a label photo, AI answers, the chart's history) now use the controller's 8 MB
+  of PSRAM instead of the small internal memory Wi-Fi and Bluetooth need. A label photo could have restarted it.
+  Large uploads need a PIN to be set.
+- **The grill's hostname is looked up on a task of its own:** a slow or failing lookup (a few seconds) could have
+  tripped the main loop's watchdog and restarted the controller.
+- **Programs:** one too long to save whole is refused (it used to resume cut short after a restart); an AI notify
+  text with a quote in it no longer breaks *Load as program*; a paused program no longer rewrites the flash every
+  5 minutes.
+- **Setup page:** tapping its title no longer folds it away; leaving it through another section doesn't leave an
+  extra step in the browser's history; focus moves with it (keyboard and screen readers); on Home Assistant's page
+  the Setup cards were inside the Setup heading, and the section bar always highlighted Setup.
+- **Smaller:** the PIN panel behaves as a proper dialog (Escape, Tab stays inside, focus returns); "in Setup" hints
+  open Setup; dark mode's highlighted buttons are readable; the grill's Bluetooth address is still picked up after 25
+  days unseen; fuel values that aren't numbers are ignored; the AI model name is checked on every path.
+- **Home Assistant:** after the integration is reloaded its journal and community sensors come back; *Remove my shared
+  cooks* also removes a cook whose upload reply was lost; the automatic package update only reloads automations while
+  Home Assistant is starting (a reload at run time would stop your other running automations).
+- Note on the package fingerprint added in 0.2.37: a package installed before 0.2.37 had no fingerprint, so if you'd
+  edited it by hand, that one update replaced it (the old file is kept as a backup next to it).
+
 ## [0.2.37] - 2026-11-23
 
 **Setup has a page of its own** on both dashboards: the section bar's Setup button opens it, with *Back to the cook*

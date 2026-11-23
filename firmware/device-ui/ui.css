@@ -220,7 +220,7 @@ html{background:#f2f4f6}
 .gx h2.sec .fold:hover,.gx h2.sec .fold:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
 .gx h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
 .gx .sect.folded h2.sec .fold svg{transform:rotate(-90deg)}
-.gx .sect.folded>:not(h2),.gx .sect.folded h2.sec .seg{display:none!important}
+.gx .sect.folded>:not(h2):not(.sect-back),.gx .sect.folded h2.sec .seg{display:none!important}
 .gx .sect.folded h2.sec{padding-bottom:2px}
 .gx #s-start .card{border-color:color-mix(in srgb,var(--page) 45%,var(--line))}
 .gx .start-item.done b{color:var(--ok)}
@@ -237,3 +237,6 @@ html{background:#f2f4f6}
 @media (min-width:600px){.gx .pinsheet{align-items:center}}
 .gx input[type=datetime-local]{max-width:100%;min-width:0}
 .gx .row .entry{min-width:0;flex-wrap:wrap;justify-content:flex-end}
+:root.gx{--on-page:#fff}
+@media (prefers-color-scheme:dark){:root.gx:not([data-theme="light"]){--on-page:#1c0e04}}
+:root.gx[data-theme="dark"]{--on-page:#1c0e04}

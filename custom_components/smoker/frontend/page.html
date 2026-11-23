@@ -221,7 +221,7 @@ h2.sec .seg~.fold{margin-left:0}
 h2.sec .fold:hover,h2.sec .fold:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
 h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
 .sect.folded h2.sec .fold svg{transform:rotate(-90deg)}
-.sect.folded>:not(h2),.sect.folded h2.sec .seg{display:none!important}
+.sect.folded>:not(h2):not(.sect-back),.sect.folded h2.sec .seg{display:none!important}
 .sect.folded h2.sec{padding-bottom:2px}
 /* cards fill their row (as on the controller's page): no narrow card beside empty space */
 .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr))}
@@ -233,6 +233,9 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 .setup-view .sect-back{display:inline-flex}
 .setup-view [data-sect="setup"] h2.sec .fold{display:none}
 .secbar a.on{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
+:root{--on-page:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--on-page:#1c0e04}}
+:root[data-theme="dark"]{--on-page:#1c0e04}
 </style>
 </head>
 <body>
@@ -314,7 +317,7 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
   </div>
 
   <div class="sect" id="setup" data-sect="setup">
-    <h2 class="sec"><svg class="ic"><use href="#i-setup"/></svg>Setup
+    <h2 class="sec"><svg class="ic"><use href="#i-setup"/></svg>Setup</h2>
     <div class="grid">
       <section class="tc" id="controlcard"></section>
       <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
@@ -1074,7 +1077,7 @@ function renderTop() {
     const ls = val(E('Grill link status', ['sensor'])), lsOk = ls && !/^(unknown|unavailable)$/.test(ls);
     head += `<small>${esc(val(E('Bridge enabled', ['switch'])) === 'off' ? 'the bridge is turned off (Setup)' : lsOk ? ls : 'is the grill on and in range?')}</small></span>`; }
   else { const lw = linkWords(via), ctl = via === 'wifi' || ble;
-    head = `<span class="t">Grill connected · ${lw.txt}<small>${!ctl ? 'read-only: turn on Bluetooth control in Setup' : lw.both ? 'the app controls it · Bluetooth stands by if Wi-Fi drops' : 'the app controls it'}</small></span>`; cls = ctl ? '' : 'warn'; }
+    head = `<span class="t">Grill connected · ${lw.txt}<small>${!ctl ? 'read-only: turn on Bluetooth control in <a href="#setup" onclick="SECT.openSetup();return false">Setup</a>' : lw.both ? 'the app controls it · Bluetooth stands by if Wi-Fi drops' : 'the app controls it'}</small></span>`; cls = ctl ? '' : 'warn'; }
   const tb = $('topbar'); if (tb) tb.className = 'topbar' + (cls ? ' ' + cls : a.some(x => /chip bad/.test(x)) ? ' bad' : a.length ? ' warn' : '');
   const vics = !conn || via === 'none' ? ['off'] : linkWords(via).icons;
   put('topbar', `<span class="conn"><span class="dot ${!conn || via === 'none' ? 'off' : cls === 'warn' ? 'stale' : 'on'}"></span>${vics.map(v => `<svg class="ic via"><use href="#i-${v}"/></svg>`).join('')}${head}</span>
@@ -1611,15 +1614,31 @@ const SECT = (() => {
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};
   const sec = k => document.querySelector(`[data-sect="${k}"]`);
-  let inSetup = false, pushed = false;
+  let inSetup = false, pushed = false, after = null;
+  const setupLink = () => { const bar = document.getElementById('secbar'), st = sec('setup'); return bar && st && bar.querySelector(`a[href="#${st.id}"]`); };
   function view(setup, scroll) {
+    const was = inSetup;
     inSetup = !!setup;
     document.documentElement.classList.toggle('setup-view', inSetup);
     document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('view-off', inSetup ? s.dataset.sect !== 'setup' : s.dataset.sect === 'setup'));
-    const bar = document.getElementById('secbar'), st = sec('setup');
-    if (bar && st) bar.querySelectorAll('a').forEach(a => { if (a.getAttribute('href') === '#' + st.id) a.classList.toggle('on', inSetup); });
+    const a = setupLink(), st = sec('setup');
+    if (a) { a.classList.toggle('on', inSetup); if (inSetup) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
     if (inSetup) { peek.setup = true; apply('setup'); }
     if (scroll) window.scrollTo(0, 0);
+    // Focus follows the change of page (keyboard and screen-reader users aren't left on a hidden control).
+    if (was !== inSetup) {
+      if (inSetup) { const h = st && st.querySelector('h2.sec'); if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); } }
+      else if (a && document.activeElement && (document.activeElement === document.body || (st && st.contains(document.activeElement)))) a.focus({ preventScroll: true });
+      document.dispatchEvent(new CustomEvent('sect-view', { detail: { setup: inSetup } }));
+    }
+  }
+  // Leaving Setup for another section: the history entry Setup added is used up first (so the next Back leaves the
+  // page as expected), then the section is shown.
+  function goTo(id) {
+    const t = document.getElementById(id), bar = document.getElementById('secbar');
+    if (!t) return;
+    if (t.dataset.sect && t.classList.contains('folded')) { peek[t.dataset.sect] = true; apply(t.dataset.sect); }
+    window.scrollTo({ top: t.getBoundingClientRect().top + window.scrollY - (bar ? bar.offsetHeight : 0) - 10 });
   }
   function openSetup() {
     if (inSetup) return;
@@ -1654,7 +1673,10 @@ const SECT = (() => {
       b.setAttribute('aria-label', 'Show or hide ' + h.textContent.trim());
       b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
       h.append(m, b);
-      h.addEventListener('click', e => { if (!e.target.closest('a,input,select,textarea,.seg,button:not(.fold)')) toggle(k); });
+      h.addEventListener('click', e => {
+        if (k === 'setup' && inSetup) return;  // the Setup page's own title doesn't fold it away
+        if (!e.target.closest('a,input,select,textarea,.seg,button:not(.fold)')) toggle(k);
+      });
       apply(k);
     });
     // A section-bar link opens its section (for now: the remembered fold isn't changed); Setup opens its own page,
@@ -1664,7 +1686,13 @@ const SECT = (() => {
       const a = e.target.closest('a[href^="#"]'), s = a && document.getElementById(a.getAttribute('href').slice(1));
       if (!s || !s.dataset.sect) return;
       if (s.dataset.sect === 'setup') { e.preventDefault(); e.stopImmediatePropagation(); if (inSetup) closeSetup(); else openSetup(); return; }
-      if (inSetup) { pushed = false; view(false); }
+      if (inSetup && pushed) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        after = s.id; pushed = false;
+        try { history.back(); return; } catch (err) { /* below */ }
+        view(false); goTo(after); after = null; return;
+      }
+      if (inSetup) view(false);
       if (s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
     }, true);
     const st = sec('setup'), h = st && st.querySelector('h2.sec');
@@ -1673,7 +1701,13 @@ const SECT = (() => {
       b.textContent = '← Back to the cook'; b.addEventListener('click', closeSetup);
       st.insertBefore(b, h);
     }
-    window.addEventListener('popstate', () => { if (inSetup) { pushed = false; view(false, true); } });
+    window.addEventListener('popstate', () => {
+      if (!inSetup) return;
+      pushed = false;
+      const id = after; after = null;
+      view(false, !id);
+      if (id) goTo(id);
+    });
     view(false);
   }
   // How a section starts unless this browser chose (folded or not), and the line its heading shows while folded.
@@ -1724,12 +1758,14 @@ window.addEventListener('resize', () => drawChart());
   let cur = -1;
   function mark() {
     const links = L(), secs = X(); const y = top() + bar.offsetHeight + 40; let k = 0;
-    secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top <= y) k = i; });
+    // (a hidden section, such as Setup on the main page, reads top 0: never the one in view)
+    secs.forEach((s, i) => { if (s && s.offsetParent !== null && s.getBoundingClientRect().top <= y) k = i; });
     if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) k = secs.length - 1;
     if (k === cur) return; cur = k;
     links.forEach((a, i) => { if (i === k) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
     const a = links[k]; if (bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
-  }
+  }  document.addEventListener('sect-view', () => { cur = -1; mark(); });  // Setup opened or closed
+
   L().forEach(a => a.addEventListener('click', e => {
     e.preventDefault(); const el = $(a.getAttribute('href').slice(1));
     if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - top() - bar.offsetHeight - 10, behavior: 'smooth' });

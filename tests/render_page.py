@@ -587,6 +587,13 @@ def main():
                     sv = fr.evaluate("[document.getElementById('setup').offsetParent !== null, document.getElementById('food').offsetParent === null]")
                     if sv != [True, True]:
                         failures.append(f"setup page: setup shown {sv[0]}, the cook hidden {sv[1]}")
+                    if fr.evaluate("document.querySelectorAll('#setup h2.sec .grid, #setup h2.sec .tc').length"):
+                        failures.append("setup page: the cards are inside the Setup heading (unclosed <h2>)")
+                    fr.click("#setup h2.sec"); time.sleep(0.2)
+                    if fr.evaluate("document.getElementById('setup').classList.contains('folded')"):
+                        failures.append("setup page: tapping its title folded it away")
+                    if fr.evaluate("document.activeElement && document.activeElement.closest('#setup') === null"):
+                        failures.append("setup page: focus didn't move to it")
                     # Grill Wi-Fi setup (Setup → Connection): join saved network / scan press the controller's buttons.
                     fr.evaluate("document.querySelector('#controlcard details[data-k=wifi]').open = true")
                     if "Grill-Network" not in fr.inner_text("#controlcard"):
@@ -616,6 +623,10 @@ def main():
                                for c in pg.evaluate("window.calls")):
                         failures.append(f"restart not pressed after the second tap: {pg.evaluate('window.calls')[-2:]}")
                     fr.click("#setup .sect-back"); time.sleep(0.3)
+                    fr.evaluate("window.scrollTo(0, 0)"); time.sleep(0.4)
+                    lit = fr.evaluate("[...document.querySelectorAll('#secbar a[aria-current=true]')].map(a => a.innerText.trim())")
+                    if "Setup" in lit:
+                        failures.append(f"section bar marks Setup on the main page: {lit}")
                     if fr.evaluate("document.getElementById('setup').offsetParent !== null"):
                         failures.append("setup page: Back to the cook didn't leave it")
                     # Fuel: 'Topped up to' then '1/2' calls the refill action with 50 %.

@@ -1,5 +1,8 @@
 #include "standalone.h"
 
+#include <arpa/inet.h>
+#include <cctype>
+
 #include <cmath>
 #include <cstring>
 
@@ -21,6 +24,7 @@
 
 #ifdef USE_ESP32
 #include <esp_crt_bundle.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_http_client.h>
 #include <esp_random.h>
@@ -49,10 +53,16 @@ class Handler : public AsyncWebHandler {
       this->body_.clear();
       return true;
     }
-    // Any change through the device page (ESPHome's REST POSTs, the settings pages) needs the PIN once one is set.
-    // Reading (GET: the page, states, the live event stream) stays open on the local network.
-    if (req->method() == HTTP_GET || req->method() == HTTP_HEAD || req->method() == HTTP_OPTIONS)
+    // Any change through the device page needs the PIN once one is set. ESPHome's web server also carries out
+    // actions sent as GET (/button/<name>/press, /number/<name>/set?value=...), so those count as changes too: an
+    // <img> on any website could otherwise press "Clear the device page PIN". Reading (the page, states, the live
+    // event stream) stays open on the local network.
+    if (req->method() == HTTP_OPTIONS)
       return false;
+    if ((req->method() == HTTP_GET || req->method() == HTTP_HEAD) && !is_action_(url))
+      return false;
+    if (bad_host_(req))
+      return true;  // refused in handleRequest (DNS rebinding: a website posing as the controller)
     if (cross_site_(req))
       return true;  // refused in handleRequest: another website can't post a form here, PIN or not
     if (!this->p_->pin_set())
@@ -67,8 +77,10 @@ class Handler : public AsyncWebHandler {
       // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body, and only an
       // unlocked browser may send one (no one else gets the controller to buffer 400 KB).
       char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
-      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && this->p_->write_allowed(token_(req))
+      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && this->p_->pin_set() &&
+                           this->p_->write_allowed(token_(req))
                        ? 400000u : 4096u;
+      if (total > 0 && total <= this->cap_) this->body_.reserve(total);  // one allocation, not doubling up to 512 KB
     }
     if (this->too_big_ || this->body_.size() + len > this->cap_) {
       this->too_big_ = true;  // stop here: a body with a gap in it would be garbage
@@ -81,7 +93,8 @@ class Handler : public AsyncWebHandler {
   void handleRequest(AsyncWebServerRequest *req) override {
     char buf[AsyncWebServerRequest::URL_BUF_SIZE];
     StringRef url = req->url_to(buf);
-    if (req->method() != HTTP_GET && cross_site_(req)) {
+    const bool local = url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0;
+    if (bad_host_(req) || ((req->method() != HTTP_GET || !local) && cross_site_(req))) {
       req->send(403, "application/json", "{\"error\":\"Changes come from the controller's own page only\"}");
       return;
     }
@@ -122,6 +135,29 @@ class Handler : public AsyncWebHandler {
       return oh != host.value();
     }
     return false;
+  }
+  // /<domain>/<name>/<action>: ESPHome's REST actions (press, turn_on, set, install...), whatever the method.
+  static bool is_action_(const StringRef &url) {
+    const char *u = url.c_str();
+    size_t n = url.size(), slashes = 0;
+    for (size_t i = 0; i < n; i++) slashes += u[i] == '/';
+    return slashes >= 3 && !(n >= 7 && std::strncmp(u, "/events", 7) == 0);
+  }
+  // The Host the browser asked for must be this controller (its IP address or <name>.local, any port): a page on
+  // another site that rebinds its own name to the controller's address is refused.
+  static bool bad_host_(AsyncWebServerRequest *req) {
+    auto h = req->get_header("Host");
+    if (!h.has_value() || h.value().empty()) return false;  // not a browser
+    std::string host = h.value();
+    if (!host.empty() && host[0] == '[') return false;  // IPv6 literal
+    size_t colon = host.find(':');
+    if (colon != std::string::npos) host.resize(colon);
+    for (auto &c : host) c = std::tolower(static_cast<unsigned char>(c));
+    struct in_addr a;
+    if (inet_pton(AF_INET, host.c_str(), &a) == 1 || host == "localhost") return false;
+    std::string me = App.get_name();
+    for (auto &c : me) c = std::tolower(static_cast<unsigned char>(c));
+    return !(host == me || host == me + ".local" || host == me + ".local.");
   }
   static std::string token_(AsyncWebServerRequest *req) {
     auto h = req->get_header(TOKEN_HEADER);
@@ -211,6 +247,10 @@ void Standalone::setup() {
     ESP_LOGW(TAG, "No web server: the device page's PIN and settings are unavailable");
   }
 #ifdef USE_ESP32
+  // Allocations of 16 KB and more (a label photo, an AI request or answer, the chart's history) go to the 8 MB PSRAM,
+  // not the ~100 KB of internal RAM that Wi-Fi and Bluetooth need: ESP-IDF's own default for PSRAM-backed malloc.
+  // (ESPHome's psram component only makes PSRAM available to explicit requests.)
+  heap_caps_malloc_extmem_enable(16384);
   // The PIN's hashing sleeps a tick every 1,000 rounds, so it never starves the other tasks on its core.
   pinauth::pbkdf2_yield = []() { vTaskDelay(1); };
   // Never let ESP-IDF's HTTP client log URLs or headers: they carry keys (Telegram's token is in its URL).
@@ -220,9 +260,9 @@ void Standalone::setup() {
   this->api_done_ = xSemaphoreCreateBinary();
   this->api_mutex_ = xSemaphoreCreateMutex();
   if (this->api_q_ == nullptr || this->api_done_ == nullptr || this->api_mutex_ == nullptr ||
-      // Core 1 at the main loop's priority (1): the PIN's hashing takes a second or two there and must never starve
-      // the main loop (core 0), or its watchdog restarts the controller.
-      xTaskCreatePinnedToCore(Standalone::api_task_, "standalone_api", 12288, this, 1, nullptr, 1) != pdPASS) {
+      // Core 0, at the main loop's priority: ESPHome runs the main loop on core 1, so the PIN's hashing (a second or
+      // two) runs beside it rather than taking turns with it.
+      xTaskCreatePinnedToCore(Standalone::api_task_, "standalone_api", 12288, this, 1, nullptr, 0) != pdPASS) {
     this->api_q_ = nullptr;  // fall back to the web server's own task (as before 0.2.34)
     ESP_LOGE(TAG, "Couldn't start the API task");
   }
@@ -759,6 +799,13 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
       std::string p = str("ai_provider");
       if (!p.empty() && p != "gemini" && p != "claude" && p != "openai") { status = 400; return err_json("Unknown AI provider"); }
       copy_field(this->s_.ai_provider, sizeof(this->s_.ai_provider), p);
+    }
+    if (in["ai_model"].is<const char *>()) {
+      for (char ch : str("ai_model"))  // it goes into the provider's URL (Gemini): letters, digits, - . _ only
+        if (!(isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '.' || ch == '_')) {
+          status = 400;
+          return err_json("Unexpected character in the model name");
+        }
     }
     if (in["ai_model"].is<const char *>())
       copy_field(this->s_.ai_model, sizeof(this->s_.ai_model), str("ai_model").substr(0, sizeof(this->s_.ai_model) - 1));

@@ -918,10 +918,21 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
     prog.steps[i].pit_c = to;
   }
   fixed = cook::format_program(prog, this->probe_keys(), this->fahrenheit_);
+  if (fixed.size() >= PROGRAM_MAX) {
+    why = "too long for the controller (" + std::to_string(fixed.size()) + " characters)";
+    return false;
+  }
   return true;
 }
 
 bool CookAssistant::load_program(const std::string &text, bool persist) {
+  if (text.size() >= PROGRAM_MAX) {  // it couldn't be saved whole (a restart would resume a cut-down program)
+    const std::string e = "the program is too long (" + std::to_string(text.size()) + " characters; at most " +
+                          std::to_string(PROGRAM_MAX - 1) + ")";
+    ESP_LOGW(TAG, "Program error: %s", e.c_str());
+    if (this->program_error_ != nullptr) this->program_error_->publish_state(e);
+    return false;
+  }
   cook::Program prog;
   std::string err;
   if (!cook::parse_program(text, this->probe_keys(), this->fahrenheit_, prog, err)) {
@@ -1020,7 +1031,7 @@ void CookAssistant::save_program_state_(bool sync) {
   s.step = uint8_t(this->runner_.step());
   s.step_elapsed_min = float(this->runner_.step_elapsed_min(this->now_min_()));
   s.pit_c = this->runner_.commanded_pit();
-  s.saved_at_s = millis() / 1000;
+  s.saved_at_s = 0;  // (was the uptime: every save then differed, so a paused program rewrote the flash every 5 min)
   this->state_pref_.save(&s);
   // Program events are rare: write them through now so a power cut right after doesn't lose them
   // (ESPHome otherwise batches preference writes for up to a minute).
@@ -1140,6 +1151,7 @@ void CookAssistant::save_fuel_() {
 }
 
 void CookAssistant::fuel_level(float percent) {
+  if (!std::isfinite(percent)) return;  // (NaN would read as a full hopper)
   this->fuel_.level(this->now_min_() / 60.0, percent / 100.0f);
   this->fuel_low_notified_ = this->fuel_short_notified_ = false;
   if (this->fuel_.take_k_updated()) {
@@ -1149,16 +1161,19 @@ void CookAssistant::fuel_level(float percent) {
   this->tick_fuel_(false);
 }
 void CookAssistant::fuel_refilled(float percent) {
+  if (!std::isfinite(percent)) return;
   this->fuel_.refill_to(this->now_min_() / 60.0, percent / 100.0f);
   this->fuel_low_notified_ = this->fuel_short_notified_ = false;
   this->tick_fuel_(false);
 }
 void CookAssistant::fuel_added(float percent) {
+  if (!std::isfinite(percent)) return;
   this->fuel_.add(this->now_min_() / 60.0, percent / 100.0f);
   this->fuel_low_notified_ = this->fuel_short_notified_ = false;
   this->tick_fuel_(false);
 }
 void CookAssistant::fuel_end(float percent) {
+  if (!std::isfinite(percent)) return;
   this->fuel_.end(this->now_min_() / 60.0, percent / 100.0f);
   if (this->fuel_.take_k_updated()) {
     ESP_LOGI(TAG, "Fuel burn rate re-learned at the end of the cook (actual/predicted %.2f)", this->fuel_.last_ratio());
