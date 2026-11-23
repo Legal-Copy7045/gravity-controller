@@ -143,6 +143,21 @@ async def main():
         cli.number_command(by_id["pit_target"].key, 250)
         await wait_for(lambda: val("pit_target_reported") == 250.0, 10, "back to 250")
 
+        # Turbo and power, as the Char-Griller app sends them (one flag at a time); power never on one press.
+        cli.switch_command(by_id["turbo"].key, True)
+        check(await wait_for(lambda: val("turbo") is True and "turbo on" in glog(), 10, "turbo on"), "Turbo on reaches the grill and reads back")
+        cli.switch_command(by_id["turbo"].key, False)
+        check(await wait_for(lambda: val("turbo") is False and "turbo off" in glog(), 10, "turbo off"), "Turbo off")
+        cli.button_command(by_id["turn_the_grill_off"].key)
+        await asyncio.sleep(3)
+        check("power off" not in glog() and val("grill_on") is True and "Press again" in (val("grill_power") or ""),
+              f"one press doesn't turn the grill off ({val('grill_power')!r})")
+        cli.button_command(by_id["turn_the_grill_off"].key)
+        check(await wait_for(lambda: "power off" in glog() and val("grill_on") is False, 10, "power off"), "a second press within 10 s turns it off")
+        cli.button_command(by_id["turn_the_grill_on"].key)
+        cli.button_command(by_id["turn_the_grill_on"].key)
+        check(await wait_for(lambda: "power on" in glog() and val("grill_on") is True, 10, "power on"), "two presses turn it on again")
+
         # Program: syntax error is reported.
         await cli.execute_service(svc["load_program"], {"program": "pit 250 until food9 >= 160"})
         check(await wait_for(lambda: "food9" in (val("program_error") or ""), 5, "program error"),

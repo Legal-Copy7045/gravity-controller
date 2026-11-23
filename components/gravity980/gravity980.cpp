@@ -1237,7 +1237,34 @@ std::string Gravity980Component::send_flags_(uint16_t flags, const char *what) {
 
 // The Char-Griller app's Turbo button (flags: FF 04 FF 1F on, FF 04 FF 0F off) and its power-off (FF 04 0F FF).
 std::string Gravity980Component::set_turbo(bool on) { return this->send_flags_(on ? 0xFF1F : 0xFF0F, on ? "Turbo on" : "Turbo off"); }
-std::string Gravity980Component::power_off() { return this->send_flags_(0x0FFF, "Power off"); }
+// Power on/off (FF 04 1F FF / FF 04 0F FF; the app only sends off, on was confirmed on a 980 in standby with its
+// Bluetooth awake). Never on one press: the first press arms it for 10 s, a second press of the same one sends it.
+std::string Gravity980Component::power_press(bool on) {
+  const uint32_t now = millis();
+  if (this->power_armed_ != 0 && this->power_armed_on_ == on && now - this->power_armed_ < POWER_CONFIRM_MS) {
+    this->power_armed_ = 0;
+    this->power_prompt_.clear();
+    std::string why = this->send_flags_(on ? 0x1FFF : 0x0FFF, on ? "Power on" : "Power off");
+    if (!why.empty())
+      this->power_prompt_ = std::string("Couldn't turn the grill ") + (on ? "on" : "off") + ": " + why;
+    return why;
+  }
+  this->power_armed_ = now ? now : 1;
+  this->power_armed_on_ = on;
+  this->power_prompt_ = std::string("Press again within 10 s to turn the grill ") + (on ? "on" : "off");
+  ESP_LOGI(TAG, "%s", this->power_prompt_.c_str());
+  return "armed";
+}
+
+const std::string &Gravity980Component::power_prompt() {
+  if (this->power_armed_ != 0 && millis() - this->power_armed_ >= POWER_CONFIRM_MS) {
+    this->power_armed_ = 0;
+    this->power_prompt_.clear();
+  }
+  return this->power_prompt_;
+}
+
+bool Gravity980Component::grill_on() const { return this->have_status_ && this->status_.fan_on; }
 bool Gravity980Component::turbo() const { return this->have_status_ && this->status_.fan_turbo; }
 
 std::string Gravity980Component::send_test_command(int id, int value) {

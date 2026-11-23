@@ -73,11 +73,19 @@ sensor:
     lambda: return 57.5f;  # 135.5 °F: a value the fake grill (whole °F) never reports
     update_interval: 2s
 binary_sensor:
+  - platform: template
+    name: Grill on
+    lambda: return id(grill).grill_on();
   - platform: gravity980
     connected: {id: grill_connected, name: Grill connected}
     door: {id: lid_open, name: Lid}
     fan: {id: grill_fan, name: Fan}
 text_sensor:
+  - platform: template
+    id: power_prompt
+    name: Grill power
+    update_interval: 1s
+    lambda: return id(grill).power_prompt();
   - platform: template
     name: Boost status
     icon: mdi:fan-plus
@@ -179,6 +187,13 @@ text:
     initial_value: ""
 
 switch:
+  - platform: template
+    name: Turbo
+    lambda: return id(grill).turbo();
+    turn_on_action:
+      - lambda: id(grill).set_turbo(true);
+    turn_off_action:
+      - lambda: id(grill).set_turbo(false);
   # Capture mode: no Bluetooth on the host, so turning it on is refused (the device page's card is still drawn).
   - platform: gravity980
     app_capture: {name: Capture the app's commands}
@@ -201,6 +216,14 @@ switch:
       - lambda: id(grill).set_test_mode(false);
 
 button:
+  - platform: template
+    name: Turn the grill off
+    on_press:
+      - lambda: id(grill).power_press(false);
+  - platform: template
+    name: Turn the grill on
+    on_press:
+      - lambda: id(grill).power_press(true);
   - platform: gravity980
     clear_capture: {name: Clear captured app commands}
 

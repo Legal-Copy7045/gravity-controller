@@ -25,6 +25,9 @@
 .hero-tgt .btn{min-width:48px;min-height:48px;font-size:22px;line-height:1;border-radius:12px}
 .hero-tgt .btn.pri,.hero-tgt .btn.boost{font-size:15px}
 .hero-tgt .btn.boost.on{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
+.hero-tgt .btn.power{font-size:15px}
+.hero-tgt .btn.power.armed{background:var(--bad);border-color:var(--bad);color:#fff}
+.warn-text{color:var(--warn)}
 .hero-boost{flex-basis:100%;margin:0}
 .hero-tgt .hv{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2)}
 .hero-tgt input{width:92px;min-height:48px;font:600 22px "JetBrains Mono",monospace;text-align:center}
@@ -829,10 +832,21 @@ const PG = (() => {
 function setNum(eid, v) { return eid ? H().call('number', 'set_value', eid, { value: v }).catch(fail) : null; }
 function press(name) { const e = E(name, ['button']); return e ? H().call('button', 'press', e).catch(fail) : fail('missing ' + name); }
 function esph(svc, data) { return H().service('esphome', 'gravity980_' + svc, data || {}).catch(fail); }
+let powerArm = null;
 window.act = {
   pit(delta) {
     const e = E('Pit target', ['number']); const cur = num(e); if (cur == null) return fail('pit target unknown');
     const step = isF() ? 5 : 2; setNum(e, cur + delta * step);
+  },
+  turbo() { const e = E('Turbo', ['switch']); e && H().call('switch', val(e) === 'on' ? 'turn_off' : 'turn_on', e).catch(fail); },
+  // Turn the grill on/off: never one tap. The first tap arms it (the controller waits 10 s for a second press of the
+  // same button) and the button says so; the second tap does it.
+  power(want) {
+    want = !!want; const now = Date.now(), second = powerArm && powerArm.on === want && now - powerArm.t < 10000;
+    powerArm = second ? null : { on: want, t: now };
+    press(want ? 'Turn the grill on' : 'Turn the grill off');
+    toast(second ? (want ? 'Turning the grill on' : 'Turning the grill off') : 'Tap again within 10 s to confirm');
+    renderHero(); if (!second) setTimeout(renderHero, 10100);
   },
   boost() { const e = E('Boost', ['switch']); e && H().call('switch', val(e) === 'on' ? 'turn_off' : 'turn_on', e).catch(fail); },
   timer(stop) {
@@ -1026,13 +1040,19 @@ function renderHero() {
   // The pit target, first thing on the page: − / type it / + (the same steps as the Pit section).
   const te = E('Pit target', ['number']), ta = (S(te) || {}).attributes || {};
   const boostE = E('Boost', ['switch']), boosting = val(boostE) === 'on', boostMsg = val(E('Boost status', ['sensor'])) || '';
+  const turboE = E('Turbo', ['switch']), turboOn = val(turboE) === 'on';
+  const powerE = E('Turn the grill off', ['button']) || E('Turn the grill on', ['button']), pWant = val(E('Grill on', ['binary_sensor'])) !== 'on';
+  const pArmed = powerArm && powerArm.on === pWant && Date.now() - powerArm.t < 10000, powerMsg = val(E('Grill power', ['sensor'])) || '';
   const ro = link !== 'on' || !via || via === 'none' || (via === 'bluetooth' && val(bleSwitch()) !== 'on'), dis = ro ? ' disabled' : '';
   put('herotgt', te ? `<div class="hero-tgt" role="group" aria-label="Pit target"><span class="l">Target</span>
     <button class="btn" onclick="act.pit(-1)" aria-label="Lower pit target"${dis}>−</button>
     <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(ta.min ?? '')}" max="${esc(ta.max ?? '')}" step="${esc(ta.step ?? 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target" onkeydown="if (event.key === 'Enter') act.pitTo()"${dis}><span>${esc(TU())}</span></span>
     <button class="btn" onclick="act.pit(1)" aria-label="Raise pit target"${dis}>+</button>
     <button class="btn pri" onclick="act.pitTo()"${dis}>Set</button>
-    ${boostE ? `<button class="btn boost${boosting ? ' on' : ''}" onclick="act.boost()" title="Runs the fan hard (like the panel's turbo) until the pit reaches the target, for up to 15 minutes"${dis}>${boosting ? 'Stop boost' : 'Boost'}</button>` : ''}
+    ${turboE ? `<button class="btn boost${turboOn ? ' on' : ''}" onclick="act.turbo()" aria-pressed="${turboOn}" title="The panel's Turbo: the fan runs flat out"${dis}>Turbo</button>` : ''}
+    ${boostE ? `<button class="btn boost adv${boosting ? ' on' : ''}" onclick="act.boost()" title="Raises the target 100°F until the pit reaches yours, for up to 15 minutes"${dis}>${boosting ? 'Stop boost' : 'Boost'}</button>` : ''}
+    ${powerE ? `<button class="btn power${pArmed ? ' armed' : ''}" onclick="act.power(${pWant ? 1 : 0})" title="${pWant ? 'Turn the grill on' : 'Turn the grill off'}: tap twice"${dis}>${pArmed ? (pWant ? 'Tap again to turn on' : 'Tap again to turn off') : (pWant ? '⏻ Turn on' : '⏻ Turn off')}</button>` : ''}
+    ${powerMsg ? `<p class="small hero-boost warn-text" role="status">${esc(powerMsg)}</p>` : ''}
     ${ro ? '<span class="muted small">Read-only: not connected to the grill</span>' : ''}${boostMsg ? `<p class="small muted hero-boost">${esc(boostMsg)}</p>` : ''}</div>` : '');
   // Coming up: the food on the grill, soonest finish first.
   const on = PROBES.map(p => ({ p, s: probeState(p) })).filter(x => x.s.t != null)

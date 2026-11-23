@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.50] - 2026-11-23
+
+- **Turbo works**, confirmed on a 980: the grill's turbo flag follows within 3 s.
+  - It's in the top card of both dashboards (Basic and Advanced).
+  - Boost moves to Advanced only.
+- **Turn the grill on or off from the dashboards, with a safety net:**
+  - Nothing happens on one tap. The first tap arms it, and the button turns red and says "Tap again to turn
+    off/on". A second tap within 10 s does it.
+  - The controller itself enforces the two presses, so a single press from Home Assistant, an automation or the
+    page does nothing.
+  - Confirmed on a 980: power off is `FF 04 0F FF`, as the app sends. Power on is `FF 04 1F FF`, which the app never
+    sends; it works while the grill is in standby with its Bluetooth awake.
+  - New entities: *Turn the grill on*, *Turn the grill off* (buttons), *Grill on* (the grill's on flag), and
+    *Grill power* (what's armed).
+
 ## [0.2.49] - 2026-11-23
 
 - **Turbo and Turn the grill off, as the Char-Griller app sends them**, found in the app's own code (v2.0.8).

@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.49"
+  project_version: "0.2.50"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -360,6 +360,11 @@ sensor:
       entity_category: diagnostic
 
 binary_sensor:
+  # The grill's "on" flag (byte 14 bit 4): clears when it's turned off, sets when it's turned on.
+  - platform: template
+    name: Grill on
+    icon: mdi:power
+    lambda: return id(grill).grill_on();
   # The board's BOOT button: hold it 10 s to clear the device page's PIN (someone at the grill, not on the network);
   # a short press allows Wi-Fi setup over Bluetooth (Improv) for a minute.
   - platform: gpio
@@ -395,6 +400,12 @@ binary_sensor:
       name: Grill alarm
 
 text_sensor:
+  - platform: template
+    id: power_prompt
+    name: Grill power
+    icon: mdi:power
+    update_interval: 2s
+    lambda: return id(grill).power_prompt();
   - platform: template
     name: Boost status
     icon: mdi:fan-plus
@@ -514,13 +525,21 @@ button:
     entity_category: config
     on_press:
       - lambda: id(grill).forget_grill();
-  # Turn the grill off, as the Char-Griller app does (command 0x04: FF 04 0F FF). The app can't turn it on, and nor
-  # can this.
+  # Turn the grill off (FF 04 0F FF, as the Char-Griller app does) or on (FF 04 1F FF: the grill in standby, its
+  # Bluetooth still awake). Safety net: nothing happens on one press; a second press within 10 s does it ("Grill
+  # power" says what's armed).
   - platform: template
     name: Turn the grill off
-    icon: mdi:power
+    icon: mdi:power-off
     on_press:
-      - lambda: id(grill).power_off();
+      - lambda: id(grill).power_press(false);
+      - component.update: power_prompt
+  - platform: template
+    name: Turn the grill on
+    icon: mdi:power-on
+    on_press:
+      - lambda: id(grill).power_press(true);
+      - component.update: power_prompt
   # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
   - platform: restart
     name: Restart

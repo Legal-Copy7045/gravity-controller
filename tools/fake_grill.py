@@ -35,6 +35,8 @@ class Grill:
         self.targets = {0: 225, 2: 203, 3: NO_TARGET}
         self.food = [dict(core=40.0, surf=40.0, moist=1.0, present=True), dict(core=0, surf=0, moist=0, present=False)]
         self.door = False
+        self.on = True       # byte 14 bit 4 (cleared by power off, FF 04 0F FF)
+        self.turbo = False   # byte 15 bit 4 (FF 04 FF 1F / FF 04 FF 0F)
         self.lock = threading.Lock()
         self.sim_h = 0.0
         self.silent = False
@@ -69,8 +71,8 @@ class Grill:
 
             f1 = c2f(self.food[0]["core"]) if self.food[0]["present"] else ABSENT
             f2 = c2f(self.food[1]["core"]) if self.food[1]["present"] else ABSENT
-            fan = 0x10 if self.pit_f < self.targets[0] - 2 else 0
-            flags = 0x01 if self.door else 0
+            fan = 0x10 if self.on else 0
+            flags = (0x01 if self.door else 0) | (0x10 if self.turbo else 0)
             return struct.pack(
                 ">HHBBHHHHBB",
                 int(round(self.pit_f)), self.targets[0], 0x10, 0, f1, self.targets[2], f2, self.targets[3], fan, flags,
@@ -81,7 +83,23 @@ class Grill:
             print(f"  ignoring unknown command {data.hex(' ')}")
             return
         cid, val = data[1], (data[2] << 8) | data[3]
-        if cid in (0x01, 0x04, 0x05):
+        if cid == 0x04:
+            # The grill's flags (the Char-Griller app): four hex digits, F = leave alone; one flag at a time.
+            digits = [(val >> s) & 0xF for s in (12, 8, 4, 0)]
+            if sum(d != 0xF for d in digits) != 1 or any(d not in (0, 1, 0xF) for d in digits):
+                print(f"  !!! DANGEROUS command id 0x04 value {val:#06x} (more than one flag) - the real grill may crash")
+                return
+            with self.lock:
+                if digits[0] != 0xF:
+                    self.on = bool(digits[0])
+                    print(f"  power {'on' if self.on else 'off'}")
+                elif digits[2] != 0xF:
+                    self.turbo = bool(digits[2])
+                    print(f"  turbo {'on' if self.turbo else 'off'}")
+                else:
+                    print(f"  flag command {val:#06x}")
+            return
+        if cid in (0x01, 0x05):
             print(f"  !!! DANGEROUS command id {cid:#04x} received - the real grill may crash its Wi-Fi")
             return
         if self.args.idle:

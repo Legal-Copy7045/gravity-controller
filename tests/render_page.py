@@ -42,6 +42,11 @@ STATES = dict([
     st("sensor.smoker_pit_temperature", 251, "Smoker Pit temperature", **F),
     st("number.smoker_pit_target", 250, "Smoker Pit target", **F),
     st("switch.smoker_boost", "off", "Smoker Boost"),
+    st("switch.smoker_turbo", "off", "Smoker Turbo"),
+    st("binary_sensor.smoker_grill_on", "on", "Smoker Grill on"),
+    st("button.smoker_turn_the_grill_off", "unknown", "Smoker Turn the grill off"),
+    st("button.smoker_turn_the_grill_on", "unknown", "Smoker Turn the grill on"),
+    st("sensor.smoker_grill_power", "", "Smoker Grill power"),
     st("number.smoker_timer", 0, "Smoker Timer", unit_of_measurement="min"),
     st("sensor.smoker_timer_remaining", 0, "Smoker Timer remaining", unit_of_measurement="s"),
     st("sensor.smoker_boost_status", "", "Smoker Boost status"),
@@ -743,8 +748,21 @@ def main():
                     vals = [c[2].get("value") for c in pg.evaluate("window.calls")[n0:] if c[0] == "number" and c[2].get("entity_id") == "number.smoker_pit_target"]
                     if len(vals) != 2 or vals[0] != 260:
                         failures.append(f"{scheme}/{name}: top card pit target: {pg.evaluate('window.calls')[n0:]}")
+                    # Turbo, and power never on one tap: the first tap arms (one press), the second does it (another).
                     n0 = len(pg.evaluate("window.calls"))
-                    fr.click("#herotgt .btn.boost"); time.sleep(0.3)
+                    fr.click('#herotgt button[onclick="act.turbo()"]'); time.sleep(0.3)
+                    if not any(c[0] == "switch" and c[1] == "turn_on" and c[2].get("entity_id") == "switch.smoker_turbo" for c in pg.evaluate("window.calls")[n0:]):
+                        failures.append(f"{scheme}/{name}: Turbo didn't turn the turbo switch on")
+                    n0 = len(pg.evaluate("window.calls"))
+                    fr.click("#herotgt .btn.power"); time.sleep(0.3)
+                    presses = lambda: [c for c in pg.evaluate("window.calls")[n0:] if c[0] == "button" and c[2].get("entity_id") == "button.smoker_turn_the_grill_off"]
+                    if len(presses()) != 1 or "Tap again" not in fr.inner_text("#herotgt .btn.power"):
+                        failures.append(f"{scheme}/{name}: power off's first tap should arm it: {presses()} {fr.inner_text('#herotgt .btn.power')!r}")
+                    fr.click("#herotgt .btn.power"); time.sleep(0.3)
+                    if len(presses()) != 2:
+                        failures.append(f"{scheme}/{name}: power off's second tap should press again: {presses()}")
+                    n0 = len(pg.evaluate("window.calls"))
+                    fr.click("#herotgt .btn.boost.adv"); time.sleep(0.3)
                     if not any(c[0] == "switch" and c[1] == "turn_on" and c[2].get("entity_id") == "switch.smoker_boost" for c in pg.evaluate("window.calls")[n0:]):
                         failures.append(f"{scheme}/{name}: Boost didn't turn the boost switch on: {pg.evaluate('window.calls')[n0:]}")
                     fr.evaluate("window.scrollTo(0, 0)"); time.sleep(0.4)

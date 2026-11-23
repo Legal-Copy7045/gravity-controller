@@ -197,6 +197,13 @@ const armed = {};
 const ACT = {
   pit(el) { const c = cur('Pit target'); if (c == null) return toast('Pit target not known yet'); setNum('Pit target', c + Number(el.dataset.d) * stepOf('Pit target', isF() ? 5 : 2)); },
   pitset() { const v = parseFloat($('pitin').value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete $('pitin').dataset.dirty; setNum('Pit target', v); },
+  power(el) {
+    const want = el.dataset.on === '1', now = Date.now();
+    const second = powerArm && powerArm.on === want && now - powerArm.t < 10000;
+    powerArm = second ? null : { on: want, t: now };
+    post('button', want ? 'Turn the grill on' : 'Turn the grill off', 'press').then(() => toast(second ? (want ? 'Turning the grill on' : 'Turning the grill off') : 'Tap again within 10 s to confirm'));
+    render(); if (!second) setTimeout(render, 10100);
+  },
   timer(el) {
     const v = el && el.dataset && el.dataset.v != null ? 0 : parseFloat(($('timerin') || {}).value);
     if (!Number.isFinite(v) || v < 0 || v > 1440) return toast('Type the minutes (1 to 1440)');
@@ -410,8 +417,19 @@ function heroTarget(u, tgt, L) {
     <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(n.min_value || '')}" max="${esc(n.max_value || '')}" step="${esc(n.step || 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target"${dis}><span>${esc(u)}</span></span>
     <button class="btn" data-a="pit" data-d="1" aria-label="Raise pit target"${dis}>+</button>
     <button class="btn pri" data-a="heroset"${dis}>Set</button>
-    ${E('switch', 'Boost') ? `<button class="btn boost${on(E('switch', 'Boost')) ? ' on' : ''}" data-a="toggle" data-n="Boost" title="Runs the fan hard (like the panel's turbo) until the pit reaches the target, for up to 15 minutes"${dis}>${on(E('switch', 'Boost')) ? 'Stop boost' : 'Boost'}</button>` : ''}
-    ${T('Boost status') ? `<p class="small muted hero-boost">${esc(T('Boost status'))}</p>` : ''}</div>`;
+    ${E('switch', 'Turbo') ? `<button class="btn boost${on(E('switch', 'Turbo')) ? ' on' : ''}" data-a="toggle" data-n="Turbo" aria-pressed="${on(E('switch', 'Turbo'))}" title="The panel's Turbo: the fan runs flat out"${dis}>Turbo</button>` : ''}
+    ${E('switch', 'Boost') ? `<button class="btn boost adv${on(E('switch', 'Boost')) ? ' on' : ''}" data-a="toggle" data-n="Boost" title="Raises the target 100°F until the pit reaches yours, for up to 15 minutes"${dis}>${on(E('switch', 'Boost')) ? 'Stop boost' : 'Boost'}</button>` : ''}
+    ${powerBtn(dis)}
+    ${T('Grill power') ? `<p class="small hero-boost warn-text" role="status">${esc(T('Grill power'))}</p>` : ''}
+    ${T('Boost status') ? `<p class="small muted hero-boost adv">${esc(T('Boost status'))}</p>` : ''}</div>`;
+}
+// Turn the grill on/off: never one tap. The first tap arms it (the controller waits 10 s for a second press of the
+// same button), the button then says so, and a second tap does it.
+let powerArm = null;
+function powerBtn(dis) {
+  const offB = E('button', 'Turn the grill off'), onB = E('button', 'Turn the grill on'); if (!offB && !onB) return '';
+  const isOn = on(E('binary_sensor', 'Grill on')), want = !isOn, armed = powerArm && powerArm.on === want && Date.now() - powerArm.t < 10000;
+  return `<button class="btn power${armed ? ' armed' : ''}" data-a="power" data-on="${want ? 1 : 0}" title="${want ? 'Turn the grill on' : 'Turn the grill off'}: tap twice"${dis}>${armed ? (want ? 'Tap again to turn on' : 'Tap again to turn off') : (want ? '⏻ Turn on' : '⏻ Turn off')}</button>`;
 }
 
 function render() {

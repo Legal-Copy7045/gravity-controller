@@ -201,7 +201,12 @@ class Gravity980Component : public Component {
   std::string send_test_command(int id, int value);
   /// The Char-Griller app's own controls (command 0x04, one flag at a time). Return why not, or "".
   std::string set_turbo(bool on);
-  std::string power_off();
+  /// Turn the grill on or off: needs two presses within 10 s (the first arms it). "armed", "" (sent) or why not.
+  std::string power_press(bool on);
+  /// "Press again within 10 s to turn the grill off" while armed (or why the last one failed); "" otherwise.
+  const std::string &power_prompt();
+  /// The grill's "on" flag (byte 14 bit 4: off after power off, on again after power on).
+  bool grill_on() const;
   bool turbo() const;
   void set_test_mode(bool on) { const uint32_t n = millis(); this->test_until_ = on ? (n ? n : 1) : 0; }
   bool test_mode() const { return this->test_until_ != 0 && millis() - this->test_until_ < TEST_MODE_MS; }
@@ -338,6 +343,10 @@ class Gravity980Component : public Component {
   ESPPreferenceObject boost_pref_;
   bool write_target_(Probe probe, uint16_t f);
   std::string send_flags_(uint16_t flags, const char *what);
+  static constexpr uint32_t POWER_CONFIRM_MS = 10000;
+  uint32_t power_armed_{0};
+  bool power_armed_on_{false};
+  std::string power_prompt_;
   void boost_step_(const Status &s);
   void boost_end_(const char *why);
   uint16_t shown_target_f_(int p, const ProbeReading &r) const {
