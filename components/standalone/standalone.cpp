@@ -1,5 +1,6 @@
 #include "standalone.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cctype>
 
@@ -295,11 +296,17 @@ struct ApiCall {
   std::string out;
   int status;
 };
+// Queued (without waiting) for Home Assistant's PIN: nobody waits for an answer, so api_done_ isn't given.
+static ApiCall HA_PIN_JOB{};
 void Standalone::api_task_(void *arg) {
   auto *s = static_cast<Standalone *>(arg);
   for (;;) {
     ApiCall *c = nullptr;
     if (xQueueReceive(static_cast<QueueHandle_t>(s->api_q_), &c, portMAX_DELAY) != pdTRUE || c == nullptr) continue;
+    if (c == &HA_PIN_JOB) {
+      s->set_pin_work_();
+      continue;
+    }
     c->out = s->api(c->method, *c->path, *c->body, *c->token, *c->client, c->status);
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(s->api_done_));
   }
@@ -353,6 +360,7 @@ void Standalone::setup() {
   pinauth::Stored pin{};
   if (this->pin_pref_.load(&pin) && pin.set == 1)
     this->guard_->load(pin);
+  this->pin_cached_ = this->guard_->pin_set();
   // Sessions also expire on the clock once it's set (so the time the controller was off counts).
   this->guard_->set_epoch_clock([]() {
     const time_t t = ::time(nullptr);
@@ -448,11 +456,40 @@ void Standalone::loop() {
   this->loop_cook_(now);
   this->loop_ha_watch_(now);
   if (this->clear_pin_pending_) this->clear_pin();
+  // Home Assistant's PIN: hashed on the API task. The queue holds one request: if it's busy, try again next loop.
+  if (this->ha_pin_pending_) {
+#ifdef USE_ESP32
+    if (this->api_q_ != nullptr) {
+      ApiCall *job = &HA_PIN_JOB;
+      if (xQueueSend(static_cast<QueueHandle_t>(this->api_q_), &job, 0) == pdTRUE) {
+        this->ha_pin_pending_ = false;
+      }
+    } else {
+      this->ha_pin_pending_ = false;
+      this->set_pin_work_();  // no API task (it couldn't start): here, a second or two
+    }
+#else
+    this->ha_pin_pending_ = false;
+    this->set_pin_work_();
+#endif
+  }
+  // The factory reset, a second after it was confirmed (so the page's answer and Home Assistant's state get out first).
+  if (this->reset_pending_.exchange(false)) {
+    this->reset_at_ = now ? now : 1;
+  }
+  if (this->reset_at_ != 0 && now - this->reset_at_ >= 1000) {
+    ESP_LOGW(TAG, "Factory reset: erasing Wi-Fi, the API key, the PIN, keys, settings, the journal and learned cooks, "
+                  "then restarting");
+    global_preferences->reset();  // erases every stored setting (ESPHome's own factory reset does the same)
+    App.safe_reboot();
+  }
   {  // keep the unlocked browsers across a restart: saved when the list changes (login, logout, expiry), and every
      // 30 min while any is live, so the time each has left is saved (a restart never gives a session more)
     std::unique_lock<std::mutex> g(this->guard_lock_, std::try_to_lock);  // never wait here: the PIN may be hashing
-    if (g.owns_lock() && this->guard_ != nullptr)
+    if (g.owns_lock() && this->guard_ != nullptr) {
       this->guard_->tick();  // the first PIN's window, the lockouts and the sessions end on time
+      this->pin_cached_ = this->guard_->pin_set();
+    }
     const bool due = this->sess_saved_at_ != 0 && now - this->sess_saved_at_ >= 30UL * 60 * 1000;
     if (g.owns_lock() && this->guard_ != nullptr && (this->guard_->generation() != this->sess_gen_ || due)) {
       this->sess_gen_ = this->guard_->generation();
@@ -598,8 +635,112 @@ void Standalone::clear_pin() {
     this->clear_pin_pending_ = false;
     this->guard_->clear();
   }
+  this->pin_cached_ = false;
   ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page within 15 minutes");
   this->save_();
+}
+
+void Standalone::set_pin_from_ha(const std::string &pin) {
+  if (api_keyless()) {
+    ESP_LOGW(TAG, "Not setting the device page PIN: Home Assistant hasn't adopted this controller yet, so anyone on "
+                  "the Wi-Fi could. Set it on the device page instead");
+    std::lock_guard<std::mutex> r(this->results_lock_);
+    this->pin_note_ = "Home Assistant can set it once it has adopted the controller";
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> g(this->ha_pin_lock_);
+    std::fill(this->ha_pin_.begin(), this->ha_pin_.end(), '\0');  // an earlier one not picked up yet: gone
+    this->ha_pin_ = pin;
+    this->ha_pin_has_ = true;
+  }
+  this->ha_pin_pending_ = true;  // the main loop hands it to the API task
+}
+
+void Standalone::set_pin_work_() {
+  std::string pin;
+  {
+    std::lock_guard<std::mutex> g(this->ha_pin_lock_);
+    if (!this->ha_pin_has_) return;  // already done (a later call was picked up with an earlier job)
+    pin.swap(this->ha_pin_);
+    this->ha_pin_has_ = false;
+  }
+  const bool clearing = pin.empty();
+  std::string why;
+  bool now_set;
+  {
+    std::lock_guard<std::mutex> gl(this->guard_lock_);  // (the API task may wait; the main loop never does)
+    why = this->guard_->replace_pin(pin);
+    now_set = this->guard_->pin_set();
+  }
+  std::fill(pin.begin(), pin.end(), '\0');
+  this->pin_cached_ = now_set;
+  {
+    std::lock_guard<std::mutex> r(this->results_lock_);
+    this->pin_note_ = why.empty() ? std::string() : "Home Assistant's PIN refused: " + why;
+  }
+  if (!why.empty()) {
+    ESP_LOGW(TAG, "Device page PIN from Home Assistant refused: %s", why.c_str());
+    return;
+  }
+  this->save_pending_ = true;  // (the main loop saves it, with the sessions it ended)
+  if (clearing) {
+    ESP_LOGW(TAG, "Device page PIN cleared by Home Assistant: set a new one on the device page within 15 minutes");
+  } else {
+    ESP_LOGW(TAG, "Device page PIN set by Home Assistant: every browser has to unlock again");
+  }
+}
+
+std::string Standalone::pin_status() {
+  std::string out = this->pin_cached_ ? "set" : "not set";
+  std::lock_guard<std::mutex> r(this->results_lock_);
+  if (!this->pin_note_.empty()) out += " (" + this->pin_note_ + ")";
+  return out;
+}
+
+// ---------------------------------------------------------------- factory reset
+
+bool Standalone::factory_reset_press_(const char *who) {
+  std::lock_guard<std::mutex> r(this->results_lock_);
+  this->reset_refused_.clear();
+  if (!this->reset_confirm_.press(millis())) {
+    ESP_LOGW(TAG, "Factory reset armed from %s: press again within 10 s to erase everything", who);
+    return false;
+  }
+  ESP_LOGW(TAG, "Factory reset confirmed from %s", who);
+  this->reset_pending_ = true;
+  return true;
+}
+
+void Standalone::factory_reset_from_ha() {
+  if (api_keyless()) {
+    ESP_LOGW(TAG, "Factory reset refused: Home Assistant hasn't adopted this controller yet, so anyone on the Wi-Fi "
+                  "could press it. Use the device page, or hold the controller's BOOT button for 30 s");
+    std::lock_guard<std::mutex> r(this->results_lock_);
+    this->reset_confirm_.cancel();
+    this->reset_refused_ = "Refused: use the device page, or hold the BOOT button for 30 s";
+    const uint32_t now = millis();
+    this->reset_refused_at_ = now ? now : 1;
+    return;
+  }
+  this->factory_reset_press_("Home Assistant");
+}
+
+void Standalone::factory_reset_now(const char *why) {
+  ESP_LOGW(TAG, "Factory reset (%s)", why);
+  this->reset_pending_ = true;
+}
+
+std::string Standalone::factory_reset_prompt() {
+  const uint32_t now = millis();
+  std::lock_guard<std::mutex> r(this->results_lock_);
+  if (this->reset_pending_ || this->reset_at_ != 0) return "Erasing everything and restarting";
+  if (this->reset_confirm_.armed(now)) return "Press again within 10 s to erase everything on the controller";
+  if (this->reset_refused_at_ != 0 && now - this->reset_refused_at_ >= 60000) {
+    this->reset_refused_.clear();
+    this->reset_refused_at_ = 0;
+  }
+  return this->reset_refused_;
 }
 
 bool Standalone::set_event_secret(const std::string &secret) {
@@ -1168,6 +1309,13 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   }
   if (path == "plan" || path == "fuel" || path.rfind("journal/", 0) == 0 || path.rfind("share/", 0) == 0)
     return this->api_cook_(path, in, authed, status);
+  if (path == "factory-reset") {  // two presses within 10 s (the page's own two taps); done by the main loop
+    const bool go = this->factory_reset_press_("the device page");
+    return json::build_json([&](JsonObject o) {
+      o["armed"] = !go;
+      o["resetting"] = go;
+    }).c_str();
+  }
   if (path == "test-notify") {
     if (!this->direct_configured_()) { status = 400; return err_json("Set up ntfy, Pushover or Telegram first"); }
     this->test_notify();

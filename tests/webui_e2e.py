@@ -391,6 +391,7 @@ def pin_flow(browser):
     pg.wait_for_timeout(1500)
     check(value("number", "Pit target") == before, f"locked: pit + changed nothing ({before} -> {value('number', 'Pit target')})")
     check(pg.locator("#pinsheet").is_visible(), "locked: the page asks for the PIN right there")
+    check("Smoker: Set the device page PIN" in pg.inner_text("#lock"), "a forgotten PIN: Home Assistant can set a new one")
     try:
         post("/number/Pit target/set", value="300")
         check(False, "a POST without the PIN was accepted")
@@ -488,6 +489,8 @@ def pin_flow(browser):
     check(local_post("/local/ai/plan", {"request": "ribs for 5 pm"}) == 200, "locked: Plan with AI still works")
     check(local_post("/local/ai/load-program", {}) == 401, "locked: loading the AI's plan as the program needs the PIN")
     check(local_post("/local/ai/settings", {"auto": True}) == 401, "locked: AI set-up needs the PIN")
+    check(local_post("/local/factory-reset", {}) == 401 and local_post("/local/factory-reset", {}) == 401,
+          "locked: a factory reset needs the PIN")
     # The firmware update (no Home Assistant): shown under This controller, installed after a second tap.
     setup()
     pg.wait_for_function("document.querySelector('#dev').innerText.includes('0.2.99')", timeout=5000)
@@ -499,6 +502,19 @@ def pin_flow(browser):
     check(wait(lambda: get("/update/Firmware")["installs"] == 1, 5, "the install"), "the second tap installs the update")
     pg.wait_for_function("document.querySelector('#dev').innerText.includes('installing')", timeout=5000)
     check(True, "the page shows it installing")
+    # Factory reset: at the bottom of This controller, with a warning; never one tap (the first arms it, red).
+    resets = lambda: json.loads(urllib.request.urlopen(BASE + "/local/test/resets", timeout=5).read())["resets"]  # noqa: E731
+    dev = pg.inner_text("#dev")
+    check("Factory reset" in dev and "Erases everything" in dev, "This controller offers a factory reset, with a warning")
+    check(pg.evaluate("document.querySelector('#dev').lastElementChild.previousElementSibling.id") == "freset",
+          "the factory reset is the last item of This controller")
+    pg.click("#dev [data-a=freset]")
+    pg.wait_for_function("document.querySelector('#dev [data-a=freset]').classList.contains('arm')", timeout=5000)
+    check(resets() == 0 and "Tap again" in pg.inner_text("#dev [data-a=freset]"), "one tap only arms the factory reset (red)")
+    pg.click("#dev [data-a=freset]")
+    pg.wait_for_function("document.getElementById('toast').innerText.includes('Erasing everything')", timeout=5000)
+    check(resets() == 1 and "arm" not in pg.get_attribute("#dev [data-a=freset]", "class"),
+          "the second tap within 10 s erases the controller")
     check(not errors, f"no page errors in the PIN flow {errors[:3]}")
     ctx.close()
 

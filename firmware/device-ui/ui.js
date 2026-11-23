@@ -308,6 +308,14 @@ const ACT = {
     // A new server drops the stored topic (it was for the old one): say so.
     try { LOCAL = await local('settings', { ntfy_server: f.value.trim() }); delete f.dataset.dirty; toast(had && !LOCAL.set.ntfy ? 'ntfy server saved: enter the topic again' : 'ntfy server saved'); renderLocal(); } catch (e) { toast(e.message); }
   },
+  async freset() {  // the controller decides: the first press arms it, a second within 10 s erases everything
+    try {
+      const d = await local('factory-reset', {});
+      if (d.resetting) { resetArm = 0; toast('Erasing everything: the controller restarts with its setup hotspot'); }
+      else { resetArm = Date.now(); toast('Tap again within 10 s to erase everything on the controller'); setTimeout(render, 10100); }
+    } catch (e) { resetArm = 0; if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+    render();
+  },
   async testnotify() { try { LOCAL = await local('test-notify', {}); toast('Test sent: check your phone'); renderLocal(); setTimeout(loadLocal, 8000); } catch (e) { toast(e.message); } },
   async geo() {
     const q = (($('geoq') || {}).value || '').trim(); if (!q) return toast('Type a town or postcode');
@@ -1127,7 +1135,7 @@ function renderLocal() {
   const L = LOCAL;
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
-  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or press "Clear the device page PIN" in Home Assistant.</p>';
+  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or press "Clear the device page PIN" in Home Assistant (or set a new one there: Smoker: Set the device page PIN).</p>';
   // The first PIN can only be set within 15 minutes of the controller being powered on (first_pin: seconds left; older
   // firmware doesn't say), so whoever is on the Wi-Fi later can't claim the page.
   const closed = L.first_pin === 0, left = L.first_pin > 0 ? Math.ceil(L.first_pin / 60) : 0;
@@ -1135,7 +1143,8 @@ function renderLocal() {
     <p class="note" style="margin-top:0">Without a PIN everything on this page works for anyone on your Wi-Fi. A PIN stops them changing
       anything (readings stay open). 6+ characters; not 123456 or 111111.</p>
     ${closed ? `<p class="note" role="status"><b>To set it:</b> power the controller off and on (or hold its BOOT button for 10 seconds),
-      then set the PIN here within 15 minutes. (A restart from this page doesn't count: anyone on your Wi-Fi could do that.)</p>`
+      then set the PIN here within 15 minutes. (A restart from this page doesn't count: anyone on your Wi-Fi could do that.)
+      Or set it from Home Assistant (Smoker: Set the device page PIN).</p>`
     : `${left ? `<p class="note">Set it within ${fmt(left)} min: after that, setting one needs the controller powered off and on first.</p>` : ''}
     <div class="row"><span>New PIN</span><span class="entry">${pw('pin1', 'PIN', 'new-password')}</span></div>
     <div class="row"><span>Again</span><span class="entry">${pw('pin2', 'Same PIN', 'new-password')}<button class="btn pri" data-a="pinset">Set PIN</button></span></div>`}`);
@@ -1341,8 +1350,21 @@ function renderSetup(u) {
     ${fwRow()}
     ${tog('Log raw grill data', 'Log raw grill data', 'For support: every byte from the grill goes to the controller\'s log (USB, or the ESPHome dashboard).')}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
-      <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}`);
+      <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}
+    ${resetRow()}`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
+}
+
+// Factory reset (before selling or giving the controller away): erases everything it stores. Never one tap: the first
+// arms it (the controller waits 10 s for a second), like the grill's power button. Firmware with /local only.
+let resetArm = 0;
+function resetRow() {
+  const L = LOCAL; if (!L) return '';
+  const on = resetArm && Date.now() - resetArm < 10000, locked = L.pin && !L.authed;
+  return `<div class="row" id="freset"><span>Factory reset<br><span class="muted small">Before you sell or give it away.</span></span>
+      <button class="btn${on ? ' arm' : ''}" data-a="freset">${on ? 'Tap again to erase everything' : 'Factory reset'}</button></div>
+    <p class="note warn-text">Erases everything stored on the controller: its Wi-Fi, the Home Assistant key, this page's PIN, notification and
+      AI keys, settings, the journal and learned cooks. It restarts with its setup hotspot; remove it from Home Assistant too.${locked ? ' Needs the PIN.' : ''}</p>`;
 }
 
 // The Firmware update entity (ESPHome's update, from this project's releases): what's available, and Install.

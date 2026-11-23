@@ -278,6 +278,7 @@ class Local:
 
     def __init__(self):
         self.pin, self.tokens, self.fails = None, set(), 0
+        self.reset_armed, self.resets = 0.0, 0  # the factory reset: armed at (time), how many were carried out
         self.s = {"route": "auto", "ntfy_server": "https://ntfy.sh", "set": {"ntfy": False, "pushover": False,
                                                                             "telegram": False, "ai": False},
                   "location": False, "tz": False, "lat": None, "lon": None,
@@ -325,6 +326,8 @@ class Local:
                     {"cut": "Pork shoulder", "line": "Pork shoulder 8-10 lb at 225-255°F: typically 11.2 h; 12 cooks"}]})
             if path == "ai":
                 return web.json_response(self.ai_json())
+            if path == "test/resets":  # (the stand-in only: how many factory resets went through)
+                return web.json_response({"resets": self.resets})
             return web.json_response(self.status(request))
         body = await request.json() if request.can_read_body else {}
         err = lambda m, c=400: web.json_response({"error": m}, status=c)  # noqa: E731
@@ -393,6 +396,13 @@ class Local:
             return web.json_response(self.journal)
         elif path == "test-notify":
             self.s["last_test"] = True
+        elif path == "factory-reset":  # like the controller: the first press arms, a second within 10 s erases
+            now = time.monotonic()
+            if self.reset_armed and now - self.reset_armed < 10:
+                self.reset_armed, self.resets = 0.0, self.resets + 1
+                return web.json_response({"armed": False, "resetting": True})
+            self.reset_armed = now
+            return web.json_response({"armed": True, "resetting": False})
         else:
             return err("not found", 404)
         return web.json_response(self.status(request))

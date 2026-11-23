@@ -373,7 +373,8 @@ binary_sensor:
     icon: mdi:power
     lambda: return id(grill).grill_on();
   # The board's BOOT button: hold it 10 s to clear the device page's PIN (someone at the grill, not on the network);
-  # a short press allows Wi-Fi setup over Bluetooth (Improv) for a minute.
+  # hold it 30 s for a factory reset (everything stored on the controller erased: before selling or giving it away);
+  # a short press allows Wi-Fi setup over Bluetooth (Improv) for a minute. Both act when the button is let go.
   - platform: gpio
     id: boot_button
     internal: true
@@ -383,10 +384,14 @@ binary_sensor:
       inverted: true
       mode: {input: true, pullup: true}
     on_click:
-      min_length: 10s
-      max_length: 60s
-      then:
-        - lambda: id(local).clear_pin();
+      - min_length: 10s
+        max_length: 29900ms
+        then:
+          - lambda: id(local).clear_pin();
+      - min_length: 30s
+        max_length: 120s
+        then:
+          - lambda: id(local).factory_reset_now("the BOOT button held 30 s");
   - platform: gravity980
     connected:
       id: grill_connected
@@ -425,6 +430,21 @@ text_sensor:
       std::string p = id(smoker).parsed_program();
       if (p.size() > 255) return std::string("too long to show here (") + std::to_string(p.size()) + " characters)";
       return p;
+  # Whether the device page has a PIN ("set" / "not set"), and why Home Assistant's last one was refused. Never the PIN.
+  - platform: template
+    name: Device page PIN
+    icon: mdi:lock-outline
+    entity_category: diagnostic
+    update_interval: 5s
+    lambda: return id(local).pin_status();
+  # The factory reset's prompt: "Press again within 10 s..." after the first press, empty otherwise.
+  - platform: template
+    id: factory_reset_prompt
+    name: Factory reset status
+    icon: mdi:delete-alert-outline
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: return id(local).factory_reset_prompt();
   - platform: debug
     reset_reason:
       name: Last restart reason
@@ -570,6 +590,18 @@ button:
     on_press:
       - lambda: id(grill).power_press(true);
       - component.update: power_prompt
+  # Before selling or giving the controller away: erase everything it stores (Wi-Fi, the API key, the device page's
+  # PIN and sessions, notification and AI keys, settings, the journal, learned cooks) and restart with its setup
+  # hotspot. Nothing happens on one press: a second press within 10 s does it ("Factory reset status" says it's
+  # armed). Refused until Home Assistant has adopted the controller (its API has a key); the device page (PIN) and
+  # holding the BOOT button for 30 s work too.
+  - platform: template
+    name: Factory reset
+    icon: mdi:delete-forever
+    entity_category: config
+    on_press:
+      - lambda: id(local).factory_reset_from_ha();
+      - component.update: factory_reset_prompt
   # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
   - platform: restart
     name: Restart
