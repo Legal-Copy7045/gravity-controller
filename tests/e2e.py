@@ -119,6 +119,30 @@ async def main():
         await asyncio.sleep(3)
         check(val("pit_target_reported") == 250.0, "out-of-range target refused")
 
+        # Boost: the grill's target goes up 100 F while the entities keep the real one; Stop puts it back.
+        cli.number_command(by_id["pit_target"].key, 400)
+        check(await wait_for(lambda: val("pit_target_reported") == 400.0, 10, "target 400"), "pit target 400 for the boost")
+        glog = lambda: open(os.path.join(HERE, "e2e-grill.log"), encoding="utf-8", errors="replace").read()
+        cli.switch_command(by_id["boost"].key, True)
+        check(await wait_for(lambda: val("boost") is True and "set target id 0x00 = 500 F" in glog(), 10, "boost on"),
+              f"boost raises the grill's target to 500 ({val('boost_status')!r})")
+        await asyncio.sleep(3)
+        check(val("pit_target_reported") == 400.0 and val("boost") is True, f"the real target still shows 400 during the boost ({val('pit_target_reported')})")
+        check(await wait_for(lambda: "Boosting to 500" in (val("boost_status") or ""), 8, "boost status"), f"boost status ({val('boost_status')!r})")
+        n500 = glog().count("= 400 F")
+        cli.switch_command(by_id["boost"].key, False)
+        check(await wait_for(lambda: val("boost") is False and glog().count("= 400 F") > n500, 10, "boost off"),
+              "stopping the boost puts the grill's target back to 400")
+        # A new target during a boost ends it: the new target stands.
+        cli.switch_command(by_id["boost"].key, True)
+        await wait_for(lambda: val("boost") is True, 10, "boost on again")
+        await asyncio.sleep(2)
+        cli.number_command(by_id["pit_target"].key, 380)
+        check(await wait_for(lambda: val("boost") is False and val("pit_target_reported") == 380.0, 10, "boost ended by a new target"),
+              f"a new target ends the boost ({val('boost')}, {val('pit_target_reported')})")
+        cli.number_command(by_id["pit_target"].key, 250)
+        await wait_for(lambda: val("pit_target_reported") == 250.0, 10, "back to 250")
+
         # Program: syntax error is reported.
         await cli.execute_service(svc["load_program"], {"program": "pit 250 until food9 >= 160"})
         check(await wait_for(lambda: "food9" in (val("program_error") or ""), 5, "program error"),

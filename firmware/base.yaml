@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.45"
+  project_version: "0.2.46"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -372,6 +372,11 @@ binary_sensor:
 
 text_sensor:
   - platform: template
+    name: Boost status
+    icon: mdi:fan-plus
+    update_interval: 5s
+    lambda: return id(grill).boost_status();
+  - platform: template
     id: test_result
     name: Command test
     icon: mdi:flask-outline
@@ -487,6 +492,16 @@ switch:
       - lambda: id(grill).set_ble_writes(true);
     on_turn_off:
       - lambda: id(grill).set_ble_writes(false);
+  # Boost: the panel's turbo has no remote command, so the pit target goes up 100 °F (fan hard) until the pit reaches
+  # the real target or 15 minutes pass, then back. The pit target entities keep showing the real target.
+  - platform: template
+    name: Boost
+    icon: mdi:fan-plus
+    lambda: return id(grill).boosting();
+    turn_on_action:
+      - lambda: id(grill).start_boost(15);
+    turn_off_action:
+      - lambda: id(grill).stop_boost();
   # Protocol research (off by default; switches itself off after 30 minutes): lets the test_command action send
   # experimental commands to the grill, looking for ones it accepts (such as turbo).
   - platform: template

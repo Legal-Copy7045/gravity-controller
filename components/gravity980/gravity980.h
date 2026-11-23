@@ -189,6 +189,17 @@ class Gravity980Component : public Component {
   std::string send_test_command(int id, int value);
   void set_test_mode(bool on) { const uint32_t n = millis(); this->test_until_ = on ? (n ? n : 1) : 0; }
   bool test_mode() const { return this->test_until_ != 0 && millis() - this->test_until_ < TEST_MODE_MS; }
+  // Boost: the panel's turbo has no remote command (tested), so this raises the grill's pit target by 100 °F (to at
+  // most 700 °F) to run the fan hard, and puts the target back when the pit reaches it, after `minutes`, on Stop, or
+  // after a restart. Meanwhile the pit target entities show the real target. Changing the target ends the boost.
+  /// Start a boost; returns why not, or "".
+  std::string start_boost(uint32_t minutes);
+  void stop_boost();
+  bool boosting() const { return this->boost_base_f_ != 0; }
+  /// Whole minutes left (0 when not boosting).
+  uint32_t boost_minutes_left() const;
+  /// One line for the dashboards: what the boost is doing, or why it didn't start ("" when idle).
+  const std::string &boost_status() const { return this->boost_msg_; }
   /// Last reported setpoint in the configured unit (NAN if none).
   float reported_target(Probe probe) const;
   const Status &last_status() const { return this->status_; }
@@ -273,6 +284,20 @@ class Gravity980Component : public Component {
   Status status_{};
   bool have_status_{false};
   uint16_t pending_f_[PROBE_COUNT]{0, 0, 0};
+  // Boost (0: none). The base target is restored when it ends; the pref keeps both across a restart.
+  uint16_t boost_base_f_{0};
+  uint16_t boost_f_{0};
+  uint32_t boost_start_{0};
+  uint32_t boost_ms_{0};
+  uint32_t boost_restore_at_{0};
+  std::string boost_msg_;
+  ESPPreferenceObject boost_pref_;
+  bool write_target_(Probe probe, uint16_t f);
+  void boost_step_(const Status &s);
+  void boost_end_(const char *why);
+  uint16_t shown_target_f_(int p, const ProbeReading &r) const {
+    return p == PROBE_PIT && this->boost_base_f_ != 0 && r.target_f == this->boost_f_ ? this->boost_base_f_ : r.target_f;
+  }
   uint32_t pending_since_[PROBE_COUNT]{0, 0, 0};
   std::string last_raw_;
   std::vector<std::function<void(const Status &)>> status_cbs_;

@@ -41,6 +41,8 @@ MIN = {"unit_of_measurement": "min"}
 STATES = dict([
     st("sensor.smoker_pit_temperature", 251, "Smoker Pit temperature", **F),
     st("number.smoker_pit_target", 250, "Smoker Pit target", **F),
+    st("switch.smoker_boost", "off", "Smoker Boost"),
+    st("sensor.smoker_boost_status", "", "Smoker Boost status"),
     st("binary_sensor.smoker_grill_connected", "on", "Smoker Grill connected"),
     st("sensor.smoker_grill_link", "wifi", "Smoker Grill link"),
     st("sensor.smoker_grill_link_status", "Connected over Wi-Fi", "Smoker Grill link status"),
@@ -707,6 +709,10 @@ def main():
                     vals = [c[2].get("value") for c in pg.evaluate("window.calls")[n0:] if c[0] == "number" and c[2].get("entity_id") == "number.smoker_pit_target"]
                     if len(vals) != 2 or vals[0] != 260:
                         failures.append(f"{scheme}/{name}: top card pit target: {pg.evaluate('window.calls')[n0:]}")
+                    n0 = len(pg.evaluate("window.calls"))
+                    fr.click("#herotgt .btn.boost"); time.sleep(0.3)
+                    if not any(c[0] == "switch" and c[1] == "turn_on" and c[2].get("entity_id") == "switch.smoker_boost" for c in pg.evaluate("window.calls")[n0:]):
+                        failures.append(f"{scheme}/{name}: Boost didn't turn the boost switch on: {pg.evaluate('window.calls')[n0:]}")
                     fr.evaluate("window.scrollTo(0, 0)"); time.sleep(0.4)
                     lit = fr.evaluate("[...document.querySelectorAll('#secbar a[aria-current=true]')].map(a => a.innerText.trim())")
                     if "Setup" in lit:

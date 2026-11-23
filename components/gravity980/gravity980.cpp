@@ -124,6 +124,16 @@ void Gravity980Component::setup() {
   this->grill_pref_ = global_preferences->make_preference<uint64_t>(fnv1_hash("gravity980_grill_addr_v1"), true);
   if (!this->grill_pref_.load(&this->remembered_grill_))
     this->remembered_grill_ = 0;
+  // A boost interrupted by a restart: put the target back as soon as the grill reports the boosted one.
+  this->boost_pref_ = global_preferences->make_preference<uint32_t>(fnv1_hash("gravity980_boost_v1"));
+  uint32_t b = 0;
+  if (this->boost_pref_.load(&b) && b != 0) {
+    this->boost_base_f_ = b >> 16;
+    this->boost_f_ = b & 0xFFFF;
+    this->boost_start_ = 1;
+    this->boost_ms_ = 0;  // over: restore
+    ESP_LOGW(TAG, "Boost was running at the restart: restoring the pit target to %u°F", this->boost_base_f_);
+  }
 #ifdef USE_GRAVITY980_BLE
   if (this->ble_ != nullptr && !this->ble_->has_fixed_address() && this->remembered_grill_ != 0 &&
       this->ble_->get_address() == 0) {
@@ -852,8 +862,10 @@ void Gravity980Component::handle_status_(const Status &s, Transport via) {
     }
   }
 #endif
+  this->boost_step_(s);
   for (int p = 0; p < PROBE_COUNT; p++) {
     const auto &r = s.probe[p];
+    const uint16_t shown = this->shown_target_f_(p, r);
 #ifdef USE_SENSOR
     auto pub = [](sensor::Sensor *sn, float v) {
       if (sn == nullptr)
@@ -863,7 +875,7 @@ void Gravity980Component::handle_status_(const Status &s, Transport via) {
         sn->publish_state(v);
     };
     pub(this->temp_sensors_[p], r.present ? this->to_unit_(r.temp_f) : NAN);
-    pub(this->target_sensors_[p], r.has_target ? this->to_unit_(r.target_f) : NAN);
+    pub(this->target_sensors_[p], r.has_target ? this->to_unit_(shown) : NAN);
 #endif
     if (this->pending_f_[p] != 0 && r.has_target && r.target_f == this->pending_f_[p]) {
       ESP_LOGI(TAG, "Grill accepted %s target %u°F", PROBE_NAME[p], r.target_f);
@@ -872,7 +884,7 @@ void Gravity980Component::handle_status_(const Status &s, Transport via) {
 #ifdef USE_NUMBER
     auto *n = this->target_numbers_[p];
     if (n != nullptr && r.has_target && this->pending_f_[p] == 0) {
-      float v = this->to_unit_(r.target_f);
+      float v = this->to_unit_(shown);
       if (!n->has_state() || n->state != v)
         n->publish_state(v);
     }
@@ -925,7 +937,7 @@ void Gravity980Component::publish_unknown_() {
 float Gravity980Component::reported_target(Probe probe) const {
   if (!this->have_status_ || probe >= PROBE_COUNT || !this->status_.probe[probe].has_target)
     return NAN;
-  return this->to_unit_(this->status_.probe[probe].target_f);
+  return this->to_unit_(this->shown_target_f_(probe, this->status_.probe[probe]));
 }
 
 bool Gravity980Component::request_target(Probe probe, float value) {
@@ -938,6 +950,12 @@ bool Gravity980Component::request_target(Probe probe, float value) {
   if (std::isnan(value) || probe >= PROBE_COUNT)
     return false;
   uint16_t f = this->from_unit_(value);
+  if (probe == PROBE_PIT && this->boosting())
+    this->boost_end_("the pit target was changed");
+  return this->write_target_(probe, f);
+}
+
+bool Gravity980Component::write_target_(Probe probe, uint16_t f) {
   std::vector<uint8_t> cmd;
   // Write over the link that is actually delivering data.
   bool use_tcp = this->active_ == Transport::TCP;
@@ -1006,6 +1024,103 @@ std::string Gravity980Component::send_test_command(int id, int value) {
   }
 #endif
   return "";
+}
+
+std::string Gravity980Component::start_boost(uint32_t minutes) {
+  auto refuse = [this](const char *why) {
+    this->boost_msg_ = std::string("Boost didn't start: ") + why;
+    ESP_LOGW(TAG, "%s", this->boost_msg_.c_str());
+    return std::string(why);
+  };
+  if (this->boosting())
+    return "";
+  if (this->read_only_)
+    return refuse("the bridge is read-only");
+  if (!this->have_status_ || !this->status_.probe[PROBE_PIT].has_target || !this->status_.probe[PROBE_PIT].present)
+    return refuse("no pit reading or target from the grill");
+  const uint16_t base = this->pending_f_[PROBE_PIT] ? this->pending_f_[PROBE_PIT] : this->status_.probe[PROBE_PIT].target_f;
+  const uint16_t pit = this->status_.probe[PROBE_PIT].temp_f;
+  if (pit + 10 >= base)
+    return refuse("the pit is already at its target");
+  const uint16_t to = std::min<uint16_t>(TARGET_MAX_F[PROBE_PIT], base + 100);
+  if (to <= base)
+    return refuse("the target is already the grill's maximum");
+  if (!this->write_target_(PROBE_PIT, to))
+    return refuse("no writable link to the grill (over Bluetooth, turn on \"Control over Bluetooth\")");
+  const uint32_t now = millis();
+  this->boost_base_f_ = base;
+  this->boost_f_ = to;
+  this->boost_start_ = now ? now : 1;
+  this->boost_ms_ = std::max<uint32_t>(1, std::min<uint32_t>(minutes, 30)) * 60000u;
+  this->boost_restore_at_ = 0;
+  uint32_t b = (uint32_t(base) << 16) | to;
+  this->boost_pref_.save(&b);
+  global_preferences->sync();
+  ESP_LOGI(TAG, "Boost: pit target %u°F -> %u°F for up to %u min", base, to, unsigned(this->boost_ms_ / 60000));
+  return "";
+}
+
+void Gravity980Component::stop_boost() {
+  if (!this->boosting())
+    return;
+  this->boost_ms_ = 0;  // restored on the next status (or below, now)
+  if (this->have_status_)
+    this->boost_step_(this->status_);
+}
+
+uint32_t Gravity980Component::boost_minutes_left() const {
+  if (!this->boosting() || this->boost_ms_ == 0)
+    return 0;
+  uint32_t el = millis() - this->boost_start_;
+  return el >= this->boost_ms_ ? 0 : (this->boost_ms_ - el + 59999) / 60000;
+}
+
+void Gravity980Component::boost_end_(const char *why) {
+  ESP_LOGI(TAG, "Boost ended: %s", why);
+  this->boost_base_f_ = this->boost_f_ = 0;
+  this->boost_msg_.clear();
+  uint32_t zero = 0;
+  this->boost_pref_.save(&zero);
+  global_preferences->sync();
+}
+
+void Gravity980Component::boost_step_(const Status &s) {
+  if (!this->boosting())
+    return;
+  const auto &r = s.probe[PROBE_PIT];
+  const uint32_t now = millis();
+  if (this->pending_f_[PROBE_PIT] == this->boost_f_)
+    return;  // the boost target isn't confirmed yet
+  if (this->boost_restore_at_ != 0) {
+    // Restoring: done when the grill reports the base target again.
+    if (r.has_target && r.target_f == this->boost_base_f_)
+      return this->boost_end_("the pit target is back");
+    if (now - this->boost_restore_at_ < 10000)
+      return;
+  } else if (r.has_target && r.target_f == this->boost_base_f_ && now - this->boost_start_ < 30000) {
+    // The grill never took the boosted target (it only accepts targets while cooking).
+    this->boost_end_("the grill didn't take the boosted target");
+    this->boost_msg_ = "Boost didn't start: the grill didn't take the higher target (start a cook on its panel)";
+    return;
+  } else if (!r.has_target || r.target_f != this->boost_f_) {
+    // Someone set another target (the panel, the app): theirs stands.
+    return this->boost_end_("the target was changed on the grill");
+  }
+  const bool reached = r.present && r.temp_f + 5 >= this->boost_base_f_;
+  const bool over = this->boost_ms_ == 0 || now - this->boost_start_ >= this->boost_ms_;
+  if (!reached && !over) {
+    char b[96];
+    snprintf(b, sizeof b, "Boosting to %u°F until the pit reaches %u°F (%u min left)", this->boost_f_, this->boost_base_f_,
+             unsigned(this->boost_minutes_left()));
+    this->boost_msg_ = b;
+    return;
+  }
+  ESP_LOGI(TAG, "Boost: %s, putting the pit target back to %u°F", reached ? "pit reached its target" : "time's up",
+           this->boost_base_f_);
+  this->boost_msg_ = "Putting the pit target back";
+  this->boost_ms_ = 0;
+  if (this->write_target_(PROBE_PIT, this->boost_base_f_))
+    this->boost_restore_at_ = now ? now : 1;  // confirmed by a later status, or retried after 10 s
 }
 
 void Gravity980Component::check_pending_() {

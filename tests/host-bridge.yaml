@@ -72,6 +72,11 @@ binary_sensor:
     fan: {id: grill_fan, name: Fan}
 text_sensor:
   - platform: template
+    name: Boost status
+    icon: mdi:fan-plus
+    update_interval: 5s
+    lambda: return id(grill).boost_status();
+  - platform: template
     id: test_result
     name: Command test
     update_interval: never
@@ -143,6 +148,16 @@ text:
     initial_value: ""
 
 switch:
+  # Boost: the panel's turbo has no remote command, so the pit target goes up 100 °F (fan hard) until the pit reaches
+  # the real target or 15 minutes pass, then back. The pit target entities keep showing the real target.
+  - platform: template
+    name: Boost
+    icon: mdi:fan-plus
+    lambda: return id(grill).boosting();
+    turn_on_action:
+      - lambda: id(grill).start_boost(15);
+    turn_off_action:
+      - lambda: id(grill).stop_boost();
   - platform: template
     name: Command tests
     lambda: return id(grill).test_mode();

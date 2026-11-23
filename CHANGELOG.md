@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.46] - 2026-11-23
+
+- **Boost (both dashboards, next to the pit target), standing in for the panel's turbo button:**
+  - Tested on a real 980: no remote command turns turbo on (fan speed 0x06 with eight values, and ids 0x07-0x1F).
+  - So Boost raises the grill's pit target by 100°F (at most 700°F), which runs the fan hard. It puts the target back
+    when the pit reaches it, after 15 minutes, when you press *Stop boost*, or after a restart.
+  - The pit target still shows your real target throughout, and a running cook program isn't disturbed.
+  - Changing the target (here, on the panel or by the program) ends the boost and keeps the new target.
+  - New entities: *Boost* (switch) and *Boost status*.
+- A *Turbo (panel)* chip shows when turbo is on at the grill.
+
 ## [0.2.45] - 2026-11-23
 
 - **Protocol research tools (off by default), to look for a remote turbo command:**

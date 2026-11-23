@@ -401,7 +401,9 @@ function heroTarget(u, tgt, L) {
     <button class="btn" data-a="pit" data-d="-1" aria-label="Lower pit target"${dis}>−</button>
     <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(n.min_value || '')}" max="${esc(n.max_value || '')}" step="${esc(n.step || 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target"${dis}><span>${esc(u)}</span></span>
     <button class="btn" data-a="pit" data-d="1" aria-label="Raise pit target"${dis}>+</button>
-    <button class="btn pri" data-a="heroset"${dis}>Set</button></div>`;
+    <button class="btn pri" data-a="heroset"${dis}>Set</button>
+    ${E('switch', 'Boost') ? `<button class="btn boost${on(E('switch', 'Boost')) ? ' on' : ''}" data-a="toggle" data-n="Boost" title="Runs the fan hard (like the panel's turbo) until the pit reaches the target, for up to 15 minutes"${dis}>${on(E('switch', 'Boost')) ? 'Stop boost' : 'Boost'}</button>` : ''}
+    ${T('Boost status') ? `<p class="small muted hero-boost">${esc(T('Boost status'))}</p>` : ''}</div>`;
 }
 
 function render() {
@@ -414,6 +416,7 @@ function render() {
     <div class="chips"><span class="chip ${L.cls}">${esc(L.txt)}</span>${L.exp ? EXP('Setting targets over Bluetooth is new on the 980: check the grill follows the first change.') : ''}
       ${active ? `<span class="chip hot">Cooking${el != null ? ' · ' + mins(el) : ''}</span>` : '<span class="chip">No cook running</span>'}
       ${/Running|Paused/.test(pst) ? `<span class="chip ${pst === 'Paused' ? 'warn' : 'hot'}">Program ${esc(pst.toLowerCase())}</span>` : ''}
+      ${on(E('binary_sensor', 'Fan turbo')) ? '<span class="chip hot">Turbo (panel)</span>' : ''}
       ${on(E('binary_sensor', 'Lid')) ? '<span class="chip warn">Lid open</span>' : ''}
       ${on(E('binary_sensor', 'Grill alarm')) ? '<span class="chip bad">Grill alarm</span>' : ''}</div>
     ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}

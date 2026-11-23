@@ -49,6 +49,10 @@ boundaries and resyncs on errors (see `components/gravity980/protocol.cpp`, unit
 **Turbo** (the panel's fan button) shows as byte 15 bit 4 in the status frame. That was confirmed on a real 980 in
 November 2026: four presses, and nothing else in the frame changed. No remote command for it is known yet. The
 `test_command` action and the *Command tests* switch exist to look for one, one command at a time.
+Tested on 23 Nov 2026 over Bluetooth, with a cook started on the panel (pit target writes were accepted): `0x06`
+with values 0, 1, 2, 0x10, 100, 255, 0x0100 and 0x1000, and ids `0x07`-`0x1F` with value 1. None changed turbo, the
+fan or any other byte of the status frame, and none upset the grill. The bridge's **Boost** raises the pit target
+instead (see the changelog for 0.2.46).
 
 The bridge confirms every target change against the next status frames and reverts the HA entity (with a log
 warning) if the grill didn't take it.
