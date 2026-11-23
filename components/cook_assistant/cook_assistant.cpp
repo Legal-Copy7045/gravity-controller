@@ -355,7 +355,7 @@ void CookAssistant::loop() {
     this->tick_second_();
   }
   if (this->last_minute_ == 0 || now - this->last_minute_ >= 60000) {
-    this->last_minute_ = now | 1;
+    this->last_minute_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     this->tick_minute_();
   }
 }
@@ -640,7 +640,11 @@ void CookAssistant::tick_second_() {
   }
   this->update_cook_session_();
   this->check_alerts_();
-  if (millis() - this->last_state_save_ > 300000) {
+  // Every 5 minutes while a program runs or is paused (so a restart resumes close to where it was); an idle
+  // controller writes nothing (this used to rewrite the flash every 5 minutes forever).
+  const auto rs = this->runner_.state();
+  if ((rs == cook::ProgramRunner::State::RUNNING || rs == cook::ProgramRunner::State::PAUSED) &&
+      millis() - this->last_state_save_ > 300000) {
     this->last_state_save_ = millis();
     this->save_program_state_(false);
   }

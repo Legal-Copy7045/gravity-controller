@@ -25,6 +25,14 @@
 namespace esphome {
 namespace standalone {
 
+static std::string json_str(const std::string &v) {  // a JSON string literal, escaped
+  JsonDocument d;
+  d.set(v);
+  std::string o;
+  serializeJson(d, o);
+  return o;
+}
+
 static const char *const TAG = "standalone";
 static const char *const SHARE_URL = "https://api.open-pitmaster.workers.dev";
 static const char *const AGGREGATES_URL =
@@ -250,7 +258,7 @@ std::string Standalone::history_json_(int hours) {
   out += std::to_string(step) + ",\"age_s\":" + std::to_string((millis() - this->hist_last_) / 1000) + ",\"names\":[\"Pit\",\"Pit target\"";
   if (this->cook_ != nullptr)
     for (size_t i = 0; i < this->cook_->probes().size() && i + 2 < HIST_SERIES; i++)
-      out += ",\"" + this->cook_->probes()[i]->name + "\"";
+      out += "," + json_str(this->cook_->probes()[i]->name);
   out += "],\"series\":[";
   size_t nseries = this->cook_ != nullptr ? std::min(HIST_SERIES, this->cook_->probes().size() + 2) : 2;
   for (size_t s = 0; s < nseries; s++) {
@@ -385,7 +393,7 @@ std::string Standalone::journal_json_(bool authed) {
       num("stall_h", e->stall_h); num("total_h", e->total_h); num("ambient_c", e->ambient_c);
       if (e->wrapped < 2) o["wrapped"] = e->wrapped == 1;
       if (e->rating) o["rating"] = e->rating;
-      o["notes"] = e->notes;
+      if (authed || !this->guard_->pin_set()) o["notes"] = e->notes;  // private: only for an unlocked page
       static const char *const ST[] = {"pending", "shared", "declined", "sending"};
       bool ready = e->rating || e->tags || (e->ended && t && t - e->ended >= READY_AFTER_S);
       o["share"] = e->share == 0 && !ready ? "waiting" : ST[e->share & 3];
@@ -512,7 +520,13 @@ std::string Standalone::api_cook_(const std::string &path, JsonDocument &in, boo
           }
           e.tags = bits;
         }
-        if (in["notes"].is<const char *>()) { std::memset(e.notes, 0, sizeof(e.notes)); std::strncpy(e.notes, in["notes"].as<const char *>(), sizeof(e.notes) - 1); }
+        if (in["notes"].is<const char *>()) {
+          std::memset(e.notes, 0, sizeof(e.notes));
+          std::string n = in["notes"].as<const char *>();
+          size_t cut = std::min(n.size(), sizeof(e.notes) - 1);
+          while (cut > 0 && cut < n.size() && (uint8_t(n[cut]) & 0xC0) == 0x80) cut--;  // not mid-character (UTF-8)
+          std::memcpy(e.notes, n.data(), cut);
+        }
       } else if (sub == "decline") {
         if (e.share == 0) e.share = 2;
       } else {

@@ -169,7 +169,8 @@ class Standalone : public Component {
   ESPPreferenceObject pref_, pin_pref_;
   pinauth::Guard *guard_{nullptr};
   std::recursive_mutex lock_;
-  std::mutex guard_lock_;  // the PIN and sessions (guard_): never held by the main loop while waiting
+  std::mutex guard_lock_;
+  bool clear_pin_pending_{false};  // the PIN and sessions (guard_): never held by the main loop while waiting
   bool fahrenheit_{true};
   const char *wind_unit_{"mph"};
   cook_assistant::CookAssistant *cook_{nullptr};
@@ -237,7 +238,10 @@ class Standalone : public Component {
   bool ai_save_{false};
   uint8_t ai_busy_{0};  // bit per kind: advise, plan, label, test
   std::string ai_advice_, ai_plan_, ai_labels_, ai_error_, ai_test_, ai_program_, ai_assign_cut_;
-  std::string ai_load_;  // Load as program: "loading", "loaded" or why not
+  std::string ai_load_;
+  std::string ai_defer_kind_, ai_defer_text_;  // a question from the page, asked in the main loop
+  std::string ai_plan_ask_(const std::string &req);
+  uint8_t ha_bounces_{0};  // Load as program: "loading", "loaded" or why not
   int ai_assign_probe_{0};
   float ai_assign_lb_{NAN};
   uint32_t ai_last_auto_{0};

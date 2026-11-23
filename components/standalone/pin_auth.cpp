@@ -87,6 +87,8 @@ Digest hmac_sha256(const uint8_t *key, size_t key_len, const uint8_t *msg, size_
   return out.final();
 }
 
+void (*pbkdf2_yield)() = nullptr;
+
 void pbkdf2_sha256(const uint8_t *pw, size_t pw_len, const uint8_t *salt, size_t salt_len, uint32_t iterations,
                    uint8_t *out, size_t out_len) {
   std::vector<uint8_t> msg(salt, salt + salt_len);
@@ -97,6 +99,7 @@ void pbkdf2_sha256(const uint8_t *pw, size_t pw_len, const uint8_t *salt, size_t
     Digest u = hmac_sha256(pw, pw_len, msg.data(), msg.size()), t = u;
     for (uint32_t i = 1; i < iterations; i++) {
       u = hmac_sha256(pw, pw_len, u.data(), 32);
+      if (pbkdf2_yield != nullptr && (i % 1000) == 0) pbkdf2_yield();
       for (int j = 0; j < 32; j++) t[j] ^= u[j];
     }
     size_t n = out_len < 32 ? out_len : 32;
@@ -167,9 +170,11 @@ void Guard::clear() {
   this->gen_++;
   this->failures_ = 0;
   this->locked_until_ = 0;
+  this->locked_ = false;
 }
 
 uint32_t Guard::locked_for() const {
+  if (!this->locked_) return 0;  // (locked_until_ alone can't tell: millis() wraps, 0 reads as "locked" after 24.8 days)
   int32_t left = int32_t(this->locked_until_ - this->now_());
   return left > 0 ? uint32_t(left + 999) / 1000 : 0;
 }
@@ -186,6 +191,7 @@ std::string Guard::new_token_() {
 
 std::string Guard::login(const std::string &pin) {
   if (this->locked_for() > 0) return "";
+  this->locked_ = false;  // any lockout has passed (locked_for() was 0)
   if (!pin.empty() && this->verify_(pin)) {
     this->failures_ = 0;
     return this->new_token_();
@@ -195,6 +201,7 @@ std::string Guard::login(const std::string &pin) {
     uint32_t secs = 30;
     for (int i = 5; i < this->failures_ && secs < 3600; i++) secs *= 2;
     this->locked_until_ = this->now_() + (secs > 3600 ? 3600 : secs) * 1000;
+    this->locked_ = true;
   }
   return "";
 }

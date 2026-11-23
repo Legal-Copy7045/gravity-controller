@@ -21,6 +21,7 @@
 
 #ifdef USE_ESP32
 #include <esp_crt_bundle.h>
+#include <esp_log.h>
 #include <esp_http_client.h>
 #include <esp_random.h>
 #include <freertos/FreeRTOS.h>
@@ -52,26 +53,45 @@ class Handler : public AsyncWebHandler {
     // Reading (GET: the page, states, the live event stream) stays open on the local network.
     if (req->method() == HTTP_GET || req->method() == HTTP_HEAD || req->method() == HTTP_OPTIONS)
       return false;
+    if (cross_site_(req))
+      return true;  // refused in handleRequest: another website can't post a form here, PIN or not
     if (!this->p_->pin_set())
       return false;
     return !this->p_->write_allowed(token_(req));
   }
 
   void handleBody(AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) override {
-    if (index == 0)
+    if (index == 0) {
       this->body_.clear();
-    // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body.
-    char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
-    const bool photo = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0;
-    if (this->body_.size() + len <= (photo ? 400000u : 4096u))
-      this->body_.append(reinterpret_cast<const char *>(data), len);
+      this->too_big_ = false;
+      // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body, and only an
+      // unlocked browser may send one (no one else gets the controller to buffer 400 KB).
+      char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
+      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && this->p_->write_allowed(token_(req))
+                       ? 400000u : 4096u;
+    }
+    if (this->too_big_ || this->body_.size() + len > this->cap_) {
+      this->too_big_ = true;  // stop here: a body with a gap in it would be garbage
+      this->body_.clear();
+      return;
+    }
+    this->body_.append(reinterpret_cast<const char *>(data), len);
   }
 
   void handleRequest(AsyncWebServerRequest *req) override {
     char buf[AsyncWebServerRequest::URL_BUF_SIZE];
     StringRef url = req->url_to(buf);
+    if (req->method() != HTTP_GET && cross_site_(req)) {
+      req->send(403, "application/json", "{\"error\":\"Changes come from the controller's own page only\"}");
+      return;
+    }
     if (!(url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0)) {
       req->send(401, "application/json", "{\"error\":\"Enter the PIN to make changes\",\"pin\":true}");
+      return;
+    }
+    if (this->too_big_) {
+      this->too_big_ = false;
+      req->send(413, "application/json", "{\"error\":\"Too big (a photo needs the PIN; keep it under 300 KB)\"}");
       return;
     }
     const char *m = req->method() == HTTP_GET ? "GET" : req->method() == HTTP_POST ? "POST" : "OTHER";
@@ -88,12 +108,29 @@ class Handler : public AsyncWebHandler {
   }
 
  protected:
+  // A request sent by another website (a form post, a fetch): the browser marks it. Missing headers (curl, old
+  // browsers, Home Assistant) are allowed: the PIN still applies.
+  static bool cross_site_(AsyncWebServerRequest *req) {
+    auto site = req->get_header("Sec-Fetch-Site");
+    if (site.has_value() && (site.value() == "cross-site" || site.value() == "same-site"))
+      return true;
+    auto origin = req->get_header("Origin"), host = req->get_header("Host");
+    if (origin.has_value() && host.has_value() && !origin.value().empty() && origin.value() != "null") {
+      const std::string &o = origin.value();
+      size_t p = o.find("://");
+      std::string oh = p == std::string::npos ? o : o.substr(p + 3);
+      return oh != host.value();
+    }
+    return false;
+  }
   static std::string token_(AsyncWebServerRequest *req) {
     auto h = req->get_header(TOKEN_HEADER);
     return h.has_value() ? h.value() : std::string();
   }
   Standalone *p_;
   mutable std::string body_;
+  size_t cap_{4096};
+  bool too_big_{false};
 };
 
 // ---------------------------------------------------------------- the API task
@@ -174,6 +211,11 @@ void Standalone::setup() {
     ESP_LOGW(TAG, "No web server: the device page's PIN and settings are unavailable");
   }
 #ifdef USE_ESP32
+  // The PIN's hashing sleeps a tick every 1,000 rounds, so it never starves the other tasks on its core.
+  pinauth::pbkdf2_yield = []() { vTaskDelay(1); };
+  // Never let ESP-IDF's HTTP client log URLs or headers: they carry keys (Telegram's token is in its URL).
+  esp_log_level_set("HTTP_CLIENT", ESP_LOG_WARN);
+  esp_log_level_set("esp-tls", ESP_LOG_WARN);
   this->api_q_ = xQueueCreate(1, sizeof(void *));
   this->api_done_ = xSemaphoreCreateBinary();
   this->api_mutex_ = xSemaphoreCreateMutex();
@@ -209,6 +251,7 @@ void Standalone::loop() {
   const uint32_t now = millis();
   this->loop_cook_(now);
   this->loop_ha_watch_(now);
+  if (this->clear_pin_pending_) this->clear_pin();
   {  // keep the unlocked browsers across a restart (saved only when the list changes: login, logout, expiry)
     std::unique_lock<std::mutex> g(this->guard_lock_, std::try_to_lock);  // never wait here: the PIN may be hashing
     if (g.owns_lock() && this->guard_ != nullptr && this->guard_->generation() != this->sess_gen_) {
@@ -258,7 +301,13 @@ void Standalone::save_() {
     std::lock_guard<std::recursive_mutex> g(this->lock_);
     copy = this->s_;
     copy2 = this->s2_;
-    this->pin_pref_.save(&this->guard_->stored());
+  }
+  {
+    std::unique_lock<std::mutex> gl(this->guard_lock_, std::try_to_lock);  // never wait on the PIN's hashing
+    if (!gl.owns_lock()) { this->save_pending_ = true; return; }  // the next loop tries again
+    pinauth::Stored st = this->guard_->stored();
+    gl.unlock();
+    this->pin_pref_.save(&st);
   }
   this->pref_.save(&copy);
   this->pref2_.save(&copy2);
@@ -272,6 +321,12 @@ void Standalone::apply_tz_() {
   time::ParsedTimezone tz{};
   static_assert(sizeof(tz) <= sizeof(Settings::tz_raw), "time zone doesn't fit");
   std::memcpy(&tz, this->s_.tz_raw, sizeof(tz));
+  // Stored as ESPHome's own struct: if a future ESPHome changes it, don't apply garbage (fall back to UTC/HA).
+  if (tz.std_offset_seconds < -15 * 3600 || tz.std_offset_seconds > 15 * 3600 || tz.dst_offset_seconds < -15 * 3600 ||
+      tz.dst_offset_seconds > 15 * 3600) {
+    ESP_LOGW(TAG, "The saved time zone doesn't look right: set it again on the device page");
+    return;
+  }
   time::set_global_tz(tz);
 #endif
 }
@@ -288,7 +343,10 @@ bool Standalone::write_allowed(const std::string &token) {
 
 void Standalone::clear_pin() {
   {
-    std::lock_guard<std::mutex> g(this->guard_lock_);
+    // From the main loop (BOOT button, Home Assistant): never wait on a PIN being hashed; try again next loop.
+    std::unique_lock<std::mutex> g(this->guard_lock_, std::try_to_lock);
+    if (!g.owns_lock()) { this->clear_pin_pending_ = true; return; }
+    this->clear_pin_pending_ = false;
     this->guard_->clear();
   }
   ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page");
@@ -406,7 +464,7 @@ void Standalone::queue_(Job j) {
     std::lock_guard<std::mutex> g(this->jobs_lock_[lane]);
     if (this->jobs_[lane].size() >= 12) {
       ESP_LOGW(TAG, "Too many outgoing requests waiting; dropped %s", j.what.c_str());
-      if (lane == 1) {
+      if (lane == 1 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0) {
         std::lock_guard<std::mutex> r(this->results_lock_);
         this->done_.push_back({j.what, 0, std::string()});
       }
@@ -438,7 +496,7 @@ void Standalone::worker_() { this->worker_lane_(0); }
 static esp_err_t collect_(esp_http_client_event_t *e) {
   if (e->event_id == HTTP_EVENT_ON_DATA && e->user_data != nullptr) {
     auto *s = static_cast<std::string *>(e->user_data);
-    if (s->size() + e->data_len <= 32768)
+    if (s->size() + e->data_len <= 65536)  // an AI answer can be long (PSRAM)
       s->append(static_cast<const char *>(e->data), e->data_len);
   }
   return ESP_OK;
@@ -461,14 +519,20 @@ void Standalone::worker_lane_(int lane) {
     esp_http_client_config_t cfg{};
     cfg.url = j.url.c_str();
     cfg.method = j.method == "POST" ? HTTP_METHOD_POST : j.method == "DELETE" ? HTTP_METHOD_DELETE : HTTP_METHOD_GET;
-    cfg.timeout_ms = lane ? 90000 : 15000;  // an AI answer can take a minute
+    cfg.timeout_ms = lane ? 180000 : 15000;  // an AI answer can take a couple of minutes
     cfg.crt_bundle_attach = esp_crt_bundle_attach;  // real certificate checks
     cfg.event_handler = collect_;
     cfg.user_data = &resp;
     cfg.buffer_size_tx = 1024;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    if (c == nullptr)
+    if (c == nullptr) {  // out of memory: still report it, or the page waits forever ("asking", "sending")
+      ESP_LOGW(TAG, "%s: couldn't start a request (memory)", j.what.c_str());
+      if (j.what.rfind("ai:", 0) == 0 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0) {
+        std::lock_guard<std::mutex> g(this->results_lock_);
+        this->done_.push_back({j.what, 0, std::string()});
+      }
       continue;
+    }
     esp_http_client_set_header(c, "User-Agent", "smoker-controller");
     if (!j.content_type.empty())
       esp_http_client_set_header(c, "Content-Type", j.content_type.c_str());
@@ -598,7 +662,7 @@ std::string Standalone::api_pin_(const std::string &path, const std::string &bod
     std::string why = this->guard_->set_pin(str("pin"), str("current"));
     if (!why.empty()) { status = 400; return err_json(why); }
     this->save_pending_ = true;
-    std::string t = this->guard_->login(str("pin"));
+    std::string t = this->guard_->new_session();  // (not login(): that would hash the PIN a third time)
     return json::build_json([&](JsonObject o) { o["token"] = t; }).c_str();
   }
   if (path == "logout") {
@@ -639,13 +703,12 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     status = 404;
     return err_json("not found");
   }
-  JsonDocument in = json::parse_json(body);
-  auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
-
   // Everything below changes settings or keys: a PIN must be set (so keys are never stored on an open page) and
-  // this request must carry a live session.
+  // this request must carry a live session. Checked before the body is even parsed.
   if (!this->guard_->pin_set()) { status = 409; return err_json("Set a PIN for the device page first"); }
   if (!authed) { status = 401; return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str(); }
+  JsonDocument in = json::parse_json(body);
+  auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
 
   if (path == "secret") {
     const std::string name = str("name"), value = str("value");

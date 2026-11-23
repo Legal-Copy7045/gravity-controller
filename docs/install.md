@@ -24,8 +24,12 @@ external_components:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-# Your build is updated from the ESPHome dashboard: don't offer the prebuilt firmware.
+# Your build is updated from the ESPHome dashboard: don't offer the prebuilt firmware, and give the dashboard's
+# own over-the-air updates a password (without one, anyone on your Wi-Fi could flash the controller).
 update: !remove
+ota:
+  - platform: esphome
+    password: !secret smoker_ota_password
 ```
 
 

@@ -49,7 +49,9 @@ logger:
   level: DEBUG
 
 ota:
-  - platform: esphome
+  # Updates come from the signed GitHub release (http_request, the Firmware update entity) only. No LAN upload: an
+  # open ESPHome OTA port would let anyone on the Wi-Fi flash their own firmware and skip the page's PIN. Building
+  # in the ESPHome dashboard? Add `- platform: esphome` with a `password:` in your own YAML (docs/install.md).
   - platform: http_request
 
 http_request:

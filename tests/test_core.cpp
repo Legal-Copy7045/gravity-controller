@@ -900,6 +900,21 @@ static void test_pin_auth() {
   gen = g2.generation();
   g2.logout(t);
   CHECK(!g2.check(t) && g2.check(t2) && g2.generation() != gen);
+  // A controller up for more than 24.8 days (millis() past 2^31) that never had a wrong PIN isn't "locked".
+  {
+    uint32_t c2 = 0x80000100u;
+    uint8_t sd = 7;
+    Guard g3([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
+    CHECK(g3.set_pin("482913", "") == "");
+    CHECK(g3.locked_for() == 0 && g3.login("482913").size() == 64);
+    for (int i = 0; i < 5; i++) g3.login("999999");
+    CHECK(g3.locked_for() == 30);
+    c2 += 31000;
+    CHECK(g3.locked_for() == 0 && g3.login("482913").size() == 64);
+    c2 += 0x80000000u;  // the old lockout time comes round again: still not locked
+    CHECK(g3.locked_for() == 0);
+    CHECK(g3.new_session().size() == 64);
+  }
   // Recovery clears everything.
   g.clear();
   CHECK(!g.pin_set() && g.login("739215") == "");

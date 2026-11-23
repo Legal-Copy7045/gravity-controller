@@ -246,7 +246,7 @@ void Gravity980Component::loop() {
 // ---------------------------------------------------------------- TCP
 
 void Gravity980Component::tcp_start_connect_() {
-  this->tcp_last_attempt_ = millis() | 1;
+  { const uint32_t t = millis(); this->tcp_last_attempt_ = t ? t : 1; }  // not "| 1": ahead of now, it wraps
   struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(this->port_);

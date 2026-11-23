@@ -33,6 +33,9 @@ struct Stored {
   uint8_t hash[HASH_LEN]{};
 };
 
+/// Called every 1,000 PBKDF2 rounds when set (the controller: a 1-tick sleep, so hashing never starves other tasks).
+extern void (*pbkdf2_yield)();
+
 /// Why a PIN is refused as a new PIN ("" if fine).
 std::string pin_problem(const std::string &pin);
 
@@ -58,6 +61,8 @@ class Guard {
   /// Is this token a live session? Renews it.
   bool check(const std::string &token);
   void logout(const std::string &token);
+  /// A session for the browser that just set the PIN (saves hashing the PIN a second time).
+  std::string new_session() { return this->pin_set() ? this->new_token_() : std::string(); }
 
   /// The live sessions (to keep across a restart: an update or a crash shouldn't lock every browser out), and
   /// putting them back after one, each valid for 12 hours from then.
@@ -75,6 +80,7 @@ class Guard {
   Stored stored_{};
   uint8_t failures_{0};
   uint32_t locked_until_{0};
+  bool locked_{false};
   struct Session {
     std::string token;
     uint32_t expires;

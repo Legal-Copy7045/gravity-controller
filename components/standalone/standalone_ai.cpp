@@ -139,7 +139,7 @@ bool Standalone::ai_ask_(const std::string &kind, const std::string &system, con
     if (fb) j.headers.push_back({"anthropic-beta", "server-side-fallback-2026-07-01"});
     j.body = json::build_json([&](JsonObject o) {
       o["model"] = model;
-      o["max_tokens"] = 8000;
+      o["max_tokens"] = 4000;  // the answers are short JSON; this also keeps them under the reply cap
       o["system"] = system;
       o["output_config"]["effort"] = kind == "label" || kind == "test" ? "low" : "medium";
       if (fb) o["fallbacks"] = "default";  // a safety decline is retried on a fallback model, in the same call
@@ -292,7 +292,33 @@ std::string Standalone::ai_advise_() {
   return why;
 }
 
+// Plan with AI (from the main loop: the prompt includes the cook's state and this grill's history).
+std::string Standalone::ai_plan_ask_(const std::string &req) {
+  std::string why;
+  this->ai_ask_("plan",
+                std::string("You are an experienced pitmaster planning a cook on a Char-Griller Gravity 980 charcoal "
+                            "smoker. Use this grill's past cooks and the journal when they're relevant. ") +
+                    PROGRAM_HELP + " The pit can be set from " +
+                    (this->cook_ != nullptr ? this->cook_->pit_range_text() : std::string("200°F to 700°F")) +
+                    " only: to keep food warm, hold at the lowest, never below it." +
+                    " Reply ONLY with a JSON object: {\"summary\": two or three sentences, \"light_at\": the "
+                    "clock time to light the grill or null, \"steps\": up to 6 of {\"when\", \"title\", \"detail\"}, "
+                    "\"program\": a cook program for this cook in the syntax above, or null}.",
+                "The cook: " + req + "\n" + this->ai_context_(), "", why);
+  return why;
+}
+
 void Standalone::loop_ai_(uint32_t now) {
+  {  // a question from the page, asked here (see api_ai_)
+    std::lock_guard<std::recursive_mutex> g(this->lock_);
+    if (!this->ai_defer_kind_.empty()) {
+      std::string kind, text;
+      kind.swap(this->ai_defer_kind_);
+      text.swap(this->ai_defer_text_);
+      std::string why = kind == "plan" ? this->ai_plan_ask_(text) : this->ai_advise_();
+      if (!why.empty()) this->ai_error_ = why;
+    }
+  }
   // A food slot set from a package label, and a program from Plan with AI: applied here, in the main loop.
   int probe = 0;
   std::string cut, prog;
@@ -339,8 +365,8 @@ std::string Standalone::ai_json_() {
     o["auto"] = this->ai_.auto_advise != 0;
     o["interval"] = this->ai_.interval_min;
     JsonObject b = o["busy"].to<JsonObject>();
-    b["advise"] = (this->ai_busy_ & 1) != 0;
-    b["plan"] = (this->ai_busy_ & 2) != 0;
+    b["advise"] = (this->ai_busy_ & 1) != 0 || this->ai_defer_kind_ == "advise";
+    b["plan"] = (this->ai_busy_ & 2) != 0 || this->ai_defer_kind_ == "plan";
     b["label"] = (this->ai_busy_ & 4) != 0;
     b["test"] = (this->ai_busy_ & 8) != 0;
     o["cook_on"] = this->ai_cook_on_();
@@ -388,24 +414,17 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     return this->ai_json_();
   }
   if (path == "ai/advise") {
-    why = this->ai_advise_();
-    if (!why.empty()) return err(400, why);
+    if (!this->ai_cook_on_()) return err(400, "Nothing's cooking or planned: start a cook, or set Serve by under Plan a cook");
+    if (!this->ai_ready_()) return err(400, "Set up the AI first (Setup > AI: provider and key)");
+    this->ai_defer_kind_ = "advise";  // asked from the main loop: the cook's state is read there, not on this task
     return this->ai_json_();
   }
   if (path == "ai/plan") {
     std::string req = in["request"] | "";
     if (req.empty() || req.size() > 600) return err(400, "Describe the cook (up to 600 characters)");
-    if (!this->ai_ask_("plan",
-                       std::string("You are an experienced pitmaster planning a cook on a Char-Griller Gravity 980 charcoal "
-                                   "smoker. Use this grill's past cooks and the journal when they're relevant. ") +
-                           PROGRAM_HELP + " The pit can be set from " +
-                           (this->cook_ != nullptr ? this->cook_->pit_range_text() : std::string("200°F to 700°F")) +
-                           " only: to keep food warm, hold at the lowest, never below it." +
-                           " Reply ONLY with a JSON object: {\"summary\": two or three sentences, \"light_at\": the "
-                           "clock time to light the grill or null, \"steps\": up to 6 of {\"when\", \"title\", \"detail\"}, "
-                           "\"program\": a cook program for this cook in the syntax above, or null}.",
-                       "The cook: " + req + "\n" + this->ai_context_(), "", why))
-      return err(400, why);
+    if (!this->ai_ready_()) return err(400, "Set up the AI first (Setup > AI: provider and key)");
+    this->ai_defer_kind_ = "plan";  // asked from the main loop (it reads the cook's state)
+    this->ai_defer_text_ = req;
     return this->ai_json_();
   }
   if (path == "ai/label") {
@@ -458,15 +477,19 @@ void Standalone::loop_ha_watch_(uint32_t now) {
   if (api::global_api_server->is_connected()) {
     if (this->ha_state_ != 1) { this->ha_state_ = 1; this->ha_pref_.save(&this->ha_state_); }
     this->ha_lost_at_ = this->ha_bounced_at_ = 0;
+    this->ha_bounces_ = 0;
     return;
   }
   if (!(this->ha_state_ & 1) || now < 120000) return;  // never used with Home Assistant, or just started
   if (this->ha_lost_at_ == 0) { this->ha_lost_at_ = now ? now : 1; return; }
   const uint32_t lost = now - this->ha_lost_at_;
 #ifdef USE_WIFI
-  if (lost > 10 * 60000 && (this->ha_bounced_at_ == 0 || now - this->ha_bounced_at_ > 30 * 60000) &&
+  const bool cooking = this->cook_ != nullptr && this->cook_->cook_active();
+  if (lost > 10 * 60000 && !cooking && this->ha_bounces_ < 3 &&  // never during a cook (the grill link uses Wi-Fi)
+      (this->ha_bounced_at_ == 0 || now - this->ha_bounced_at_ > 30 * 60000) &&
       wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected()) {
-    this->ha_bounced_at_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
+    this->ha_bounced_at_ = now ? now : 1;
+    this->ha_bounces_++;  // not "now | 1": 1 ms ahead, now - it wraps
     ESP_LOGW(TAG, "Home Assistant hasn't reconnected for %u min: reconnecting Wi-Fi", unsigned(lost / 60000));
     wifi::global_wifi_component->disable();
     this->set_timeout("ha_wifi_back", 3000, []() { wifi::global_wifi_component->enable(); });
