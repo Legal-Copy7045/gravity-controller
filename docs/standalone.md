@@ -106,7 +106,7 @@ Pick one or more services:
 
 Setup → AI: pick **Google Gemini**, **Anthropic Claude** or **OpenAI**, paste your API key (it needs the PIN, and is
 write-only like the notification keys), and press **Test the key**. You pay the provider per question: a few cents a
-cook. The model can be changed; the defaults are `gemini-2.5-flash`, `claude-opus-5-5` and `gpt-4.1-mini`. With Claude
+cook. The model can be changed; the defaults are `gemini-flash-lite-latest`, `claude-opus-5-5` and `gpt-4.1-mini`. With Claude
 the controller asks for Anthropic's server-side fallback, so a question the main model declines can be answered by a
 fallback model in the same call.
 

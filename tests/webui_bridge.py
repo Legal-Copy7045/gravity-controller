@@ -354,7 +354,7 @@ def _ai_json(self):
     return {**self.ai, "key": self.s["set"]["ai"]}
 
 
-DEFAULTS = {"gemini": "gemini-2.5-flash", "claude": "claude-opus-5-5", "openai": "gpt-4.1-mini"}
+DEFAULTS = {"gemini": "gemini-flash-lite-latest", "claude": "claude-opus-5-5", "openai": "gpt-4.1-mini"}
 
 
 def _ai_post(self, path, body, err):

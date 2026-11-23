@@ -29,7 +29,7 @@ namespace standalone {
 static const char *const TAG = "standalone.ai";
 // Defaults per provider; the device page can change the model. Claude: the current Opus (the default model).
 static const char *default_model(const std::string &p) {
-  return p == "claude" ? "claude-opus-5-5" : p == "openai" ? "gpt-4.1-mini" : "gemini-2.5-flash";
+  return p == "claude" ? "claude-opus-5-5" : p == "openai" ? "gpt-4.1-mini" : "gemini-flash-lite-latest";
 }
 static const char *const CUTS_LIST = "Pork shoulder, Brisket, Ribs, Beef roast, Poultry, Sausage, Fish, Auto";
 static const char *const PROGRAM_HELP =
