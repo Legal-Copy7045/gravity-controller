@@ -971,6 +971,43 @@ bool Gravity980Component::request_target(Probe probe, float value) {
   return true;
 }
 
+std::string Gravity980Component::send_test_command(int id, int value) {
+  if (!this->test_mode())
+    return "command tests are off (turn on \"Command tests\")";
+  if (id < 0 || id > 0xFF || value < 0 || value > 0xFFFF)
+    return "id must be 0-255 and value 0-65535";
+  if (id == 0x01 || id == 0x04 || id == 0x05)
+    return "ids 0x01, 0x04 and 0x05 are never sent (they crash the grill's Wi-Fi side)";
+  if (this->read_only_)
+    return "the bridge is read-only";
+  const uint32_t now = millis();
+  if (this->test_last_ != 0 && now - this->test_last_ < 15000)
+    return "wait 15 s between test commands";
+  bool use_tcp = this->active_ == Transport::TCP, use_ble = false;
+#ifdef USE_GRAVITY980_BLE
+  use_ble = !use_tcp && this->active_ == Transport::BLE && this->ble_writes_ && this->ble_ != nullptr && this->ble_->ready();
+#endif
+  if (!use_tcp && !use_ble)
+    return this->ble_writes_ ? "no writable link to the grill" : "no writable link (turn on \"Control over Bluetooth\")";
+  std::vector<uint8_t> cmd;
+  if (use_ble)
+    cmd.insert(cmd.end(), {0x00, 0x19, 0x04, 0x00});
+  cmd.insert(cmd.end(), {0xFF, uint8_t(id), uint8_t(value >> 8), uint8_t(value & 0xFF)});
+  ESP_LOGW(TAG, "TEST command via %s: %s (last status: %s)", use_tcp ? "TCP" : "BLE", hex_dump(cmd).c_str(),
+           this->have_status_ ? hex_dump(this->status_.raw, this->status_.raw_len).c_str() : "none");
+  this->test_last_ = now ? now : 1;
+  if (use_tcp) {
+    this->tx_.insert(this->tx_.end(), cmd.begin(), cmd.end());
+    this->tcp_flush_();
+  }
+#ifdef USE_GRAVITY980_BLE
+  else if (!this->ble_->write(cmd)) {
+    return "the Bluetooth write failed";
+  }
+#endif
+  return "";
+}
+
 void Gravity980Component::check_pending_() {
   const uint32_t now = millis();
   for (int p = 0; p < PROBE_COUNT; p++) {

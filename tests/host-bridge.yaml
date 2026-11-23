@@ -8,6 +8,17 @@ logger:
 api:
   port: 6053
   actions:
+    - action: test_command
+      variables:
+        command_id: int
+        value: int
+      then:
+        - lambda: |-
+            std::string why = id(grill).send_test_command(command_id, value);
+            char b[160];
+            snprintf(b, sizeof b, "%s FF %02X %02X %02X%s%s", why.empty() ? "sent" : "refused", command_id & 0xFF,
+                     (value >> 8) & 0xFF, value & 0xFF, why.empty() ? "" : ": ", why.c_str());
+            id(test_result).publish_state(b);
     - action: load_program
       variables:
         program: string
@@ -60,6 +71,10 @@ binary_sensor:
     door: {id: lid_open, name: Lid}
     fan: {id: grill_fan, name: Fan}
 text_sensor:
+  - platform: template
+    id: test_result
+    name: Command test
+    update_interval: never
   - platform: gravity980
     link: {name: Grill link}
     link_status: {name: Grill link status}
@@ -126,3 +141,12 @@ text:
     max_length: 255
     optimistic: true
     initial_value: ""
+
+switch:
+  - platform: template
+    name: Command tests
+    lambda: return id(grill).test_mode();
+    turn_on_action:
+      - lambda: id(grill).set_test_mode(true);
+    turn_off_action:
+      - lambda: id(grill).set_test_mode(false);

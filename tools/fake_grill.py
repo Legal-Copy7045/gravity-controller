@@ -91,6 +91,8 @@ class Grill:
             with self.lock:
                 self.targets[cid] = val
             print(f"  set target id {cid:#04x} = {val} F")
+        else:
+            print(f"  unknown command id {cid:#04x} value {val}")
 
 
 def control(g, port):

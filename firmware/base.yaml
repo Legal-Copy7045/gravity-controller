@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.44"
+  project_version: "0.2.45"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -371,6 +371,12 @@ binary_sensor:
       name: Grill alarm
 
 text_sensor:
+  - platform: template
+    id: test_result
+    name: Command test
+    icon: mdi:flask-outline
+    entity_category: diagnostic
+    update_interval: never
   - platform: debug
     reset_reason:
       name: Last restart reason
@@ -481,6 +487,17 @@ switch:
       - lambda: id(grill).set_ble_writes(true);
     on_turn_off:
       - lambda: id(grill).set_ble_writes(false);
+  # Protocol research (off by default; switches itself off after 30 minutes): lets the test_command action send
+  # experimental commands to the grill, looking for ones it accepts (such as turbo).
+  - platform: template
+    name: Command tests
+    icon: mdi:flask-outline
+    entity_category: config
+    lambda: return id(grill).test_mode();
+    turn_on_action:
+      - lambda: id(grill).set_test_mode(true);
+    turn_off_action:
+      - lambda: id(grill).set_test_mode(false);
   - platform: template
     name: Log raw grill data
     icon: mdi:text-search

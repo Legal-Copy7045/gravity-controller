@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.45] - 2026-11-23
+
+- **Protocol research tools (off by default), to look for a remote turbo command:**
+  - A *Command tests* switch (in configuration). It turns itself off after 30 minutes.
+  - An action, `test_command` (command id, value), that sends one `FF <id> <hi> <lo>` command to the grill.
+    It only works while the switch is on, sends at most one command every 15 s, and never sends 0x01, 0x04 or 0x05.
+  - A *Command test* sensor showing what was sent or why it was refused.
+- Confirmed on a real Gravity 980: the panel's turbo button sets byte 15 bit 4 of the status frame, and nothing else
+  changes.
+
 ## [0.2.44] - 2026-11-23
 
 - **Set the pit target from the top of the page** (both dashboards): − and + buttons, or type a temperature and press

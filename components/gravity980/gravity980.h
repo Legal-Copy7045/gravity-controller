@@ -9,6 +9,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/preferences.h"
 
 #include "protocol.h"
@@ -182,6 +183,12 @@ class Gravity980Component : public Component {
   Transport active_transport() const { return this->active_; }
   /// Request a setpoint in the configured unit. Returns false if rejected locally.
   bool request_target(Probe probe, float value);
+  // Protocol research (off by default): send one `FF <id> <hi> <lo>` command to look for commands the grill accepts,
+  // such as turbo. Only while command tests are on (they switch themselves off after 30 minutes), at most one every
+  // 15 s, and never ids 0x01, 0x04 or 0x05 (known to crash the grill's Wi-Fi side). Returns why not, or "".
+  std::string send_test_command(int id, int value);
+  void set_test_mode(bool on) { const uint32_t n = millis(); this->test_until_ = on ? (n ? n : 1) : 0; }
+  bool test_mode() const { return this->test_until_ != 0 && millis() - this->test_until_ < TEST_MODE_MS; }
   /// Last reported setpoint in the configured unit (NAN if none).
   float reported_target(Probe probe) const;
   const Status &last_status() const { return this->status_; }
@@ -223,6 +230,9 @@ class Gravity980Component : public Component {
   bool read_only_{false};
   bool ble_writes_{false};
   bool log_raw_{false};
+  static constexpr uint32_t TEST_MODE_MS = 30u * 60u * 1000u;
+  uint32_t test_until_{0};  // when command tests were switched on (0: off)
+  uint32_t test_last_{0};
   bool enabled_{true};
   uint32_t reconnect_interval_{10000};
   uint32_t stale_timeout_{15000};
