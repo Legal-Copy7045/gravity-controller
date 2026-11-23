@@ -133,6 +133,22 @@ class Standalone : public Component {
   /// API has a key). Until then anyone on the Wi-Fi could connect to the API and press it, reopening the first
   /// PIN's window for themselves; the BOOT button still works.
   void clear_pin_from_ha();
+  /// Home Assistant's set_device_pin action: set or replace the device page's PIN whenever ("" clears it), without the
+  /// first PIN's window. Only once Home Assistant has adopted the controller (its API has a key), like the Clear
+  /// button. Hashing takes a second or two, so it's handed to the API task (never the main loop); the result goes to
+  /// the log and pin_status().
+  void set_pin_from_ha(const std::string &pin);
+  /// For the "Device page PIN" sensor: "set" or "not set", and why Home Assistant's last PIN was refused. Never the PIN.
+  std::string pin_status();
+
+  // --- factory reset: wipes everything the controller stores (Wi-Fi, API key, PIN and sessions, keys, settings, the
+  // journal, learned cooks) and restarts. Never on one press: a second press within 10 s does it.
+  /// Home Assistant's "Factory reset" button (refused until Home Assistant has adopted the controller, like Clear).
+  void factory_reset_from_ha();
+  /// The BOOT button held 30 s (someone at the controller): no second press needed.
+  void factory_reset_now(const char *why);
+  /// For the "Factory reset status" sensor: "Press again...", "Erasing..." or why the last press was refused.
+  std::string factory_reset_prompt();
 
   // --- the secret Home Assistant's Smoker integration sets (action set_event_secret) and checks on every event the
   // controller fires (smoker_notify, smoker_context, smoker_cook_complete): so a forged event is told apart. Stored
@@ -190,6 +206,21 @@ class Standalone : public Component {
   std::recursive_mutex lock_;
   std::mutex guard_lock_;
   bool clear_pin_pending_{false};  // the PIN and sessions (guard_): never held by the main loop while waiting
+  // Home Assistant's PIN (set_pin_from_ha), waiting for the API task. Wiped once used.
+  std::mutex ha_pin_lock_;
+  std::string ha_pin_;
+  bool ha_pin_has_{false};
+  std::atomic<bool> ha_pin_pending_{false};  // the main loop still has to hand it to the API task
+  std::atomic<bool> pin_cached_{false};      // guard_->pin_set(), for pin_status() without waiting on the lock
+  std::string pin_note_;                     // why Home Assistant's last PIN was refused (under results_lock_)
+  void set_pin_work_();                      // on the API task
+  // Factory reset (under results_lock_): two presses within 10 s; done by the main loop a second later.
+  pinauth::ConfirmTwice reset_confirm_{};
+  std::string reset_refused_;
+  uint32_t reset_refused_at_{0};
+  std::atomic<bool> reset_pending_{false};
+  uint32_t reset_at_{0};
+  bool factory_reset_press_(const char *who);  // true: confirmed
   bool fahrenheit_{true};
   const char *wind_unit_{"mph"};
   cook_assistant::CookAssistant *cook_{nullptr};

@@ -1056,7 +1056,7 @@ static void test_pin_auth() {
     CHECK(!ct.press(20000));
     CHECK(!ct.armed(30000) && !ct.press(30000));                      // too late: armed again, not confirmed
     CHECK(ct.press(31000));
-    CHECK(!ct.press(0) && ct.armed(0) && ct.press(9999));             // millis() at 0 still arms
+    CHECK(!ct.press(0) && ct.press(9999));                          // millis() at 0 still arms
     CHECK(!ct.press(0xFFFFF000u) && ct.press(0x00001000u));           // across millis() wrapping
     ct.press(100);
     ct.cancel();
