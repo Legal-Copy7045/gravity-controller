@@ -1183,10 +1183,12 @@ automation:
           {{ bag > 0 and trigger.from_state is not none and is_number(trigger.from_state.state)
              and trigger.from_state.state | float >= bag > trigger.to_state.state | float }}
     actions:
-      - action: todo.add_item
-        continue_on_error: true
-        target: {entity_id: todo.shopping_list}   # EDIT: your to-do list
-        data: {item: "Charcoal for the smoker"}
+      - if: "{{ states('todo.shopping_list') not in ['unknown', 'unavailable'] }}"   # (a to-do list you have)
+        then:
+          - action: todo.add_item
+            continue_on_error: true
+            target: {entity_id: "{{ 'todo.shopping_list' }}"}   # EDIT: your to-do list
+            data: {item: "Charcoal for the smoker"}
       - action: script.smoker_notify
         data:
           title: Charcoal running low
@@ -1236,10 +1238,12 @@ automation:
           job: >
             {{ {'ash': 'Empty the smoker\'s ash pan', 'grease': 'Clean the smoker\'s grease tray and drip bucket',
                 'gasket': 'Check the smoker\'s door gasket and fan (and clear the fan intake)'}[trigger.id] }}
-      - action: todo.add_item
-        continue_on_error: true
-        target: {entity_id: todo.shopping_list}   # EDIT: your to-do list
-        data: {item: "{{ job }}"}
+      - if: "{{ states('todo.shopping_list') not in ['unknown', 'unavailable'] }}"   # (a to-do list you have)
+        then:
+          - action: todo.add_item
+            continue_on_error: true
+            target: {entity_id: "{{ 'todo.shopping_list' }}"}   # EDIT: your to-do list
+            data: {item: "{{ job }}"}
       - action: script.smoker_notify
         data:
           title: Smoker maintenance
@@ -1251,6 +1255,10 @@ automation:
   - id: smoker_calendar_serve_time
     alias: Smoker - serve time from the calendar
     mode: single
+    variables:
+      # The calendar to watch (smoker.install_package calendar: calendar.yours). Kept in a template so an unchosen
+      # calendar is not reported as an unknown entity.
+      calendar_id: "calendar.your_calendar"
     triggers:
       - trigger: time_pattern
         minutes: "/30"
@@ -1259,17 +1267,17 @@ automation:
     conditions:
       # Only with a calendar chosen (smoker.install_package calendar: calendar.yours).
       - condition: template
-        value_template: "{{ states('calendar.your_calendar') not in ['unknown', 'unavailable'] }}"
+        value_template: "{{ states(calendar_id) not in ['unknown', 'unavailable'] }}"
     actions:
       - action: calendar.get_events
         continue_on_error: true
-        target: {entity_id: calendar.your_calendar}   # EDIT: your calendar
+        target: {entity_id: "{{ calendar_id }}"}
         data: {duration: {hours: 48}}
         response_variable: cal
       - variables:
           words: [smoker, smoke, bbq, barbecue, brisket, pulled pork, pork shoulder, pork butt, ribs, smoked]
           ev: >
-            {% set evs = (cal['calendar.your_calendar'].events if cal and 'calendar.your_calendar' in cal else []) %}
+            {% set evs = (cal[calendar_id].events if cal and calendar_id in cal else []) %}
             {% set ns = namespace(e=none) %}
             {% for e in evs | sort(attribute='start') %}
               {% if ns.e is none and 'T' in e.start and as_datetime(e.start) > now() %}

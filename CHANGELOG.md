@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.42] - 2026-11-23
+
+- **No more "unknown entity" warnings for a calendar or to-do list you haven't chosen** (Spook/Repairs flagged
+  `calendar.your_calendar`). The package now names the calendar in a template, so an unchosen calendar is simply skipped,
+  and only adds charcoal and maintenance jobs to the to-do list when that list exists.
+
 ## [0.2.41] - 2026-11-23
 
 - **A simple way to set up a cook** (both dashboards, in *Edit the program*):

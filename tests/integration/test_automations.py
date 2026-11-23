@@ -123,6 +123,7 @@ async def test_charcoal_burned_stock_and_reorder(hass: HomeAssistant):
     calls = await _setup(hass, ["smoker_charcoal_burn", "smoker_charcoal_reorder"],
                          [("todo", "add_item"), ("script", "smoker_notify")])
     await _helpers(hass)
+    hass.states.async_set("todo.shopping_list", "0")
     for eid, v in (("input_number.smoker_charcoal_bag_kg", 9), ("input_number.smoker_charcoal_stock_kg", 9.3)):
         await hass.services.async_call("input_number", "set_value", {"entity_id": eid, "value": v}, blocking=True)
     hass.states.async_set("sensor.smoker_charcoal_left", "5.0")
@@ -139,6 +140,13 @@ async def test_charcoal_burned_stock_and_reorder(hass: HomeAssistant):
 async def test_maintenance_due_adds_a_job(hass: HomeAssistant):
     calls = await _setup(hass, ["smoker_maintenance_due"], [("todo", "add_item"), ("script", "smoker_notify")])
     await _helpers(hass)
+    # Without a to-do list: only the notification (and no unknown entity in the automation).
+    await hass.services.async_call("input_number", "set_value",
+                                   {"entity_id": "input_number.smoker_hours_grease", "value": 30.1}, blocking=True)
+    await hass.async_block_till_done()
+    assert not [c for c in calls if c[:2] == ("todo", "add_item")], calls
+    assert [c for c in calls if c[:2] == ("script", "smoker_notify")], calls
+    hass.states.async_set("todo.shopping_list", "0")
     await hass.services.async_call("input_number", "set_value",
                                    {"entity_id": "input_number.smoker_hours_ash", "value": 12.1}, blocking=True)
     await hass.async_block_till_done()
