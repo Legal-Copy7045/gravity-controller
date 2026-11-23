@@ -224,6 +224,11 @@ class CookAssistant : public Component {
   /// Load a program from text. Returns false and publishes the error if invalid.
   bool load_program(const std::string &text, bool persist = true);
   bool cook_active() const { return this->cook_active_; }
+  /// A program is running or paused (it isn't finished or unloaded): automatic updates wait for it.
+  bool program_in_progress() const {
+    auto st = this->runner_.state();
+    return st == cook::ProgramRunner::State::RUNNING || st == cook::ProgramRunner::State::PAUSED;
+  }
   /// A program from elsewhere (the AI): parse it and move any pit temperature into the grill's range. Returns false
   /// (with why) if it can't be read; otherwise `fixed` is the program in this controller's syntax and `note` says
   /// what was changed ("" if nothing).

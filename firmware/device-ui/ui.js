@@ -1348,6 +1348,7 @@ function renderSetup(u) {
   put('dev', `<h3>This controller</h3>${rel ? row('Release', esc(rel)) : ''}${ver ? row('Built with', 'ESPHome ' + esc(String(ver).split(' ')[0])) : ''}${sig != null ? row('Its Wi-Fi <span class="muted small">(to your router, not the grill)</span>', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', dur(up)) : ''}
     ${row('Cooks learned', fmt(S('Cooks learned')))}
     ${fwRow()}
+    ${tog('Automatic updates', 'Automatic updates', 'Installs a new release only while the grill is off and no cook or program is running (idle for an hour).')}
     ${tog('Log raw grill data', 'Log raw grill data', 'For support: every byte from the grill goes to the controller\'s log (USB, or the ESPHome dashboard).')}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}

@@ -54,6 +54,10 @@ collide. A second one needs its own build with a different `name`, and then a Ho
 - **Signed updates (from 1.1.0):** released firmware is signed, and a controller running it only installs updates
   signed with the same key, and never an older version. Someone who took over the download site couldn't push their
   own firmware to it. Flashing over USB from the web installer always works, so it's never stuck.
+- **Automatic updates (from 1.2.0, off by default):** turn on *Automatic updates* in Home Assistant (the controller's
+  configuration) or on the controller's page (Setup → This controller). A new release is then installed only after
+  the controller has been idle for an hour: grill not connected, no cook active, no program running or paused. You
+  get a "Controller updated" notification when it's back.
 
 **Logs.** The controller's page doesn't show its log. Use the web installer's **Logs & console** over USB (click
 **Install**, connect, then *Logs & console*), the ESPHome dashboard's *Logs* if you build it yourself, or the

@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-11-23
+
+- **Automatic updates (optional, off by default):** turn on *Automatic updates* (Home Assistant: the controller's
+  configuration; the controller's page: Setup → This controller). The controller then installs a new release by
+  itself, but only when it has been idle for an hour: the grill isn't connected, no cook is active and no program is
+  running or paused. It never updates in the middle of a cook. A cook that loses the grill counts as active until the
+  pit has read cold for 20 minutes, so a dropped link doesn't start an update. Like any update, it must be signed with
+  the project's key and newer than what's running.
+- **"Controller updated" notification** after the controller starts on a new version, however it was updated.
 ## [1.1.0] - 2026-11-23
 
 - **Signed firmware updates:**

@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "1.1.0"
+  project_version: "1.2.0"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -58,7 +58,8 @@ logger:
 ota:
   # Updates come from this project's GitHub release only (http_request, the Firmware update entity): the manifest and
   # the image are fetched over HTTPS from GitHub Pages (certificate checked) and the image is checked against the MD5
-  # in that same manifest. They aren't signed: the protection is HTTPS to GitHub. No LAN upload: an
+  # in that same manifest. Release builds (gravity980-bridge.yaml) are also signed: from 1.1.0 a controller installs only
+  # images signed with the project's key, and never an older version. No LAN upload: an
   # open ESPHome OTA port would let anyone on the Wi-Fi flash their own firmware and skip the page's PIN. Building
   # in the ESPHome dashboard? Add `- platform: esphome` with a `password:` in your own YAML (docs/install.md).
   - platform: http_request
@@ -75,6 +76,12 @@ update:
     name: Firmware
     source: ${update_manifest}
     update_interval: 6h
+
+# Automatic updates (the "Automatic updates" switch, off by default): an update is installed only while the controller
+# has been idle for an hour, meaning the grill is not connected, no cook session is active and no program is running or
+# paused. A cook that loses the grill stays active for 20 minutes after the pit reads cold, so a dropped link mid-cook
+# doesn't count as idle. The check is made again just before installing; after a failed attempt it waits 6 hours.
+# The image must carry the project's signature and be newer, or the controller refuses it and keeps running.
 
 wifi:
   # A grill at the edge of Wi-Fi: keep trying rather than rebooting (the BLE link to the grill can carry on).
@@ -474,11 +481,43 @@ text_sensor:
     lambda: return std::string(ESPHOME_PROJECT_VERSION);
 
 globals:
+  # A hash of the firmware version that last booted (the "Controller updated" notification).
+  - id: booted_version
+    type: uint32_t
+    restore_value: true
+    initial_value: "0"
   - id: timer_end_ms
     type: uint32_t
     initial_value: "0"
 
 interval:
+  # Automatic updates (see the update: section).
+  - interval: 60s
+    then:
+      - lambda: |-
+          static uint32_t idle_since = 0, last_try = 0;
+          static bool announced = false;
+          const uint32_t now = millis();
+          // After an update (automatic or not), say so once, when the notifications are up.
+          if (!announced && now > 120000UL) {
+            announced = true;
+            uint32_t h = 2166136261UL;
+            for (const char *c = ESPHOME_PROJECT_VERSION; *c; c++) h = (h ^ uint8_t(*c)) * 16777619UL;
+            if (id(booted_version) != 0 && id(booted_version) != h)
+              id(smoker).notify("Controller updated", std::string("The smoker controller is now running ") +
+                                ESPHOME_PROJECT_VERSION + ".", 0, "update");
+            id(booted_version) = h;
+          }
+          const bool idle = !id(grill_connected).state && !id(smoker).cook_active() && !id(smoker).program_in_progress();
+          if (!id(auto_update).state || !idle) { idle_since = 0; return; }
+          if (idle_since == 0) { idle_since = now ? now : 1; return; }
+          if (now - idle_since < 3600000UL) return;
+          if (id(firmware_update).state != update::UPDATE_STATE_AVAILABLE) return;
+          if (last_try != 0 && now - last_try < 6UL * 3600000UL) return;
+          last_try = now ? now : 1;
+          ESP_LOGI("auto_update", "Idle for an hour with %s available: installing it",
+                   id(firmware_update).update_info.latest_version.c_str());
+          id(firmware_update).perform(false);
   # The kitchen timer: counts down, then notifies (like the app's "Timer has finished").
   - interval: 5s
     then:
@@ -639,6 +678,14 @@ switch:
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
   # changes nothing). Only pit/food targets, Turbo and power on/off (two presses) are ever sent. Wi-Fi is used
   # instead whenever it's connected.
+  # Automatic updates: see the update: section. Off unless you turn it on.
+  - platform: template
+    name: Automatic updates
+    id: auto_update
+    icon: mdi:update
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
   - platform: template
     name: Control over Bluetooth
     id: ble_control
