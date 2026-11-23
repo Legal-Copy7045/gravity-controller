@@ -217,6 +217,7 @@ class CookAssistant : public Component {
   // ---- API (buttons, HA actions, lambdas) ----
   /// Load a program from text. Returns false and publishes the error if invalid.
   bool load_program(const std::string &text, bool persist = true);
+  bool cook_active() const { return this->cook_active_; }
   /// Report the outcome of an on_set_pit write (call from the on_set_pit automation).
   void pit_write_result(bool ok);
   void set_pit_range(float min_c, float max_c) {

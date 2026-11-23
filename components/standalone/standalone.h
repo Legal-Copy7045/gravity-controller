@@ -80,10 +80,18 @@ static constexpr size_t JOURNAL_SLOTS = 24;
 static constexpr size_t HIST_SERIES = 8;  // pit, pit target, food 1-6
 static constexpr size_t HIST_LEN = 1440;  // 24 h at one a minute
 
+// The AI on the controller (a separate record, for the same reason as Settings2).
+struct AiSettings {
+  uint32_t version{1};
+  uint8_t auto_advise{0};   // the AI pitmaster every interval_min during a cook: off unless turned on
+  uint8_t interval_min{30};
+};
+
 struct Job {
   std::string what;  // "ntfy" / "pushover" / "telegram" / "weather"
   std::string method, url, body, content_type;
   std::vector<std::pair<std::string, std::string>> headers;
+  uint8_t lane{0};  // 0: notifications, weather, sharing; 1: AI (slow: never holds up an alarm)
 };
 
 class Standalone : public Component {
@@ -135,6 +143,8 @@ class Standalone : public Component {
   void queue_(Job j);
   void worker_();
   static void worker_task_(void *arg);
+  static void worker_task_ai_(void *arg);
+  void worker_lane_(int lane);
   void fetch_weather_();
   // stage 2 (standalone_cook.cpp)
   void setup_cook_();
@@ -163,9 +173,9 @@ class Standalone : public Component {
 #endif
 
   // worker
-  std::deque<Job> jobs_;
-  std::mutex jobs_lock_;
-  void *jobs_sem_{nullptr};
+  std::deque<Job> jobs_[2];
+  std::mutex jobs_lock_[2];
+  void *jobs_sem_[2]{nullptr, nullptr};
   // results handed back to the main loop
   std::mutex results_lock_;
   std::string last_result_[3];  // ntfy, pushover, telegram
@@ -197,6 +207,27 @@ class Standalone : public Component {
   struct Done { std::string what; int code; std::string body; };
   std::vector<Done> done_;  // finished worker jobs for the main loop (under results_lock_)
   bool network_ready_();
+  // stage 3: the AI (standalone_ai.cpp)
+  void setup_ai_();
+  void loop_ai_(uint32_t now);
+  bool ai_ready_() const;
+  std::string ai_model_() const;
+  std::string ai_context_();
+  int ai_kind_(const std::string &k) const;
+  bool ai_ask_(const std::string &kind, const std::string &system, const std::string &user, const std::string &image_b64,
+               std::string &why);
+  void ai_done_(const std::string &what, int code, const std::string &body);
+  std::string ai_advise_();
+  std::string ai_json_();
+  std::string api_ai_(const std::string &path, JsonDocument &in, int &status);
+  AiSettings ai_{};
+  ESPPreferenceObject aipref_;
+  bool ai_save_{false};
+  uint8_t ai_busy_{0};  // bit per kind: advise, plan, label, test
+  std::string ai_advice_, ai_plan_, ai_labels_, ai_error_, ai_test_, ai_program_, ai_assign_cut_;
+  int ai_assign_probe_{0};
+  float ai_assign_lb_{NAN};
+  uint32_t ai_last_auto_{0};
   int8_t fuel_mode_{-1};  // a charcoal log from the device page, applied in the main loop
   float fuel_pct_{NAN};
 };

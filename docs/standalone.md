@@ -81,11 +81,30 @@ Pick one or more services:
   - the Plan card shows the shared averages for the cuts you're cooking;
   - if you also share from Home Assistant's Smoker page, turn one of them off, or each cook would be shared twice.
 
+## The AI pitmaster on the controller
+
+Setup → AI: pick **Google Gemini**, **Anthropic Claude** or **OpenAI**, paste your API key (it needs the PIN, and is
+write-only like the notification keys), and press **Test the key**. You pay the provider per question: a few cents a
+cook. The model can be changed; the defaults are `gemini-2.5-flash`, `claude-opus-5-5` and `gpt-4.1-mini`. With Claude
+the controller asks for Anthropic's server-side fallback, so a question the main model declines can be answered by a
+fallback model in the same call.
+
+Once it's set up, an **AI pitmaster** section appears on the page:
+- **Second opinion:** how the cook is going, the next thing to do, its own finish estimate and a few timed tips.
+  **Ask now**, or turn on **every 30 min during a cook**.
+- **Plan with AI:** describe the cook ("9 lb pork shoulder, eating at 6 pm Saturday"). It suggests when to light up and
+  the steps, and writes a cook program: **Load as program**, check it under Pit & program, then Start.
+- **What's cooking:** **Take a photo** or **Choose a photo** of the package label. The page shrinks it, the AI reads
+  the cut and weight, and **Set** puts them on a Food slot.
+
+What's sent: the live readings and settings, this grill's learned cooks, your journal entries (stars, tags, notes), the
+Open Pitmaster averages for your cuts and the weather numbers. Never your area, Wi-Fi, PIN or other keys. Label photos
+go to the provider and aren't kept on the controller.
+
 ## Still needs Home Assistant
 
 | Feature | Without Home Assistant |
 |---|---|
 | Thermometers that live in Home Assistant (e.g. the Govee via its integration) | Use the H5198 directly (Bluetooth) or wired probes |
 | Voice ("when is it done?") | Not available |
-| The AI pitmaster, Plan with AI, reading labels | Coming: on the controller with your own Gemini, Claude or OpenAI key |
 | "Controller offline" alert | A controller can't report its own power cut; Home Assistant (or a ping service) can |

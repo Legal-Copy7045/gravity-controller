@@ -50,6 +50,7 @@ static std::string hex32(uint32_t v) {
 // ---------------------------------------------------------------- setup / loop
 
 void Standalone::setup_cook_() {
+  this->setup_ai_();
   this->pref2_ = global_preferences->make_preference<Settings2>(fnv1_hash("standalone_settings2_v1"), true);
   Settings2 s2{};
   if (this->pref2_.load(&s2) && s2.version == 1)
@@ -77,6 +78,16 @@ void Standalone::loop_cook_(uint32_t now) {
     this->hist_last_ = now | 1;
     this->sample_history_();
   }
+  this->loop_ai_(now);
+  if (this->ai_save_) {
+    this->ai_save_ = false;
+    AiSettings a;
+    {
+      std::lock_guard<std::recursive_mutex> g(this->lock_);
+      a = this->ai_;
+    }
+    this->aipref_.save(&a);
+  }
   // A charcoal log from the device page (the cook assistant runs in this loop, not in the web server's task).
   if (this->fuel_mode_ >= 0 && this->cook_ != nullptr) {
     int8_t m;
@@ -100,6 +111,10 @@ void Standalone::loop_cook_(uint32_t now) {
   }
   for (auto &d : done) {
     std::lock_guard<std::recursive_mutex> g(this->lock_);
+    if (d.what.rfind("ai:", 0) == 0) {
+      this->ai_done_(d.what, d.code, d.body);
+      continue;
+    }
     if (d.what.rfind("share:", 0) == 0 || d.what.rfind("unshare:", 0) == 0) {
       bool share = d.what[0] == 's';
       uint32_t id = strtoul(d.what.c_str() + (share ? 6 : 8), nullptr, 16);

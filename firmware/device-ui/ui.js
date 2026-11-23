@@ -31,14 +31,17 @@ function start() {
   doc.body.insertAdjacentHTML('afterbegin', ICONS + `<div class="wrap">
   <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
   <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
-  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal &amp; plan</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
+  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-ai" id="ainav" hidden>${ic('now')}AI</a><a href="#s-fuel">${ic('hopper')}Charcoal &amp; plan</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
   <section class="sect" id="s-food"><h2 class="sec">${ic('food')}Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
   <section class="sect" id="s-pit"><h2 class="sec">${ic('grill')}Pit &amp; program</h2><div class="grid g-1-2"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
+  <section class="sect" id="s-ai" hidden><h2 class="sec">${ic('now')}AI pitmaster <small id="aisub"></small></h2><div class="grid g-pair"><div class="card" id="aiadv"></div><div class="card" id="aiplan"></div></div><div class="grid g-pair" style="margin-top:12px"><div class="card" id="ailabel"></div></div>
+    <input id="aicam" type="file" accept="image/*" capture="environment" hidden><input id="aifile" type="file" accept="image/*" hidden></section>
   <section class="sect" id="s-fuel"><h2 class="sec">${ic('hopper')}Charcoal &amp; plan</h2><div class="grid g-pair"><div class="card" id="fuel"></div><div class="card" id="plan"></div></div></section>
   <section class="sect" id="s-chart"><h2 class="sec">${ic('chart')}Temperatures <span class="seg" id="range"></span></h2><div class="card"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></div></section>
   <section class="sect" id="s-journal"><h2 class="sec">${ic('book')}Cook journal</h2><div class="grid g-2-1"><div class="card" id="journal"></div><div class="card" id="share"></div></div></section>
   <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><h3 class="sub">Grill connection</h3><div class="grid g-pair"><div class="card" id="conn"></div><div class="card" id="sources"></div></div>
     <h3 class="sub">Phone and weather</h3><div class="grid g-pair"><div class="card" id="notif"></div><div class="card" id="place"></div></div>
+    <h3 class="sub">AI</h3><div class="grid g-pair"><div class="card" id="aisetup"></div></div>
     <h3 class="sub">This controller</h3><div class="grid g-pair"><div class="card" id="lock"></div><div class="card" id="dev"></div></div></section>
   <footer id="foot"></footer></div><div id="toast" role="status" aria-live="polite"></div>`);
   wire();
@@ -47,6 +50,8 @@ function start() {
   loadHistory(); setInterval(loadHistory, 60000);
   loadJournal(); setInterval(loadJournal, 60000);
   loadCommunity(); setInterval(loadCommunity, 3600e3);
+  loadAI(); setInterval(() => { if (!AI || !Object.values(AI.busy || {}).some(Boolean)) loadAI(); }, 60000);
+  ['aicam', 'aifile'].forEach(id => { const f = $(id); f.addEventListener('change', () => { aiPhoto(f.files[0]); f.value = ''; }); });
   setInterval(() => { render(); }, 5000);  // the connection dot and "ago" texts
 }
 
@@ -198,6 +203,22 @@ const ACT = {
     loadLocal();
   },
   async logout() { try { await local('logout', {}); } catch (e) { /* gone anyway */ } TOK.set(''); loadLocal(); toast('Locked'); },
+  async aiprov(el) { await aiPost('ai/settings', { provider: el.value }); },
+  async aimodel() { const f = $('aimodel'); if (f && await aiPost('ai/settings', { model: f.value.trim() })) { delete f.dataset.dirty; toast('Model saved'); } },
+  async aiauto(el) { await aiPost('ai/settings', { auto: el.dataset.v === '1' }); },
+  async aitest() { await aiPost('ai/test', {}); },
+  async aiadvise() { await aiPost('ai/advise', {}); },
+  async aiplan() {
+    const f = $('aiplanin'), q = f ? f.value.trim() : '';
+    if (!q) return toast('Describe the cook first');
+    if (await aiPost('ai/plan', { request: q })) delete f.dataset.dirty;
+  },
+  async aiload() { if (await aiPost('ai/load-program', {})) toast('Program loaded: check it under Pit & program, then Start'); },
+  async aiassign(el) {
+    const sel = $('aip-' + el.dataset.i), n = sel ? sel.value : 1;
+    if (await aiPost('ai/assign', { index: +el.dataset.i, probe: +n })) toast('Set on Food ' + n);
+  },
+  aipick(el) { const f = $(el.dataset.k === 'cam' ? 'aicam' : 'aifile'); if (f) f.click(); },
   async secret(el) {
     const k = el.dataset.k, f = $('sec-' + k), v = el.dataset.clear ? '' : (f ? f.value.trim() : '');
     if (!el.dataset.clear && !v) return toast('Type it first');
@@ -274,14 +295,16 @@ function wire() {
   doc.addEventListener('keydown', e => { const g = e.target.closest && e.target.closest('#grillpic [data-go]'); if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); g.dispatchEvent(new MouseEvent('click', { bubbles: true })); } });
   doc.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b && !b.disabled && ACT[b.dataset.a]) ACT[b.dataset.a](b); });
   doc.addEventListener('change', e => {
-    const t = e.target, n = t.dataset && t.dataset.n; if (!n) return;
+    const t = e.target, n = t.dataset && t.dataset.n;
+    if (t.dataset && t.dataset.c === 'aiprov') { ACT.aiprov(t); return; }
+    if (t.dataset && t.dataset.c === 'route') { local('settings', { route: t.value }).then(d => { LOCAL = d; renderLocal(); toast('Notifications: ' + t.selectedOptions[0].text); }).catch(err => { if (/PIN/.test(err.message)) needPin(); else toast(err.message); }); return; }
+    if (!n) return;
     if (n === 'Program preset') { progEd.state.touched = false; progEd.state.sent = null; }  // the editor follows the preset
-    if (t.dataset.c === 'route') { local('settings', { route: t.value }).then(d => { LOCAL = d; renderLocal(); toast('Notifications: ' + t.selectedOptions[0].text); }).catch(err => { if (/PIN/.test(err.message)) needPin(); else toast(err.message); }); return; }
     if (t.dataset.c === 'select') post('select', n, 'set', { option: t.value }).then(ok => ok && toast(n + ': ' + t.value));
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
   doc.addEventListener('input', e => { if (e.target.id) e.target.dataset.dirty = '1'; });
-  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo' }[e.target.id]; if (k) ACT[k](); });
+  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
   doc.addEventListener('focusout', () => setTimeout(render, 0));  // redraw what was held back while a field had focus
   // section bar: mark the section in view
   const links = [...doc.querySelectorAll('.secbar a')];
@@ -873,7 +896,7 @@ function wifiSetup() {
 // ---------------------------------------------------------------- without Home Assistant: PIN, notifications, place
 let geoHits = [];
 function renderLocal() {
-  renderPlan(); renderShare();
+  renderPlan(); renderShare(); renderAI();
   const L = LOCAL;
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
@@ -1047,6 +1070,76 @@ function renderSetup(u) {
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}
     <p class="note"><a href="?classic">Full device view</a>: ESPHome's standard page with every entity and the logs (loads from the internet).</p>`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
+}
+
+// ---------------------------------------------------------------- the AI on the controller (stage 3)
+let AI = null, aiPoll = 0;
+const AI_PROVIDERS = [['', 'Off'], ['gemini', 'Google Gemini'], ['claude', 'Anthropic Claude'], ['openai', 'OpenAI']];
+const AI_KEYS = { gemini: 'aistudio.google.com → Get API key', claude: 'console.anthropic.com → API keys', openai: 'platform.openai.com → API keys' };
+async function loadAI() {
+  try { AI = await local('ai'); } catch (e) { AI = null; }
+  renderAI();
+  clearTimeout(aiPoll);
+  if (AI && Object.values(AI.busy || {}).some(Boolean)) aiPoll = setTimeout(loadAI, 3000);  // an answer is on its way
+}
+async function aiPost(path, body) {
+  try { AI = await local(path, body); renderAI(); clearTimeout(aiPoll); aiPoll = setTimeout(loadAI, 2500); return true; }
+  catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); return false; }
+}
+const aiWhen = t => t ? `<span class="muted small">${atClock(t)}</span>` : '';
+const aiRecs = list => (Array.isArray(list) ? list : []).map(r => `<div class="row"><span><b>${esc(r.title || '')}</b>${r.detail ? `<br><span class="muted small">${esc(r.detail)}</span>` : ''}</span><span class="r small">${esc(r.when || '')}</span></div>`).join('');
+// A photo shrunk in the browser (about 1 MP JPEG) so it fits the controller's memory.
+async function aiPhoto(file) {
+  if (!file) return;
+  try {
+    const bmp = await createImageBitmap(file), k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+    const c = doc.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    let q = 0.8, url = c.toDataURL('image/jpeg', q);
+    while (url.length > 360000 && q > 0.35) { q -= 0.15; url = c.toDataURL('image/jpeg', q); }
+    await aiPost('ai/label', { image: url.slice(url.indexOf(',') + 1) });
+  } catch (e) { toast('Couldn\'t read that photo'); }
+}
+function renderAI() {
+  const L = LOCAL, A = AI, sect = $('s-ai'), nav = $('ainav');
+  const ready = !!(A && L && A.provider && A.key);
+  if (sect) sect.hidden = !ready;
+  if (nav) nav.hidden = !ready;
+  if (!A || !L) { put('aisetup', L ? '<h3>AI pitmaster</h3><p class="note">The AI on the controller needs firmware 0.2.31 or later.</p>' : ''); return; }
+  const busy = A.busy || {}, au = L.authed;
+  const lockNote = what => `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page (Setup → This page's PIN) to ${what}.</p>`;
+  put('aisetup', `<h3><span>AI pitmaster</span>${ready ? '<span class="chip ok">on</span>' : '<span class="chip">off</span>'}</h3>
+    <p class="note" style="margin-top:0">Advice during a cook, Plan with AI and reading package labels, with your own key: the provider charges per question
+      (pennies a cook). The controller sends the cook's numbers and your journal notes; never your area, Wi-Fi or other keys.</p>
+    ${au ? `<div class="row"><span>Provider</span><select data-c="aiprov" aria-label="AI provider">${AI_PROVIDERS.map(([v, t]) => `<option value="${v}"${A.provider === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+      ${A.provider ? `<div class="row"><span>API key<br><span class="muted small">${esc(AI_KEYS[A.provider] || '')}</span></span><span class="entry"><input id="sec-ai_key" type="password" autocomplete="off" placeholder="${A.key ? 'set · type to replace' : 'paste the key'}" aria-label="AI API key" style="width:160px"><button class="btn" data-a="secret" data-k="ai_key">Save</button></span></div>
+      <div class="row"><span>Model<br><span class="muted small">default ${esc(A.default_model)}</span></span><span class="entry"><input id="aimodel" type="text" autocomplete="off" spellcheck="false" maxlength="47" value="${esc(A.model === A.default_model ? '' : A.model)}" placeholder="${esc(A.default_model)}" style="width:160px" aria-label="AI model"><button class="btn" data-a="aimodel">Save</button></span></div>
+      ${A.key ? `<div class="btns"><button class="btn" data-a="aitest"${busy.test ? ' disabled' : ''}>${busy.test ? 'Checking…' : 'Test the key'}</button><button class="btn" data-a="secret" data-k="ai_key" data-clear="1">Remove the key</button></div>` : ''}
+      ${A.test ? `<p class="note">${esc(A.test)}</p>` : ''}` : ''}` : lockNote('set up the AI')}`);
+  if (!ready) return;
+  put('aisub', busy.advise || busy.plan || busy.label ? 'thinking…' : esc((AI_PROVIDERS.find(p => p[0] === A.provider) || [])[1] || ''));
+  const adv = A.advice, err = A.error && !busy.advise && !busy.plan && !busy.label ? `<p class="err" role="alert">${esc(A.error)}</p>` : '';
+  put('aiadv', `<h3><span>Second opinion</span>${adv ? aiWhen(adv.at) : ''}</h3>
+    ${adv ? `<p style="margin:0 0 6px">${esc(adv.summary || '')}</p>${adv.suggestion ? `<p class="note" style="margin:0 0 6px"><b>Next:</b> ${esc(adv.suggestion)}</p>` : ''}
+      ${typeof adv.finish_estimate_min === 'number' ? row('AI\'s finish estimate', '~' + mins(adv.finish_estimate_min)) : ''}${aiRecs(adv.recommendations)}`
+    : '<p class="note" style="margin-top:0">Ask during a cook: it reads the pit, the probes, the weather, this grill\'s past cooks and your journal.</p>'}
+    ${err}
+    ${au ? `<div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>
+      <div class="row"><span>Every ${fmt(A.interval)} min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg${A.auto ? ' on' : ''}" data-a="aiauto" data-v="${A.auto ? 0 : 1}" role="switch" aria-checked="${!!A.auto}" aria-label="Ask the AI every ${fmt(A.interval)} minutes during a cook"></button></div>` : lockNote('ask the AI')}`);
+  const pl = A.plan;
+  put('aiplan', `<h3><span>Plan with AI</span>${pl ? aiWhen(pl.at) : ''}</h3>
+    ${au ? `<textarea id="aiplanin" rows="2" maxlength="600" style="width:100%;box-sizing:border-box" placeholder="e.g. 9 lb pork shoulder, eating at 6 pm Saturday, 8 people" aria-label="Describe the cook"></textarea>
+      <div class="btns"><button class="btn pri" data-a="aiplan"${busy.plan ? ' disabled' : ''}>${busy.plan ? 'Planning…' : 'Plan it'}</button></div>` : lockNote('plan with the AI')}
+    ${pl ? `<p style="margin:8px 0 6px">${esc(pl.summary || '')}</p>${pl.light_at ? row('Light the grill', esc(pl.light_at)) : ''}${aiRecs(pl.steps)}
+      ${pl.program ? `<details class="more" data-k="aiprog"><summary>Its cook program</summary><pre class="small" style="white-space:pre-wrap;margin:6px 0">${esc(pl.program)}</pre></details>
+        ${au ? '<div class="btns"><button class="btn" data-a="aiload">Load as program</button></div>' : ''}` : ''}` : ''}`);
+  const items = (A.labels && Array.isArray(A.labels.items)) ? A.labels.items : [];
+  const slots = [1, 2, 3, 4, 5, 6].filter(i => E('select', 'Food ' + i + ' protein'));
+  put('ailabel', `<h3><span>What's cooking</span>${A.labels ? aiWhen(A.labels.at) : ''}</h3>
+    <p class="note" style="margin-top:0">A photo of the package label: the AI reads the cut and weight, and you set them on a Food slot in one tap.</p>
+    ${au ? `<div class="btns"><button class="btn pri" data-a="aipick" data-k="cam"${busy.label ? ' disabled' : ''}>${busy.label ? 'Reading…' : 'Take a photo'}</button><button class="btn" data-a="aipick" data-k="file"${busy.label ? ' disabled' : ''}>Choose a photo</button></div>` : lockNote('read a label')}
+    ${items.map((it, i) => `<div class="row"><span><b>${esc(it.name || it.profile || 'Item')}</b><br><span class="muted small">${esc(it.profile || '')}${typeof it.weight_lb === 'number' ? ' · ' + fmt(it.weight_lb, 1) + ' lb' : ''}</span></span>
+      ${au && slots.length ? `<span class="entry"><select id="aip-${i}" aria-label="Food slot for ${esc(it.name || 'this item')}">${slots.map(n => `<option value="${n}"${n === Math.min(i + 1, slots[slots.length - 1]) ? ' selected' : ''}>Food ${n}</option>`).join('')}</select><button class="btn" data-a="aiassign" data-i="${i}">Set</button></span>` : ''}</div>`).join('')}`);
 }
 
 // Run last: everything above (let/const) must be initialised first.

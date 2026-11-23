@@ -59,7 +59,10 @@ class Handler : public AsyncWebHandler {
   void handleBody(AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) override {
     if (index == 0)
       this->body_.clear();
-    if (this->body_.size() + len <= 4096)
+    // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body.
+    char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
+    const bool photo = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0;
+    if (this->body_.size() + len <= (photo ? 400000u : 4096u))
       this->body_.append(reinterpret_cast<const char *>(data), len);
   }
 
@@ -122,8 +125,10 @@ void Standalone::setup() {
     ESP_LOGW(TAG, "No web server: the device page's PIN and settings are unavailable");
   }
 #ifdef USE_ESP32
-  this->jobs_sem_ = xSemaphoreCreateCounting(16, 0);
+  this->jobs_sem_[0] = xSemaphoreCreateCounting(16, 0);
+  this->jobs_sem_[1] = xSemaphoreCreateCounting(8, 0);
   xTaskCreate(Standalone::worker_task_, "standalone_http", 8192, this, 2, nullptr);
+  xTaskCreate(Standalone::worker_task_ai_, "standalone_ai", 8192, this, 1, nullptr);
 #endif
 }
 
@@ -324,20 +329,23 @@ void Standalone::fetch_weather_() {
 void Standalone::queue_(Job j) {
 #ifdef USE_ESP32
   {
-    std::lock_guard<std::mutex> g(this->jobs_lock_);
-    if (this->jobs_.size() >= 12) {
+    const int lane = j.lane ? 1 : 0;
+    std::lock_guard<std::mutex> g(this->jobs_lock_[lane]);
+    if (this->jobs_[lane].size() >= 12) {
       ESP_LOGW(TAG, "Too many outgoing requests waiting; dropped %s", j.what.c_str());
       return;
     }
-    this->jobs_.push_back(std::move(j));
+    this->jobs_[lane].push_back(std::move(j));
+    xSemaphoreGive(static_cast<SemaphoreHandle_t>(this->jobs_sem_[lane]));
   }
-  xSemaphoreGive(static_cast<SemaphoreHandle_t>(this->jobs_sem_));
 #else
   ESP_LOGD(TAG, "(host build) would send %s to %s", j.what.c_str(), j.url.c_str());
 #endif
 }
 
-void Standalone::worker_task_(void *arg) { static_cast<Standalone *>(arg)->worker_(); }
+void Standalone::worker_task_(void *arg) { static_cast<Standalone *>(arg)->worker_lane_(0); }
+void Standalone::worker_task_ai_(void *arg) { static_cast<Standalone *>(arg)->worker_lane_(1); }
+void Standalone::worker_() { this->worker_lane_(0); }
 
 #ifdef USE_ESP32
 static esp_err_t collect_(esp_http_client_event_t *e) {
@@ -350,23 +358,23 @@ static esp_err_t collect_(esp_http_client_event_t *e) {
 }
 #endif
 
-void Standalone::worker_() {
+void Standalone::worker_lane_(int lane) {
 #ifdef USE_ESP32
   for (;;) {
-    xSemaphoreTake(static_cast<SemaphoreHandle_t>(this->jobs_sem_), portMAX_DELAY);
+    xSemaphoreTake(static_cast<SemaphoreHandle_t>(this->jobs_sem_[lane]), portMAX_DELAY);
     Job j;
     {
-      std::lock_guard<std::mutex> g(this->jobs_lock_);
-      if (this->jobs_.empty())
+      std::lock_guard<std::mutex> g(this->jobs_lock_[lane]);
+      if (this->jobs_[lane].empty())
         continue;
-      j = std::move(this->jobs_.front());
-      this->jobs_.pop_front();
+      j = std::move(this->jobs_[lane].front());
+      this->jobs_[lane].pop_front();
     }
     std::string resp;
     esp_http_client_config_t cfg{};
     cfg.url = j.url.c_str();
     cfg.method = j.method == "POST" ? HTTP_METHOD_POST : j.method == "DELETE" ? HTTP_METHOD_DELETE : HTTP_METHOD_GET;
-    cfg.timeout_ms = 15000;
+    cfg.timeout_ms = lane ? 90000 : 15000;  // an AI answer can take a minute
     cfg.crt_bundle_attach = esp_crt_bundle_attach;  // real certificate checks
     cfg.event_handler = collect_;
     cfg.user_data = &resp;
@@ -392,8 +400,10 @@ void Standalone::worker_() {
       std::snprintf(result, sizeof(result), code >= 200 && code < 300 ? "sent (HTTP %d)" : "refused (HTTP %d)", code);
     ESP_LOGI(TAG, "%s: %s", j.what.c_str(), result);
     std::lock_guard<std::mutex> g(this->results_lock_);
-    if (j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0 || j.what == "aggregates") {
-      this->done_.push_back({j.what, code, j.what == "aggregates" && code == 200 ? std::move(resp) : std::string()});
+    if (j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0 || j.what == "aggregates" ||
+        j.what.rfind("ai:", 0) == 0) {
+      bool keep = (j.what == "aggregates" && code == 200) || j.what.rfind("ai:", 0) == 0;
+      this->done_.push_back({j.what, code, keep ? std::move(resp) : std::string()});
       continue;
     }
     if (j.what == "ntfy") this->last_result_[0] = result;
@@ -496,6 +506,8 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     return this->journal_json_(authed);
   if (method == "GET" && path == "community")
     return this->community_json_();
+  if (method == "GET" && path == "ai")
+    return this->ai_json_();
   if (method != "POST") {
     status = 404;
     return err_json("not found");
@@ -612,6 +624,8 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     this->save_pending_ = true;
     return this->status_json_(true);
   }
+  if (path.rfind("ai/", 0) == 0)
+    return this->api_ai_(path, in, status);
   if (path == "plan" || path == "fuel" || path.rfind("journal/", 0) == 0 || path.rfind("share/", 0) == 0)
     return this->api_cook_(path, in, authed, status);
   if (path == "test-notify") {

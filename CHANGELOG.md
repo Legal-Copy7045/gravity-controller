@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.31] - 2026-11-23
+
+Running without Home Assistant, part 3: the AI on the controller, with your own key (docs/standalone.md).
+- **Providers:** Google Gemini, Anthropic Claude or OpenAI (Setup → AI). The key is write-only, like the
+  notification keys; **Test the key** checks it. The model can be changed (defaults: gemini-2.5-flash,
+  claude-opus-5-5, gpt-4.1-mini).
+- **AI pitmaster:** a second opinion on the live cook (pit, probes, weather, this grill's past cooks, your journal and
+  the Open Pitmaster averages), on request or every 30 minutes during a cook (off unless turned on).
+- **Plan with AI:** describe the cook; it suggests when to light up and the steps, and writes a cook program you can
+  load with one tap.
+- **What's cooking:** take or choose a photo of the package label; it reads the cut and weight, and sets them on a
+  Food slot.
+- AI calls run in their own lane, so a slow answer never holds up a notification.
+- Fix: the controller page's "Send them" menu (where notifications go) now saves.
+
 ## [0.2.30] - 2026-11-23
 
 The controller's page, tidied (it was all over the place on a wide screen):

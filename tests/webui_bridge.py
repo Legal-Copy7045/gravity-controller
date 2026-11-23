@@ -233,6 +233,9 @@ class Local:
                                                                             "telegram": False, "ai": False},
                   "location": False, "tz": False, "lat": None, "lon": None,
                   "plan": {"serve_by": 0, "rest_min": 60, "now": 0}}
+        self.ai = {"provider": "", "model": "", "default_model": "", "auto": False, "interval": 30, "error": "",
+                   "test": "", "busy": {"advise": False, "plan": False, "label": False, "test": False}}
+        self.ai_calls = []
         rec = {"v": 1, "id": "0123456789abcdef0123456789abcdef", "grill": "gravity980", "release": "0.2.29",
                "season": "autumn", "cut": "Pork shoulder", "weight_lb": 8.5, "wrapped": True, "pit_f": 250,
                "target_f": 203, "stall_h": 3.1, "total_h": 11.6, "outside_f": 35, "rating": None, "tags": []}
@@ -271,6 +274,8 @@ class Local:
             if path == "community":
                 return web.json_response({"cooks": 42, "updated": "2026-11-23", "groups": [
                     {"cut": "Pork shoulder", "line": "Pork shoulder 8-10 lb at 225-255°F: typically 11.2 h; 12 cooks"}]})
+            if path == "ai":
+                return web.json_response(self.ai_json())
             return web.json_response(self.status(request))
         body = await request.json() if request.can_read_body else {}
         err = lambda m, c=400: web.json_response({"error": m}, status=c)  # noqa: E731
@@ -293,6 +298,8 @@ class Local:
             return err("Set a PIN for the device page first", 409)
         if not self.authed(request):
             return err("Enter the PIN", 401)
+        if path.startswith("ai/"):
+            return self.ai_post(path, body, err)
         if path == "secret":
             k = body.get("name", "").split("_")[0]
             self.s["set"][k] = bool(body.get("value"))
@@ -341,6 +348,59 @@ class Local:
         else:
             return err("not found", 404)
         return web.json_response(self.status(request))
+
+
+def _ai_json(self):
+    return {**self.ai, "key": self.s["set"]["ai"]}
+
+
+DEFAULTS = {"gemini": "gemini-2.5-flash", "claude": "claude-opus-5-5", "openai": "gpt-4.1-mini"}
+
+
+def _ai_post(self, path, body, err):
+    """The controller answers at once and the AI later; the stand-in answers straight away."""
+    a = self.ai
+    self.ai_calls.append((path, body))
+    if path == "ai/settings":
+        if "provider" in body:
+            a["provider"], a["model"] = body["provider"], ""
+            a["default_model"] = DEFAULTS.get(body["provider"], "")
+        if "model" in body:
+            a["model"] = body["model"]
+        if "auto" in body:
+            a["auto"] = body["auto"]
+        if not a["model"]:
+            a["model"] = a["default_model"]
+        return web.json_response(self.ai_json())
+    if not (a["provider"] and self.s["set"]["ai"]):
+        return err("Set up the AI first (Setup > AI: provider and key)")
+    if path == "ai/test":
+        a["test"] = f"Working ({a['provider']}, {a['model']})"
+    elif path == "ai/advise":
+        a["advice"] = {"at": 1795300000, "summary": "The pit is steady and the pork is in the stall.",
+                       "suggestion": "Wrap at 170F to push through.", "finish_estimate_min": 300,
+                       "recommendations": [{"when": "170F", "title": "Wrap", "detail": "Butcher paper keeps the bark."}]}
+    elif path == "ai/plan":
+        if not body.get("request"):
+            return err("Describe the cook (up to 600 characters)")
+        a["plan"] = {"at": 1795300000, "summary": "Start at 6 am for 6 pm.", "light_at": "05:30",
+                     "steps": [{"when": "06:00", "title": "Food on", "detail": "Fat cap up."}],
+                     "program": "name: AI pork; pit 250F until food1 >= 165F for 30m; pit 275F until food1 >= 203F; hold 200F"}
+    elif path == "ai/label":
+        if len(body.get("image", "")) < 100:
+            return err("Send one photo (the page shrinks it first)")
+        a["labels"] = {"at": 1795300000, "items": [{"name": "Bone-in pork butt", "profile": "Pork shoulder", "weight_lb": 8.4}]}
+    elif path == "ai/assign":
+        self.assigned = (body.get("index"), body.get("probe"))
+    elif path == "ai/load-program":
+        self.loaded = a["plan"]["program"]
+    else:
+        return err("not found", 404)
+    return web.json_response(self.ai_json())
+
+
+Local.ai_json = _ai_json
+Local.ai_post = _ai_post
 
 
 async def main():

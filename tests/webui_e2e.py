@@ -205,6 +205,15 @@ def run_page(browser, width, height, shots):
     PAGE = None
 
 
+def _png(w, h):
+    """A small valid PNG (solid colour) for the label photo."""
+    import struct, zlib
+    raw = b"".join(b"\x00" + bytes((200, 120, 80)) * w for _ in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)  # noqa: E731
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
 def pin_flow(browser):
     """The device page's PIN: set it, store a key (write-only), lock, refused changes, unlock."""
     print("-- PIN")
@@ -287,6 +296,40 @@ def pin_flow(browser):
     pg.click("#journal .sharebox [data-a=jshare]")
     pg.wait_for_function("document.querySelector('#journal').innerText.includes('shared')", timeout=5000)
     check(True, "shared from the controller's page")
+    # The notification route menu saves (it used to be ignored: no data-n).
+    pg.select_option("#notif select[data-c=route]", "both")
+    pg.wait_for_timeout(500)
+    st = json.loads(urllib.request.urlopen(BASE + "/local/status", timeout=5).read())
+    check(st["route"] == "both", f"notification route saved ({st['route']})")
+    # Stage 3: the AI on the controller.
+    check(pg.locator("#s-ai").is_hidden(), "the AI section stays hidden until it's set up")
+    pg.select_option("#aisetup select[data-c=aiprov]", "claude")
+    pg.wait_for_function("document.querySelector('#aisetup').innerText.includes('claude-opus-5-5')", timeout=5000)
+    check(True, "AI provider picked; its default model shown")
+    pg.fill("#sec-ai_key", "sk-test-not-a-real-key-123")
+    pg.click("#aisetup [data-a=secret][data-k=ai_key]")
+    pg.wait_for_function("!document.querySelector('#s-ai').hidden", timeout=5000)
+    check("sk-test-not-a-real-key-123" not in pg.content(), "the AI key is never shown back")
+    pg.click("#aisetup [data-a=aitest]")
+    pg.wait_for_function("document.querySelector('#aisetup').innerText.includes('Working')", timeout=5000)
+    check(True, "Test the key")
+    pg.click("#aiadv [data-a=aiadvise]")
+    pg.wait_for_function("document.querySelector('#aiadv').innerText.includes('stall')", timeout=5000)
+    check("Wrap" in pg.inner_text("#aiadv"), "the AI's second opinion is shown")
+    pg.fill("#aiplanin", "9 lb pork shoulder for 6 pm")
+    pg.click("#aiplan [data-a=aiplan]")
+    pg.wait_for_function("document.querySelector('#aiplan [data-a=aiload]')", timeout=5000)
+    pg.click("#aiplan [data-a=aiload]")
+    pg.wait_for_timeout(400)
+    check("Program loaded" in pg.inner_text("#toast"), "Plan with AI: Load as program")
+    png = _png(64, 48)
+    pg.set_input_files("#aifile", files=[{"name": "label.png", "mimeType": "image/png", "buffer": png}])
+    pg.wait_for_function("document.querySelector('#ailabel').innerText.includes('pork butt')", timeout=8000)
+    check(True, "a label photo is read")
+    if pg.locator("#ailabel [data-a=aiassign]").count():
+        pg.click("#ailabel [data-a=aiassign]")
+        pg.wait_for_timeout(400)
+        check("Set on Food" in pg.inner_text("#toast"), "the label's cut and weight set on a Food slot")
     check(not errors, f"no page errors in the PIN flow {errors[:3]}")
     ctx.close()
 
