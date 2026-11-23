@@ -1,0 +1,14 @@
+# The controller without Home Assistant (docs/standalone.md): base.yaml alone, no API. Checked in CI (config) and
+# compiled before releases that touch components/standalone.
+substitutions:
+  name: gravity980-noha
+  friendly_name: Smoker
+packages:
+  smoker: !include ../../firmware/base.yaml
+external_components:
+  - source:
+      type: local
+      path: ../../components
+wifi:
+  ssid: test
+  password: test-password

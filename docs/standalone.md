@@ -8,6 +8,27 @@ The controller runs a cook on its own:
 
 This page covers what replaces Home Assistant for the rest. Everything here also works alongside Home Assistant.
 
+## Getting started without Home Assistant
+
+1. **Flash it** from the [web installer](https://legal-copy7045.github.io/gravity-controller/) and give it your Wi-Fi
+   (docs/install.md, step 1).
+2. **Open `http://gravity980.local`** on your phone (same Wi-Fi). A **Get started** list walks you through the rest;
+   each item opens the card that does it:
+   - **Protect this page with a PIN**;
+   - **Find the grill**: turn the grill on and the controller finds it over Bluetooth (on Wi-Fi, enter its IP);
+   - **Alerts on your phone**: **Set up ntfy in one tap** makes a long random topic and shows it once; install the
+     ntfy app, tap **+** and subscribe to it, then **Send a test**. Pushover and Telegram are under Setup;
+   - **Your time zone and weather**;
+   - **AI pitmaster** (optional): your own Gemini, Claude or OpenAI key.
+3. The list goes away once the first four are done, or with **Hide this**. Open `http://gravity980.local/?start` to
+   see it again.
+
+**Building your own firmware without Home Assistant?** Use `firmware/base.yaml` instead of `firmware/core.yaml`:
+- `core.yaml` is `base.yaml` plus `home-assistant.yaml`: the API, Home Assistant's clock, weather and thermometers,
+  the Bluetooth proxy, and the events Home Assistant listens for;
+- `base.yaml` alone has no API at all;
+- `tests/configs/no-ha.yaml` is checked on every build.
+
 ## The device page's PIN
 
 Anyone on your Wi-Fi can open the controller's page. **Set a PIN** (Setup → This page's PIN) and every change made

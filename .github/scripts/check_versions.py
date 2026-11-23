@@ -23,7 +23,7 @@ def main() -> None:
         "custom_components/smoker/manifest.json": json.loads(
             (REPO / "custom_components/smoker/manifest.json").read_text()
         )["version"],
-        "firmware/core.yaml": yaml_version("firmware/core.yaml"),
+        "firmware/base.yaml": yaml_version("firmware/base.yaml"),
     }
     changelog = (REPO / "CHANGELOG.md").read_text()
     found["CHANGELOG.md"] = expected if f"## [{expected}]" in changelog else "no section"

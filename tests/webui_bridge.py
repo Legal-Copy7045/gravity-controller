@@ -5,7 +5,7 @@ ESPHome's host platform has no web_server (2026.11 limits it to ESP32/ESP8266/BK
 this serves the same HTTP interface from the host firmware's native API, mimicking web_server v3 on ESP-IDF
 (esphome/components/web_server/web_server.cpp, web_server_idf/sse_chunk.cpp):
 
-  GET  /                          the index ESPHome builds (build_index_html() of core.yaml's web_server block)
+  GET  /                          the index ESPHome builds (build_index_html() of base.yaml's web_server block)
   GET  /0.js, /0.css              js_include / css_include, gzipped (Content-Encoding: gzip)
   GET  /events                    SSE: "ping" {title, comment, ota, log, lang, uptime} (retry 30000), then one
                                   "state" event per entity with detail (domain, name, icon, entity_category,
@@ -37,7 +37,7 @@ from aioesphomeapi import (APIClient, BinarySensorInfo, ButtonInfo, NumberInfo, 
                            TextInfo, TextSensorInfo)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CORE = os.path.join(ROOT, "firmware", "core.yaml")
+CORE = os.path.join(ROOT, "firmware", "base.yaml")
 DOMAINS = [(BinarySensorInfo, "binary_sensor"), (SensorInfo, "sensor"), (SwitchInfo, "switch"), (ButtonInfo, "button"),
            (TextSensorInfo, "text_sensor"), (NumberInfo, "number"), (TextInfo, "text"), (SelectInfo, "select")]
 
@@ -50,7 +50,7 @@ AnyTag.add_multi_constructor("!", lambda loader, suffix, node: None)
 
 
 def web_server_config():
-    """core.yaml's web_server block, with ESPHome's defaults for version 3."""
+    """base.yaml's web_server block, with ESPHome's defaults for version 3."""
     with open(CORE, encoding="utf-8") as f:
         conf = yaml.load(f, Loader=AnyTag)["web_server"]
     conf.setdefault("css_url", "")

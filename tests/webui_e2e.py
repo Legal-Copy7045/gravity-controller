@@ -225,6 +225,12 @@ def pin_flow(browser):
     pg.goto(BASE + "/")
     pg.wait_for_selector("#lock h3", timeout=15000)
     check("not set" in pg.inner_text("#lock"), "a new controller asks for a PIN")
+    # First run without Home Assistant: the Get started checklist (the stand-in reports Home Assistant connected).
+    pg.goto(BASE + "/?start")
+    pg.wait_for_selector("#lock h3", timeout=15000)
+    check(pg.locator("#s-start").is_visible() and "Protect this page" in pg.inner_text("#start"), "Get started shows without Home Assistant")
+    check(pg.locator("#start [data-a=quickntfy]").count() == 0, "no one-tap ntfy before a PIN")
+
     check("Set a PIN" in pg.inner_text("#notif"), "keys can't be stored before a PIN")
     pg.fill("#pin1", "123456")
     pg.fill("#pin2", "123456")
@@ -241,6 +247,18 @@ def pin_flow(browser):
     check("PIN set" in pg.inner_text("[data-sect=setup] h2"), "Setup folds to a summary once a PIN is set")
     pg.click("[data-sect=setup] h2 .fold")
     check(not pg.evaluate("document.querySelector('[data-sect=setup]').classList.contains('folded')"), "Setup opens from its heading")
+    check("2 of 4" in pg.inner_text("#start"), f"Get started counts the PIN and the grill: {pg.inner_text('#start')[:60]!r}")
+    pg.click("#start [data-a=quickntfy]")
+    pg.wait_for_function("document.querySelector('#start code')", timeout=5000)
+    topic = pg.inner_text("#start code")
+    check(topic.startswith("smoker-") and len(topic) == 19, f"one-tap ntfy: a long random topic, shown once ({topic})")
+    check(json.loads(urllib.request.urlopen(BASE + "/local/status", timeout=5).read())["set"]["ntfy"], "the topic is stored")
+    pg.click("#start [data-a=hidestart]")
+    pg.goto(BASE + "/")
+    pg.wait_for_selector("#lock h3", timeout=15000)
+    check(pg.locator("#s-start").is_hidden(), "Get started stays hidden once hidden (and with Home Assistant)")
+    if pg.evaluate("document.querySelector('[data-sect=setup]').classList.contains('folded')"):
+        pg.click("[data-sect=setup] h2 .fold")
     # A key: saved, shown only as set, never read back.
     pg.click("#notif details[data-k=ntfy] summary")
     pg.fill("#sec-ntfy_topic", "smoker-test-topic-k3v9")

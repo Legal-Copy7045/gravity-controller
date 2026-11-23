@@ -176,9 +176,9 @@ EDITOR_SHOTS = os.environ.get("EDITOR_SHOTS")  # optional: where to save the edi
 
 
 def presets():
-    """The program presets from firmware/core.yaml (cook_assistant: presets:)."""
+    """The program presets from firmware/base.yaml (cook_assistant: presets:)."""
     import re
-    src = open(os.path.join(ROOT, "firmware/core.yaml"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "firmware/base.yaml"), encoding="utf-8").read()
     block = src[src.index("  presets:"):src.index("  probes:", src.index("  presets:"))]
     return [json.loads(m) for m in re.findall(r'program: ("(?:[^"\\]|\\.)*")', block)]
 

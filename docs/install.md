@@ -19,7 +19,7 @@ packages:
   smoker: github://Legal-Copy7045/gravity-controller/firmware/core.yaml@main
 external_components:
   - source: github://Legal-Copy7045/gravity-controller@main
-    components: [gravity980, cook_assistant, govee_h5198]
+    components: [gravity980, cook_assistant, govee_h5198, standalone]
     refresh: 1d
 wifi:
   ssid: !secret wifi_ssid

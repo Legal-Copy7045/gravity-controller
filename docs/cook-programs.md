@@ -47,5 +47,5 @@ runs it. The editor checks the obvious things first (a missing temperature, a pi
 The controller's page loads programs through its **Program** text, so they must fit in 255 characters there; load
 longer ones from Home Assistant.
 
-**Presets** (in `firmware/core.yaml`): Pork shoulder (Texas crutch), Brisket, Ribs, Chicken (hot & fast), Hold warm.
+**Presets** (in `firmware/base.yaml`): Pork shoulder (Texas crutch), Brisket, Ribs, Chicken (hot & fast), Hold warm.
 Pick one with **Program preset**, or type your own in **Program**, or ask the AI (`script.smoker_plan_cook`).

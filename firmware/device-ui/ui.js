@@ -31,6 +31,7 @@ function start() {
   doc.body.insertAdjacentHTML('afterbegin', ICONS + `<div class="wrap">
   <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
   <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
+  <section class="sect" id="s-start" hidden><div class="card" id="start"></div></section>
   <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-now">${ic('now')}Now</a><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-ai" id="ainav" hidden>${ic('flame')}AI</a><a href="#s-plan">${ic('plan')}Plan</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
   <section class="sect" id="s-now" data-sect="now"><div class="kpis" id="kpis"></div></section>
   <section class="sect" id="s-food" data-sect="food"><h2 class="sec">${ic('food')}Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
@@ -222,6 +223,15 @@ const ACT = {
     if (await aiPost('ai/assign', { index: +el.dataset.i, probe: +n })) toast('Set on Food ' + n);
   },
   aipick(el) { const f = $(el.dataset.k === 'cam' ? 'aicam' : 'aifile'); if (f) f.click(); },
+  opencard(el) { openCard(el.dataset.c); },
+  hidestart() { try { localStorage.setItem(WIZ_KEY, '1'); } catch (e) { /* shows again next time */ } renderStart(); },
+  // ntfy in one tap: a long random topic (anyone who knows it can read it), stored write-only, shown here once to subscribe.
+  async quickntfy() {
+    const a = new Uint8Array(12); crypto.getRandomValues(a);
+    const t = 'smoker-' + [...a].map(b => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+    try { LOCAL = await local('secret', { name: 'ntfy_topic', value: t }); newTopic = t; renderLocal(); toast('ntfy set up: subscribe to the topic in the app'); }
+    catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+  },
   async secret(el) {
     const k = el.dataset.k, f = $('sec-' + k), v = el.dataset.clear ? '' : (f ? f.value.trim() : '');
     if (!el.dataset.clear && !v) return toast('Type it first');
@@ -924,7 +934,7 @@ function wifiSetup() {
 // ---------------------------------------------------------------- without Home Assistant: PIN, notifications, place
 let geoHits = [];
 function renderLocal() {
-  renderPlan(); renderShare(); renderAI();
+  renderPlan(); renderShare(); renderAI(); renderStart();
   const L = LOCAL;
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
@@ -1098,6 +1108,42 @@ function renderSetup(u) {
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}
     <p class="note"><a href="?classic">Full device view</a>: ESPHome's standard page with every entity and the logs (loads from the internet).</p>`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
+}
+
+// ---------------------------------------------------------------- first run (no Home Assistant)
+// A "Get started" checklist for a controller used on its own: the PIN, the grill, notifications to the phone, the time
+// zone and weather, and (optionally) the AI. Hidden with Home Assistant connected, once everything is done, or when
+// dismissed in this browser. Each item opens the Setup card that does it; ntfy can be set up here in one tap.
+let newTopic = '';
+const WIZ_KEY = 'smoker-start-hidden';
+function wizHidden() { try { return localStorage.getItem(WIZ_KEY) === '1'; } catch (e) { return false; } }
+function openCard(id) {
+  const s = $('s-setup'); if (s && s.classList.contains('folded')) SECT.toggle('setup');
+  const c = $(id); if (c) setTimeout(() => c.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+function renderStart() {
+  const L = LOCAL, box = $('s-start'); if (!box) return;
+  const grill = on(E('binary_sensor', 'Grill connected'));
+  const items = L ? [
+    ['pin', 'Protect this page with a PIN', !!L.pin, 'Anyone on your Wi-Fi can open this page; a PIN stops them changing anything.', 'lock'],
+    ['grill', 'Find the grill', grill, grill ? '' : 'Turn the grill on: the controller finds it over Bluetooth by itself. On Wi-Fi? Enter its IP address under Grill link.', 'conn'],
+    ['notify', 'Alerts on your phone', !!(L.set && (L.set.ntfy || L.set.pushover || L.set.telegram)), 'Fire out, too hot, food done: straight to your phone with ntfy (free), Pushover or Telegram.', 'notif'],
+    ['time', 'Your time zone and weather', !!(L.tz && L.location), 'Clock times in your zone, and the weather for finish-time estimates.', 'place'],
+    ['ai', 'AI pitmaster (optional)', !!(L.set && L.set.ai), 'Advice during a cook, Plan with AI and label reading, with your own Gemini, Claude or OpenAI key.', 'aisetup'],
+  ] : [];
+  const need = items.filter(i => i[0] !== 'ai'), done = need.filter(i => i[2]).length;
+  // ?start shows it anyway (with Home Assistant too, or after "Hide this").
+  box.hidden = !L || (!Q.has('start') && (L.ha || wizHidden() || (done === need.length && !newTopic)));  // a new ntfy topic stays on screen
+  if (box.hidden) return;
+  const ntfy = L.authed && !L.set.ntfy && L.pin
+    ? `<div class="btns"><button class="btn pri" data-a="quickntfy">Set up ntfy in one tap</button></div>`
+    : '';
+  put('start', `<h3><span>Get started</span><span class="chip">${done} of ${need.length} done</span></h3>
+    <p class="note" style="margin-top:0">No Home Assistant? Everything works from this page. A few things to set up first:</p>
+    ${items.map(([k, t, ok, why, card]) => `<div class="row start-item${ok ? ' done' : ''}"><span><b>${ok ? '✓ ' : ''}${esc(t)}</b>${ok ? '' : `<br><span class="muted small">${esc(why)}</span>`}
+      ${k === 'notify' && !ok ? ntfy : ''}${k === 'notify' && newTopic ? `<br><span class="small">Your topic: <code>${esc(newTopic)}</code>. Install the ntfy app, tap +, and subscribe to it.</span>` : ''}</span>
+      ${ok ? '' : `<button class="btn" data-a="opencard" data-c="${card}">${k === 'pin' ? 'Set it' : 'Set up'}</button>`}</div>`).join('')}
+    <div class="btns"><button class="btn" data-a="hidestart">Hide this</button></div>`);
 }
 
 // ---------------------------------------------------------------- the AI on the controller (stage 3)

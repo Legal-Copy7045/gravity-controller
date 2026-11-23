@@ -219,3 +219,6 @@
 .gx .sect.folded h2.sec .fold svg{transform:rotate(-90deg)}
 .gx .sect.folded>:not(h2),.gx .sect.folded h2.sec .seg{display:none!important}
 .gx .sect.folded h2.sec{padding-bottom:2px}
+.gx #s-start .card{border-color:color-mix(in srgb,var(--page) 45%,var(--line))}
+.gx .start-item.done b{color:var(--ok)}
+.gx .start-item code{font:500 12.5px "JetBrains Mono",ui-monospace,monospace;background:var(--sunk);padding:1px 6px;border-radius:6px;word-break:break-all}

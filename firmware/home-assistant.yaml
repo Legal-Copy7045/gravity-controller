@@ -1,0 +1,218 @@
+# The Home Assistant side of the controller: the API (actions the HA package and dashboard call), Home Assistant's
+# clock, weather and thermometers, the Bluetooth proxy, and the events Home Assistant listens for.
+# Included by core.yaml together with base.yaml; see docs/standalone.md for running without it.
+
+api:
+  # Home Assistant sets the encryption key when you add the device.
+  encryption: {}
+  # Keep running (and cooking) when Home Assistant is away: alarms still go out through ntfy. The default would
+  # reboot the controller after 15 minutes without Home Assistant, dropping the grill link and the cook's estimates.
+  reboot_timeout: 0s
+  actions:
+    - action: load_program
+      variables:
+        program: string
+      then:
+        - lambda: id(smoker).load_program(program);
+    - action: start_program
+      then:
+        - lambda: id(smoker).start_program();
+    - action: pause_program
+      then:
+        - lambda: id(smoker).pause_program();
+    - action: resume_program
+      then:
+        - lambda: id(smoker).resume_program();
+    - action: skip_step
+      then:
+        - lambda: id(smoker).skip_step();
+    - action: stop_program
+      then:
+        - lambda: id(smoker).stop_program();
+    - action: set_pit_target
+      variables:
+        value: float
+      then:
+        - lambda: id(grill).request_target(esphome::gravity980::PROBE_PIT, value);
+    # Fuel gauge: levels in % of a full hopper.
+    - action: fuel_level          # "I looked: it's at N %" (no fuel added since the last entry)
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_level(percent);
+    - action: fuel_refilled       # "topped up, now at N %"
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_refilled(percent);
+    - action: fuel_added          # "added N % of a hopper"
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_added(percent);
+    - action: fuel_end            # "cook over, N % left"
+      variables: {percent: float}
+      then:
+        - lambda: id(smoker).fuel_end(percent);
+    # Hourly outdoor forecast from Home Assistant (minutes from now, temperature in the weather unit).
+    - action: set_forecast
+      variables:
+        minutes: float[]
+        temps: float[]
+      then:
+        - lambda: if (!id(local).weather_here()) id(smoker).set_forecast(minutes, temps);
+    # Context for the HA AI advisor: fires esphome.smoker_context with live state + cook history.
+    - action: request_context
+      then:
+        - homeassistant.event:
+            event: esphome.smoker_context
+            data:
+              state: !lambda return id(smoker).state_json();
+              history: !lambda return id(smoker).history_json();
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# Home Assistant Bluetooth proxy: the smoker controller is the closest radio to
+# Bluetooth thermometers at the grill (Govee H5198, etc.).
+bluetooth_proxy:
+  active: true
+  connection_slots: 3
+
+sensor:
+  - platform: homeassistant
+    id: ha_outdoor_temp
+    entity_id: ${weather_entity}
+    attribute: temperature
+    internal: true
+    on_value:
+      - lambda: if (!id(local).weather_here()) id(outdoor_temp).publish_state(x);
+  - platform: homeassistant
+    id: ha_outdoor_humidity
+    entity_id: ${weather_entity}
+    attribute: humidity
+    internal: true
+    on_value:
+      - lambda: if (!id(local).weather_here()) id(outdoor_humidity).publish_state(x);
+  - platform: homeassistant
+    id: ha_outdoor_wind
+    entity_id: ${weather_entity}
+    attribute: wind_speed
+    internal: true
+    on_value:
+      - lambda: if (!id(local).weather_here()) id(outdoor_wind).publish_state(x);
+  - platform: homeassistant
+    id: ha_ext_probe1
+    entity_id: sensor.smoker_external_probe_1
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe1
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe1_target
+    entity_id: sensor.smoker_external_probe_1_target
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe1_target
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe2
+    entity_id: sensor.smoker_external_probe_2
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe2
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe2_target
+    entity_id: sensor.smoker_external_probe_2_target
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe2_target
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe3
+    entity_id: sensor.smoker_external_probe_3
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe3
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe3_target
+    entity_id: sensor.smoker_external_probe_3_target
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe3_target
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe4
+    entity_id: sensor.smoker_external_probe_4
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe4
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe4_target
+    entity_id: sensor.smoker_external_probe_4_target
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe4_target
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe5
+    entity_id: sensor.smoker_external_probe_5
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe5
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe5_target
+    entity_id: sensor.smoker_external_probe_5_target
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe5_target
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe6
+    entity_id: sensor.smoker_external_probe_6
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe6
+          state: !lambda return x;
+  - platform: homeassistant
+    id: ha_ext_probe6_target
+    entity_id: sensor.smoker_external_probe_6_target
+    internal: true
+    on_value:
+      - sensor.template.publish:
+          id: ext_probe6_target
+          state: !lambda return x;
+
+cook_assistant:
+  time_id: ha_time
+  on_notify:
+    # Via Home Assistant (its package forwards to your phone), when the device page's route says so.
+    - if:
+        condition:
+          lambda: return id(local).send_via_ha();
+        then:
+          - homeassistant.event:
+              event: esphome.smoker_notify
+              data:
+                title: !lambda return title;
+                message: !lambda return message;
+                priority: !lambda return priority;
+                tag: !lambda return tag;
+  on_cook_complete:
+    - homeassistant.event:
+        event: esphome.smoker_cook_complete
+        data:
+          summary: !lambda return json;

@@ -8,7 +8,7 @@ names, credentials, his grill photo).
 
 ## Releases
 
-- `VERSION`, `custom_components/smoker/manifest.json` and `firmware/core.yaml` (`project_version`) carry the same
+- `VERSION`, `custom_components/smoker/manifest.json` and `firmware/base.yaml` (`project_version`) carry the same
   version, plus a `CHANGELOG.md` entry (`.github/scripts/check_versions.py`). A push to `main` with a new VERSION
   builds, tests and creates release `v<VERSION>` (firmware, integration zip, package zip) and the web installer
   (GitHub Pages).

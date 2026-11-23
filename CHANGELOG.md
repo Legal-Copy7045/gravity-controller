@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+Running without Home Assistant, part 4:
+- **Get started** on the controller's page: a checklist for a controller used on its own: PIN, find the grill,
+  alerts on your phone (ntfy in one tap: a random topic, shown once to subscribe), time zone and weather, and the AI
+  (optional). It hides once done or dismissed; `?start` shows it again.
+- **The firmware is split** into `base.yaml` (everything that works without Home Assistant) and
+  `home-assistant.yaml` (the API, Home Assistant's clock, weather and thermometers, the Bluetooth proxy, the events).
+  `core.yaml` includes both, so the prebuilt firmware and existing ESPHome dashboard builds behave as before.
+  - A build with no Home Assistant at all (`tests/configs/no-ha.yaml`) is checked on every release.
+- docs/standalone.md: getting started without Home Assistant.
+- docs/install.md: the ESPHome dashboard recipe lists the `standalone` component (it was missing).
+
 ## [0.2.33] - 2026-11-23
 
 - **Fix: the controller's update to 0.2.31/0.2.32 didn't stick.** The new firmware started a second background task
