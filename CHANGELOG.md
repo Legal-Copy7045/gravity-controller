@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.36] - 2026-11-23
+
+- **Plan with AI on the controller makes programs the grill can run.** The AI is told the pit's range again (it
+  had planned a 150°F keep-warm hold, which the controller refused, keeping the old program). Any step outside
+  the range is now moved into it before you see the program, with a note saying what changed. **Load as program**
+  says whether the controller took it, rather than always "loaded".
+- **The controller's page loads without a white flash or jumping:** its colours apply before the script runs,
+  and the starting layout no longer changes once the controller answers (Setup starts folded, the chart open, the
+  Right now strip stays).
+- **AI:** the default Gemini model is `gemini-flash-lite-latest`.
+
 ## [0.2.35] - 2026-11-23
 
 - **Fix: the controller restarted itself after a short drop in Home Assistant's connection** (from 0.2.32). The

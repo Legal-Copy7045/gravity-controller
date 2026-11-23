@@ -899,6 +899,24 @@ void CookAssistant::apply_outputs_(const cook::RunnerOutputs &o) {
     this->save_program_state_();
 }
 
+bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std::string &note, std::string &why) {
+  cook::Program prog;
+  if (!cook::parse_program(text, this->probe_keys(), this->fahrenheit_, prog, why))
+    return false;
+  note.clear();
+  for (size_t i = 0; i < prog.steps.size(); i++) {
+    float pc = prog.steps[i].pit_c;
+    if (std::isnan(pc) || (pc >= this->pit_min_c_ - 0.3f && pc <= this->pit_max_c_ + 0.3f))
+      continue;
+    float to = std::max(this->pit_min_c_, std::min(this->pit_max_c_, pc));
+    note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": " + this->fmt_temp_(pc) +
+            " changed to " + this->fmt_temp_(to) + (pc < to ? " (the lowest the grill holds)" : " (the grill's highest)");
+    prog.steps[i].pit_c = to;
+  }
+  fixed = cook::format_program(prog, this->probe_keys(), this->fahrenheit_);
+  return true;
+}
+
 bool CookAssistant::load_program(const std::string &text, bool persist) {
   cook::Program prog;
   std::string err;

@@ -218,6 +218,12 @@ class CookAssistant : public Component {
   /// Load a program from text. Returns false and publishes the error if invalid.
   bool load_program(const std::string &text, bool persist = true);
   bool cook_active() const { return this->cook_active_; }
+  /// A program from elsewhere (the AI): parse it and move any pit temperature into the grill's range. Returns false
+  /// (with why) if it can't be read; otherwise `fixed` is the program in this controller's syntax and `note` says
+  /// what was changed ("" if nothing).
+  bool fit_program(const std::string &text, std::string &fixed, std::string &note, std::string &why);
+  /// The grill's pit range, in this controller's unit, for prompts: "200-700°F".
+  std::string pit_range_text() const { return this->fmt_temp_(this->pit_min_c_) + " to " + this->fmt_temp_(this->pit_max_c_); }
   /// Report the outcome of an on_set_pit write (call from the on_set_pit automation).
   void pit_write_result(bool ok);
   void set_pit_range(float min_c, float max_c) {

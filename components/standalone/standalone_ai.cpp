@@ -246,7 +246,26 @@ void Standalone::ai_done_(const std::string &what, int code, const std::string &
     return;
   }
   if (kind == "advise") this->ai_advice_ = out;
-  else if (kind == "plan") this->ai_plan_ = out;
+  else if (kind == "plan") {
+    // The AI's program in this controller's syntax, with any pit temperature moved into the grill's range (it has
+    // asked for a 150 °F keep-warm before), so Load as program works. Unreadable: shown, but no Load button.
+    JsonDocument pl = json::parse_json(out);
+    std::string prog = pl["program"] | "";
+    if (!prog.empty() && this->cook_ != nullptr) {
+      std::string fixed, note, why;
+      if (this->cook_->fit_program(prog, fixed, note, why)) {
+        pl["program"] = fixed;
+        if (!note.empty()) pl["program_note"] = note;
+      } else {
+        pl["program"] = nullptr;
+        pl["program_error"] = "The AI's program couldn't be read (" + why + "); ask again";
+      }
+      out.clear();
+      serializeJson(pl, out);
+    }
+    this->ai_plan_ = out;
+    this->ai_load_.clear();
+  }
   else if (kind == "label") this->ai_labels_ = out;
   else this->ai_test_ = "Working (" + p + ", " + this->ai_model_() + ")";
   ESP_LOGI(TAG, "%s: answered", kind.c_str());
@@ -297,9 +316,10 @@ void Standalone::loop_ai_(uint32_t now) {
       }
     }
   }
-  if (!prog.empty() && this->cook_ != nullptr && !this->cook_->load_program(prog)) {
+  if (!prog.empty() && this->cook_ != nullptr) {
+    const bool ok = this->cook_->load_program(prog);
     std::lock_guard<std::recursive_mutex> g(this->lock_);
-    this->ai_error_ = "The controller couldn't read the AI's program; nothing was loaded";
+    this->ai_load_ = ok ? "loaded" : "The controller didn't take it (see the program card); the old program stays";
   }
   // The AI pitmaster every N minutes during a cook (when turned on).
   if (this->ai_.auto_advise && this->ai_ready_() && this->cook_ != nullptr && this->cook_->cook_active() &&
@@ -327,6 +347,7 @@ std::string Standalone::ai_json_() {
     o["calls_today"] = this->ai_calls_today_;
     o["daily_limit"] = 40;
     o["error"] = this->ai_error_;
+    o["load"] = this->ai_load_;  // "" (not yet), "loaded", or why it wasn't
     o["test"] = this->ai_test_;
   }).c_str();
   out.pop_back();
@@ -377,7 +398,9 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     if (!this->ai_ask_("plan",
                        std::string("You are an experienced pitmaster planning a cook on a Char-Griller Gravity 980 charcoal "
                                    "smoker. Use this grill's past cooks and the journal when they're relevant. ") +
-                           PROGRAM_HELP +
+                           PROGRAM_HELP + " The pit can be set from " +
+                           (this->cook_ != nullptr ? this->cook_->pit_range_text() : std::string("200°F to 700°F")) +
+                           " only: to keep food warm, hold at the lowest, never below it." +
                            " Reply ONLY with a JSON object: {\"summary\": two or three sentences, \"light_at\": the "
                            "clock time to light the grill or null, \"steps\": up to 6 of {\"when\", \"title\", \"detail\"}, "
                            "\"program\": a cook program for this cook in the syntax above, or null}.",
@@ -413,6 +436,7 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     std::string prog = pl["program"] | "";
     if (prog.empty()) return err(400, "This plan has no program");
     this->ai_program_ = prog;
+    this->ai_load_ = "loading";
     return this->ai_json_();
   }
   return err(404, "not found");

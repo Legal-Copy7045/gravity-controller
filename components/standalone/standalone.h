@@ -237,6 +237,7 @@ class Standalone : public Component {
   bool ai_save_{false};
   uint8_t ai_busy_{0};  // bit per kind: advise, plan, label, test
   std::string ai_advice_, ai_plan_, ai_labels_, ai_error_, ai_test_, ai_program_, ai_assign_cut_;
+  std::string ai_load_;  // Load as program: "loading", "loaded" or why not
   int ai_assign_probe_{0};
   float ai_assign_lb_{NAN};
   uint32_t ai_last_auto_{0};

@@ -343,8 +343,9 @@ def pin_flow(browser):
     pg.click("#aiplan [data-a=aiplan]")
     pg.wait_for_function("document.querySelector('#aiplan [data-a=aiload]')", timeout=5000)
     pg.click("#aiplan [data-a=aiload]")
-    pg.wait_for_timeout(400)
-    check("Program loaded" in pg.inner_text("#toast"), "Plan with AI: Load as program")
+    pg.wait_for_function("document.getElementById('toast').innerText.includes('Program loaded')", timeout=6000)
+    check(True, "Plan with AI: Load as program reports the controller's answer")
+    pg.wait_for_timeout(2700)  # let that toast go before the next check reads it
     png = _png(64, 48)
     pg.set_input_files("#aifile", files=[{"name": "label.png", "mimeType": "image/png", "buffer": png}])
     pg.wait_for_function("document.querySelector('#ailabel').innerText.includes('pork butt')", timeout=8000)

@@ -217,7 +217,18 @@ const ACT = {
     if (!q) return toast('Describe the cook first');
     if (await aiPost('ai/plan', { request: q })) delete f.dataset.dirty;
   },
-  async aiload() { if (await aiPost('ai/load-program', {})) toast('Program loaded: check it under Pit & program, then Start'); },
+  // The controller loads it in its main loop: ask again a moment later for what happened.
+  async aiload() {
+    if (!await aiPost('ai/load-program', {})) return;
+    toast('Loading the program…');
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 700));
+      try { AI = await local('ai'); } catch (e) { break; }
+      if (AI.load && AI.load !== 'loading') break;
+    }
+    renderAI();
+    toast(AI && AI.load === 'loaded' ? 'Program loaded: check it under Pit & program, then Start' : (AI && AI.load && AI.load !== 'loading' ? AI.load : 'No answer from the controller yet'));
+  },
   async aiassign(el) {
     const sel = $('aip-' + el.dataset.i), n = sel ? sel.value : 1;
     if (await aiPost('ai/assign', { index: +el.dataset.i, probe: +n })) toast('Set on Food ' + n);
@@ -1210,6 +1221,7 @@ function renderAI() {
     ${au ? `<textarea id="aiplanin" rows="2" maxlength="600" style="width:100%;box-sizing:border-box" placeholder="e.g. 9 lb pork shoulder, eating at 6 pm Saturday, 8 people" aria-label="Describe the cook"></textarea>
       <div class="btns"><button class="btn pri" data-a="aiplan"${busy.plan ? ' disabled' : ''}>${busy.plan ? 'Planning…' : 'Plan it'}</button></div>` : lockNote('plan with the AI')}
     ${pl ? `<p style="margin:8px 0 6px">${esc(pl.summary || '')}</p>${pl.light_at ? row('Light the grill', esc(pl.light_at)) : ''}${aiRecs(pl.steps)}
+      ${pl.program_note ? `<p class="note">Adjusted for the grill: ${esc(pl.program_note)}.</p>` : ''}${pl.program_error ? `<p class="err">${esc(pl.program_error)}</p>` : ''}
       ${pl.program ? `<details class="more" data-k="aiprog"><summary>Its cook program</summary><pre class="small" style="white-space:pre-wrap;margin:6px 0">${esc(pl.program)}</pre></details>
         ${au ? '<div class="btns"><button class="btn" data-a="aiload">Load as program</button></div>' : ''}` : ''}` : ''}`);
   const items = (A.labels && Array.isArray(A.labels.items)) ? A.labels.items : [];

@@ -394,6 +394,7 @@ def _ai_post(self, path, body, err):
         self.assigned = (body.get("index"), body.get("probe"))
     elif path == "ai/load-program":
         self.loaded = a["plan"]["program"]
+        a["load"] = "loaded"
     else:
         return err("not found", 404)
     return web.json_response(self.ai_json())
