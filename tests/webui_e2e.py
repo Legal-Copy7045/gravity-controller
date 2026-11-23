@@ -118,6 +118,23 @@ def main():
     sys.exit(1 if failures else 0)
 
 
+def section_chips(fr):
+    """Each section-bar chip scrolls its section to just under the bar and is the one marked, even near the end of the
+    page (the next, shorter section used to be marked instead)."""
+    fails = []
+    hrefs = fr.evaluate("""() => { const bar = document.getElementById('secbar'), m = bar.querySelector('a[aria-current="true"]');
+      return [...bar.querySelectorAll('a')].filter(a => a.offsetParent !== null && !a.hidden).map(a => a.getAttribute('href'))
+        .filter(h => document.querySelector(h).dataset.sect !== 'setup'); }""")
+    for h in hrefs + hrefs[::-1]:
+        fr.click(f'#secbar a[href="{h}"]')
+        time.sleep(0.9)
+        mark, gap = fr.evaluate("""(h) => { const bar = document.getElementById('secbar'), m = bar.querySelector('a[aria-current="true"]');
+      return [m ? m.getAttribute('href') : null, Math.round(document.querySelector(h).getBoundingClientRect().top - bar.getBoundingClientRect().bottom)]; }""", h)
+        if mark != h or abs(gap - 10) > 3:
+            fails.append(f"section bar: {h} marked {mark}, {gap}px under the bar")
+    return fails
+
+
 def offline(ctx):
     # LAN only: block everything else (the optional web fonts fail and the system fonts take over).
     ctx.route("**/*", lambda r: r.continue_() if r.request.url.startswith(BASE) else r.abort())
@@ -162,6 +179,19 @@ def run_page(browser, width, height, shots):
     check(ok, f"pit + changed the grill's target ({before} -> {value('sensor', 'Pit target reported')})")
     pg.wait_for_function(f"document.querySelector('#pitval').textContent.startsWith('{value('number', 'Pit target'):.0f}')", timeout=10000)
     check(True, "page shows the new target")
+    # The pit target in the top card: type it and Set.
+    pg.evaluate("window.scrollTo(0, 0)")
+    pg.fill("#heropit", "240")
+    pg.click("#hero .hero-tgt .btn.pri")
+    check(wait(lambda: value("number", "Pit target") == 240, 10, "the top card's target"), "the top card sets the pit target")
+    for f in section_chips(pg):
+        check(False, f)
+    check(True, f"section bar chips at {width}px")
+    pg.mouse.move(width // 2, height // 2)
+    pg.mouse.wheel(0, -100000)
+    time.sleep(0.8)
+    first = pg.evaluate("document.querySelector('#secbar a[aria-current=true]').getAttribute('href')")
+    check(first == pg.evaluate("document.querySelector('#secbar a').getAttribute('href')"), f"scrolling back to the top marks the first section ({first})")
     # a select through REST: Food 1 reads the spare probe (135.5 °F), then back (Setup: a page of its own)
     pg.click('#secbar a[href="#s-setup"]')
     src = pg.locator("#sources select[data-n='Food 1 probe']")
@@ -350,6 +380,11 @@ def pin_flow(browser):
     pg.click("#aisetup [data-a=secret][data-k=ai_key]")
     pg.wait_for_function("!document.querySelector('#s-ai').classList.contains('x') && document.querySelector('#s-ai').hidden === false", timeout=5000)
     check("sk-test-not-a-real-key-123" not in pg.content(), "the AI key is never shown back")
+    for path in ("/local/status", "/local/ai", "/local/settings"):
+        with urllib.request.urlopen(BASE + path, timeout=5) as r:
+            check("sk-test-not-a-real-key" not in r.read().decode("utf-8", "replace"), f"{path} never returns the AI key")
+    with open(os.path.join(HERE, "webui-device.log"), encoding="utf-8", errors="replace") as f:
+        check("sk-test-not-a-real-key" not in f.read(), "the AI key never reaches the controller's log")
     pg.click("#aisetup [data-a=aitest]")
     pg.wait_for_function("document.querySelector('#aisetup').innerText.includes('Working')", timeout=5000)
     check(True, "Test the key")

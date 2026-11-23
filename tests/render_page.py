@@ -339,6 +339,23 @@ def program_editor(pg, fr):
     return fails
 
 
+def section_chips(fr):
+    """Each section-bar chip scrolls its section to just under the bar and is the one marked, even near the end of the
+    page (the next, shorter section used to be marked instead)."""
+    fails = []
+    hrefs = fr.evaluate("""() => { const bar = document.getElementById('secbar'), m = bar.querySelector('a[aria-current="true"]');
+      return [...bar.querySelectorAll('a')].filter(a => a.offsetParent !== null && !a.hidden).map(a => a.getAttribute('href'))
+        .filter(h => document.querySelector(h).dataset.sect !== 'setup'); }""")
+    for h in hrefs + hrefs[::-1]:
+        fr.click(f'#secbar a[href="{h}"]')
+        time.sleep(0.9)
+        mark, gap = fr.evaluate("""(h) => { const bar = document.getElementById('secbar'), m = bar.querySelector('a[aria-current="true"]');
+      return [m ? m.getAttribute('href') : null, Math.round(document.querySelector(h).getBoundingClientRect().top - bar.getBoundingClientRect().bottom)]; }""", h)
+        if mark != h or abs(gap - 10) > 3:
+            fails.append(f"section bar: {h} marked {mark}, {gap}px under the bar")
+    return fails
+
+
 def simple_form(pg, fr):
     """The simple form (the editor's default): a cut fills in a typical cook and writes an ordinary program."""
     fails = []
@@ -682,6 +699,14 @@ def main():
                                for c in pg.evaluate("window.calls")):
                         failures.append(f"restart not pressed after the second tap: {pg.evaluate('window.calls')[-2:]}")
                     fr.click("#setup .sect-back"); time.sleep(0.3)
+                    failures += [f"{scheme}/{name}: {f}" for f in section_chips(fr)]
+                    # The pit target sits in the top card: type it and Set, or + / −.
+                    n0 = len(pg.evaluate("window.calls"))
+                    fr.fill("#heropit", "260"); fr.click("#herotgt .btn.pri"); time.sleep(0.3)
+                    fr.click('#herotgt [aria-label="Raise pit target"]'); time.sleep(0.3)
+                    vals = [c[2].get("value") for c in pg.evaluate("window.calls")[n0:] if c[0] == "number" and c[2].get("entity_id") == "number.smoker_pit_target"]
+                    if len(vals) != 2 or vals[0] != 260:
+                        failures.append(f"{scheme}/{name}: top card pit target: {pg.evaluate('window.calls')[n0:]}")
                     fr.evaluate("window.scrollTo(0, 0)"); time.sleep(0.4)
                     lit = fr.evaluate("[...document.querySelectorAll('#secbar a[aria-current=true]')].map(a => a.innerText.trim())")
                     if "Setup" in lit:

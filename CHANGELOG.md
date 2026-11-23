@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.44] - 2026-11-23
+
+- **Set the pit target from the top of the page** (both dashboards): − and + buttons, or type a temperature and press
+  Set (or Enter). The buttons are greyed out while the app can't control the grill.
+- **The section bar goes where you click:**
+  - The chip you click is the one highlighted. It used to highlight the next section when the one you chose was short
+    (Chart highlighted Journal).
+  - Sections near the end of the page now scroll right up to the bar.
+- **Keys stay out of the code:** the release check now also catches Telegram bot tokens, alongside Google, Claude and
+  OpenAI keys. A test confirms the controller never sends a stored AI key back and never writes it to its log.
+
 ## [0.2.43] - 2026-11-23
 
 - **The calendar event's end is the serve-by time:** block out the whole cook in your calendar (say a 12-hour

@@ -13,6 +13,12 @@
 .hero .big{font:600 clamp(44px,8vw,76px)/1 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .hero .big small{font:500 18px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:6px}
 .hero .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.hero-tgt{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
+.hero-tgt .l{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-right:2px}
+.hero-tgt .btn{min-width:48px;min-height:48px;font-size:22px;line-height:1;border-radius:12px}
+.hero-tgt .btn.pri{font-size:15px}
+.hero-tgt .hv{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2)}
+.hero-tgt input{width:92px;min-height:48px;font:600 22px "JetBrains Mono",monospace;text-align:center}
 .chip.exp{background:color-mix(in srgb,var(--ai) 14%,transparent);color:var(--ai);text-transform:none;letter-spacing:normal;vertical-align:middle}
 .chip{font:600 11.5px "Instrument Sans",system-ui,sans-serif;padding:2px 9px;border-radius:999px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
 .chip.hot{background:color-mix(in srgb,var(--pit) 18%,transparent);color:var(--pit)}
@@ -262,6 +268,7 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
       <h1 id="title" class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" class="mark" aria-hidden="true"><defs><linearGradient id="mk-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f97316"/><stop offset="1" stop-color="#b4330a"/></linearGradient><linearGradient id="mk-flame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#fff7ed"/></linearGradient></defs><rect width="256" height="256" rx="58" fill="url(#mk-tile)"/><g fill="#1c1917"><rect x="167" y="54" width="40" height="138" rx="7"/><rect x="161" y="44" width="52" height="16" rx="6"/><rect x="43" y="100" width="134" height="66" rx="33"/><rect x="66" y="160" width="11" height="52" rx="4"/><rect x="143" y="160" width="11" height="52" rx="4"/><rect x="56" y="190" width="108" height="9" rx="4.5"/></g><path transform="translate(110 133) scale(.74) translate(-108.5 -126.5)" fill="url(#mk-flame)" d="M106 158c-15 0-24-10-24-22 0-11 8-17 12-27 1 7 5 11 9 13 0-11 7-21 15-27-2 10 3 17 9 24 5 6 8 11 8 17 0 13-11 22-29 22z"/></svg><span>Smoker</span></h1>
       <div class="big" id="pitbig">--<small>°F pit</small></div>
       <div class="chips" id="chips"></div>
+      <div id="herotgt"></div>
       <p class="sub small" id="gstatus" style="margin-top:8px"></p>
       <div class="hero-next"><span class="l">Coming up</span>
         <div id="heronext" class="next"><span class="muted small">No food on the grill yet.</span></div></div>
@@ -818,6 +825,10 @@ window.act = {
     const e = E('Pit target', ['number']); const cur = num(e); if (cur == null) return fail('pit target unknown');
     const step = isF() ? 5 : 2; setNum(e, cur + delta * step);
   },
+  pitTo() {
+    const i = $('heropit'), v = parseFloat(i && i.value); if (!Number.isFinite(v)) return fail('Type a temperature');
+    delete i.dataset.dirty; i.blur(); setNum(E('Pit target', ['number']), v);
+  },
   target(key, delta) {
     const p = PROBES.find(x => x.key === key); const e = E(p.label + ' target', ['number']); const cur = num(e);
     if (cur == null) return fail('target unknown');
@@ -995,6 +1006,14 @@ function renderHero() {
   if (fan === 'on') chips.push('<span class="chip">Fan on</span>');
   put('chips', chips.join(''));
   put('gstatus', esc(val(E('Program status', ['sensor'])) || ''));
+  // The pit target, first thing on the page: − / type it / + (the same steps as the Pit section).
+  const te = E('Pit target', ['number']), ta = (S(te) || {}).attributes || {};
+  const ro = link !== 'on' || !via || via === 'none' || (via === 'bluetooth' && val(bleSwitch()) !== 'on'), dis = ro ? ' disabled' : '';
+  put('herotgt', te ? `<div class="hero-tgt" role="group" aria-label="Pit target"><span class="l">Target</span>
+    <button class="btn" onclick="act.pit(-1)" aria-label="Lower pit target"${dis}>−</button>
+    <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(ta.min ?? '')}" max="${esc(ta.max ?? '')}" step="${esc(ta.step ?? 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target" onkeydown="if (event.key === 'Enter') act.pitTo()"${dis}><span>${esc(TU())}</span></span>
+    <button class="btn" onclick="act.pit(1)" aria-label="Raise pit target"${dis}>+</button>
+    <button class="btn pri" onclick="act.pitTo()"${dis}>Set</button>${ro ? '<span class="muted small">Read-only: not connected to the grill</span>' : ''}</div>` : '');
   // Coming up: the food on the grill, soonest finish first.
   const on = PROBES.map(p => ({ p, s: probeState(p) })).filter(x => x.s.t != null)
     .sort((a, b) => (a.s.rem ?? 1e9) - (b.s.rem ?? 1e9)).slice(0, 4);
@@ -1879,7 +1898,29 @@ const SECT = (() => {
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};
   const sec = k => document.querySelector(`[data-sect="${k}"]`);
-  let inSetup = false, pushed = false, after = null;
+  let inSetup = false, pushed = false, after = null, pin = null, cur = null;
+  // The section bar sticks under Home Assistant's site bar when there is one (the home-dashboards project).
+  const barTop = () => { const site = document.querySelector('nav.site'); return site ? Math.max(0, site.getBoundingClientRect().height - 1) : 0; };
+  // The section bar marks the section under it; a section chosen from the bar stays marked until you scroll yourself
+  // (one near the end of the page can't reach the top, and the next one would be marked instead).
+  function mark() {
+    const bar = document.getElementById('secbar'); if (!bar || inSetup) return;
+    const links = [...bar.querySelectorAll('a[href^="#"]')], y = barTop() + bar.offsetHeight + 40;
+    let k = -1;
+    links.forEach((a, i) => {
+      const s = document.getElementById(a.getAttribute('href').slice(1));
+      if (!s || s.offsetParent === null || s.classList.contains('view-off')) return;
+      const top = s.getBoundingClientRect().top;
+      if (k < 0 || top <= y) k = i;
+      else if (!pin && innerHeight + scrollY >= document.documentElement.scrollHeight - 4 && top < innerHeight) k = i;  // the end of the page
+    });
+    if (pin) { const i = links.findIndex(a => a.getAttribute('href') === '#' + pin); if (i >= 0) k = i; }
+    const a = links[k];
+    if (!a || a === cur) return;
+    cur = a;
+    links.forEach(l => { if (l === a) l.setAttribute('aria-current', 'true'); else l.removeAttribute('aria-current'); });
+    if (bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
+  }
   const setupLink = () => { const bar = document.getElementById('secbar'), st = sec('setup'); return bar && st && bar.querySelector(`a[href="#${st.id}"]`); };
   function view(setup, scroll) {
     const was = inSetup;
@@ -1888,6 +1929,7 @@ const SECT = (() => {
     document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('view-off', inSetup ? s.dataset.sect !== 'setup' : s.dataset.sect === 'setup'));
     const a = setupLink(), st = sec('setup');
     if (a) { a.classList.toggle('on', inSetup); if (inSetup) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+    cur = null; if (inSetup) pin = null;
     if (inSetup) { peek.setup = true; apply('setup'); }
     if (scroll) window.scrollTo(0, 0);
     // Focus follows the change of page (keyboard and screen-reader users aren't left on a hidden control).
@@ -1896,14 +1938,24 @@ const SECT = (() => {
       else if (a && document.activeElement && (document.activeElement === document.body || (st && st.contains(document.activeElement)))) a.focus({ preventScroll: true });
       document.dispatchEvent(new CustomEvent('sect-view', { detail: { setup: inSetup } }));
     }
+    mark();
   }
   // Leaving Setup for another section: the history entry Setup added is used up first (so the next Back leaves the
   // page as expected), then the section is shown.
+  // Scrolls a section to just under the bar; near the end of the page, room is added below so that it can.
   function goTo(id) {
     const t = document.getElementById(id), bar = document.getElementById('secbar');
     if (!t) return;
     if (t.dataset.sect && t.classList.contains('folded')) { peek[t.dataset.sect] = true; apply(t.dataset.sect); }
-    window.scrollTo({ top: t.getBoundingClientRect().top + window.scrollY - (bar ? bar.offsetHeight : 0) - 10 });
+    let sp = document.getElementById('sect-room');
+    if (!sp) { sp = document.createElement('div'); sp.id = 'sect-room'; sp.setAttribute('aria-hidden', 'true'); document.body.appendChild(sp); }
+    sp.style.height = '0px';
+    const top = t.getBoundingClientRect().top + window.scrollY - barTop() - (bar ? bar.offsetHeight : 0) - 10;
+    const max = document.documentElement.scrollHeight - innerHeight;
+    if (top > max) sp.style.height = Math.ceil(top - max) + 'px';
+    pin = id; cur = null; mark();
+    const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: Math.max(0, top), behavior: calm ? 'auto' : 'smooth' });
   }
   function openSetup() {
     if (inSetup) return;
@@ -1957,9 +2009,17 @@ const SECT = (() => {
         try { history.back(); return; } catch (err) { /* below */ }
         view(false); goTo(after); after = null; return;
       }
+      e.preventDefault(); e.stopImmediatePropagation();
       if (inSetup) view(false);
-      if (s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
+      goTo(s.id);
     }, true);
+    // Your own scrolling (wheel, touch, keys) lets the bar follow the page again.
+    const free = () => { if (pin) { pin = null; mark(); } };
+    ['wheel', 'touchstart', 'keydown'].forEach(ev => window.addEventListener(ev, free, { passive: true }));
+    window.addEventListener('pointerdown', e => { if (!(e.target.closest && e.target.closest('#secbar'))) free(); }, { passive: true });  // (the scroll bar too)
+    let raf = 0;
+    window.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
+    window.addEventListener('resize', () => { cur = null; mark(); });
     const st = sec('setup'), h = st && st.querySelector('h2.sec');
     if (h && !st.querySelector('.sect-back')) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sect-back';
@@ -2014,30 +2074,11 @@ window.addEventListener('resize', () => drawChart());
 // marked link visible when the bar scrolls sideways (phones). As on the Energy and EV9 pages.
 (function () {
   const bar = $('secbar'); if (!bar) return;
-  // Read fresh each time: Plan moves between "idle" and "cooking" positions.
-  const L = () => [...bar.querySelectorAll('a')], X = () => L().map(a => $(a.getAttribute('href').slice(1)));
   // In the home-dashboards project the site bar sticks to the top: sit just under it.
   const site = document.querySelector('nav.site');
   const top = () => site ? Math.max(0, site.getBoundingClientRect().height - 1) : 0;
   const place = () => { bar.style.top = top() + 'px'; };
   place(); addEventListener('resize', place); if (window.ResizeObserver && site) new ResizeObserver(place).observe(site);
-  let cur = -1;
-  function mark() {
-    const links = L(), secs = X(); const y = top() + bar.offsetHeight + 40; let k = 0;
-    // (a hidden section, such as Setup on the main page, reads top 0: never the one in view)
-    secs.forEach((s, i) => { if (s && s.offsetParent !== null && s.getBoundingClientRect().top <= y) k = i; });
-    if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) k = secs.length - 1;
-    if (k === cur) return; cur = k;
-    links.forEach((a, i) => { if (i === k) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
-    const a = links[k]; if (bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
-  }  document.addEventListener('sect-view', () => { cur = -1; mark(); });  // Setup opened or closed
-
-  L().forEach(a => a.addEventListener('click', e => {
-    e.preventDefault(); const el = $(a.getAttribute('href').slice(1));
-    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - top() - bar.offsetHeight - 10, behavior: 'smooth' });
-  }));
-  let raf = 0; addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
-  mark();
 })();
 SECT.init();
 live(render, 20000);

@@ -100,6 +100,12 @@ html{background:#f2f4f6}
 :root.gx[data-theme="dark"]{--pit:#fb8a3c;--food1:#4aa8dd;--food2:#a78bfa;--g1:#34d399;--g2:#e58a5c;--g3:#facc15;--g4:#f472b6;--lid:#3f72b8;--steel:#2e3640;--steel2:#46505b;--panel:#c9d1d8;--coal:#0e0c0b}
 .gx .hero.wide{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:12px 28px;align-items:center}
 .gx .htxt{display:flex;flex-direction:column;gap:8px;min-width:0}
+.gx .hero-tgt{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px}
+.gx .hero-tgt .l{font:600 12px "Instrument Sans",system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:2px}
+.gx .hero-tgt .btn{min-width:48px;min-height:48px;font-size:22px;line-height:1;border-radius:12px}
+.gx .hero-tgt .btn.pri{font-size:15px}
+.gx .hero-tgt .hv{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2)}
+.gx .hero-tgt input{width:92px;min-height:48px;font:600 22px "JetBrains Mono",ui-monospace,monospace;text-align:center}
 @media (max-width:820px){.gx .hero.wide{grid-template-columns:1fr}.gx .hero.wide .pic{order:-1}}
 .gx .grillpic{min-width:0}
 .gx .grillpic svg{width:100%;height:auto;display:block;max-height:420px}

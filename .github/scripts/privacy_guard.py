@@ -37,6 +37,7 @@ CREDENTIALS = re.compile(
     r"|\bAIza[0-9A-Za-z_-]{35}\b"  # Google
     r"|\bsk-(?:ant-)?[A-Za-z0-9_-]{32,}"  # Anthropic / OpenAI
     r"|\bxox[abpors]-[A-Za-z0-9-]{10,}"  # Slack
+    r"|\b\d{8,10}:AA[A-Za-z0-9_-]{33}\b"  # Telegram bot
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----"
 )
 SECRET_FILES = re.compile(r"(^|/)(secrets\.yaml|ha_token\.txt|geoapify_key\.txt|\.env|[^/]*\.pem)$", re.I)

@@ -199,6 +199,7 @@ const armed = {};
 const ACT = {
   pit(el) { const c = cur('Pit target'); if (c == null) return toast('Pit target not known yet'); setNum('Pit target', c + Number(el.dataset.d) * stepOf('Pit target', isF() ? 5 : 2)); },
   pitset() { const v = parseFloat($('pitin').value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete $('pitin').dataset.dirty; setNum('Pit target', v); },
+  heroset() { const i = $('heropit'), v = parseFloat(i && i.value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete i.dataset.dirty; i.blur(); setNum('Pit target', v); },
   tgt(el) { const n = el.dataset.n, c = cur(n); if (c == null) return toast(n + ' not known yet'); setNum(n, c + Number(el.dataset.d) * stepOf(n, isF() ? 1 : 0.5)); },
   toggle(el) { post('switch', el.dataset.n, 'toggle'); },
   press(el) {
@@ -362,12 +363,9 @@ function wire() {
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
   doc.addEventListener('input', e => { if (e.target.id) e.target.dataset.dirty = '1'; });
-  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
+  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', heropit: 'heroset', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
   doc.addEventListener('focusout', () => setTimeout(render, 0));  // redraw what was held back while a field had focus
-  // section bar: mark the section in view
-  const links = [...doc.querySelectorAll('.secbar a')];
-  const io = new IntersectionObserver(es => es.forEach(x => { if (x.isIntersecting) links.forEach(a => a.setAttribute('aria-current', a.hash === '#' + x.target.id)); }), { rootMargin: '-45% 0px -50% 0px' });
-  doc.querySelectorAll('.sect').forEach(s => io.observe(s));
+  // (the section bar marks the section in view: SECT)
 }
 
 // ---------------------------------------------------------------- drawing
@@ -395,6 +393,17 @@ function link() {
   return { cls: 'ok', txt: 'Connected to the grill' };
 }
 
+// The pit target, first thing on the page: − / type it / + (the same steps as the Pit section).
+function heroTarget(u, tgt, L) {
+  const n = E('number', 'Pit target'); if (!n) return '';
+  const ro = L.cls === 'warn', dis = ro ? ' disabled' : '';
+  return `<div class="hero-tgt" role="group" aria-label="Pit target"><span class="l">Target</span>
+    <button class="btn" data-a="pit" data-d="-1" aria-label="Lower pit target"${dis}>−</button>
+    <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(n.min_value || '')}" max="${esc(n.max_value || '')}" step="${esc(n.step || 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target"${dis}><span>${esc(u)}</span></span>
+    <button class="btn" data-a="pit" data-d="1" aria-label="Raise pit target"${dis}>+</button>
+    <button class="btn pri" data-a="heroset"${dis}>Set</button></div>`;
+}
+
 function render() {
   const u = TU(), live = Date.now() - last < 25000;
   const pit = S('Pit temperature'), tgt = cur('Pit target') ?? S('Pit target (reported)') ?? S('Pit target reported');
@@ -407,7 +416,8 @@ function render() {
       ${/Running|Paused/.test(pst) ? `<span class="chip ${pst === 'Paused' ? 'warn' : 'hot'}">Program ${esc(pst.toLowerCase())}</span>` : ''}
       ${on(E('binary_sensor', 'Lid')) ? '<span class="chip warn">Lid open</span>' : ''}
       ${on(E('binary_sensor', 'Grill alarm')) ? '<span class="chip bad">Grill alarm</span>' : ''}</div>
-    ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}`);
+    ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}
+    ${heroTarget(u, tgt, L)}`);
   // Status strip, first on the page: connected? controlling? anything wrong?
   const conn = on(E('binary_sensor', 'Grill connected')), via = T('Grill link');
   const al = [], add = (c, t) => al.push(`<span class="chip ${c}">${esc(t)}</span>`);
@@ -1401,7 +1411,29 @@ const SECT = (() => {
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};
   const sec = k => document.querySelector(`[data-sect="${k}"]`);
-  let inSetup = false, pushed = false, after = null;
+  let inSetup = false, pushed = false, after = null, pin = null, cur = null;
+  // The section bar sticks under Home Assistant's site bar when there is one (the home-dashboards project).
+  const barTop = () => { const site = document.querySelector('nav.site'); return site ? Math.max(0, site.getBoundingClientRect().height - 1) : 0; };
+  // The section bar marks the section under it; a section chosen from the bar stays marked until you scroll yourself
+  // (one near the end of the page can't reach the top, and the next one would be marked instead).
+  function mark() {
+    const bar = document.getElementById('secbar'); if (!bar || inSetup) return;
+    const links = [...bar.querySelectorAll('a[href^="#"]')], y = barTop() + bar.offsetHeight + 40;
+    let k = -1;
+    links.forEach((a, i) => {
+      const s = document.getElementById(a.getAttribute('href').slice(1));
+      if (!s || s.offsetParent === null || s.classList.contains('view-off')) return;
+      const top = s.getBoundingClientRect().top;
+      if (k < 0 || top <= y) k = i;
+      else if (!pin && innerHeight + scrollY >= document.documentElement.scrollHeight - 4 && top < innerHeight) k = i;  // the end of the page
+    });
+    if (pin) { const i = links.findIndex(a => a.getAttribute('href') === '#' + pin); if (i >= 0) k = i; }
+    const a = links[k];
+    if (!a || a === cur) return;
+    cur = a;
+    links.forEach(l => { if (l === a) l.setAttribute('aria-current', 'true'); else l.removeAttribute('aria-current'); });
+    if (bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: a.offsetLeft - (bar.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
+  }
   const setupLink = () => { const bar = document.getElementById('secbar'), st = sec('setup'); return bar && st && bar.querySelector(`a[href="#${st.id}"]`); };
   function view(setup, scroll) {
     const was = inSetup;
@@ -1410,6 +1442,7 @@ const SECT = (() => {
     document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('view-off', inSetup ? s.dataset.sect !== 'setup' : s.dataset.sect === 'setup'));
     const a = setupLink(), st = sec('setup');
     if (a) { a.classList.toggle('on', inSetup); if (inSetup) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+    cur = null; if (inSetup) pin = null;
     if (inSetup) { peek.setup = true; apply('setup'); }
     if (scroll) window.scrollTo(0, 0);
     // Focus follows the change of page (keyboard and screen-reader users aren't left on a hidden control).
@@ -1418,14 +1451,24 @@ const SECT = (() => {
       else if (a && document.activeElement && (document.activeElement === document.body || (st && st.contains(document.activeElement)))) a.focus({ preventScroll: true });
       document.dispatchEvent(new CustomEvent('sect-view', { detail: { setup: inSetup } }));
     }
+    mark();
   }
   // Leaving Setup for another section: the history entry Setup added is used up first (so the next Back leaves the
   // page as expected), then the section is shown.
+  // Scrolls a section to just under the bar; near the end of the page, room is added below so that it can.
   function goTo(id) {
     const t = document.getElementById(id), bar = document.getElementById('secbar');
     if (!t) return;
     if (t.dataset.sect && t.classList.contains('folded')) { peek[t.dataset.sect] = true; apply(t.dataset.sect); }
-    window.scrollTo({ top: t.getBoundingClientRect().top + window.scrollY - (bar ? bar.offsetHeight : 0) - 10 });
+    let sp = document.getElementById('sect-room');
+    if (!sp) { sp = document.createElement('div'); sp.id = 'sect-room'; sp.setAttribute('aria-hidden', 'true'); document.body.appendChild(sp); }
+    sp.style.height = '0px';
+    const top = t.getBoundingClientRect().top + window.scrollY - barTop() - (bar ? bar.offsetHeight : 0) - 10;
+    const max = document.documentElement.scrollHeight - innerHeight;
+    if (top > max) sp.style.height = Math.ceil(top - max) + 'px';
+    pin = id; cur = null; mark();
+    const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: Math.max(0, top), behavior: calm ? 'auto' : 'smooth' });
   }
   function openSetup() {
     if (inSetup) return;
@@ -1479,9 +1522,17 @@ const SECT = (() => {
         try { history.back(); return; } catch (err) { /* below */ }
         view(false); goTo(after); after = null; return;
       }
+      e.preventDefault(); e.stopImmediatePropagation();
       if (inSetup) view(false);
-      if (s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
+      goTo(s.id);
     }, true);
+    // Your own scrolling (wheel, touch, keys) lets the bar follow the page again.
+    const free = () => { if (pin) { pin = null; mark(); } };
+    ['wheel', 'touchstart', 'keydown'].forEach(ev => window.addEventListener(ev, free, { passive: true }));
+    window.addEventListener('pointerdown', e => { if (!(e.target.closest && e.target.closest('#secbar'))) free(); }, { passive: true });  // (the scroll bar too)
+    let raf = 0;
+    window.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
+    window.addEventListener('resize', () => { cur = null; mark(); });
     const st = sec('setup'), h = st && st.querySelector('h2.sec');
     if (h && !st.querySelector('.sect-back')) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sect-back';
