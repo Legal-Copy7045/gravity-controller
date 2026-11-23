@@ -582,6 +582,11 @@ def main():
                         failures.append("program card did not re-render on state change")
                     if fr.input_value("#progtext") != "pit 300 until food1 >= 190":
                         failures.append("typed program text was lost on re-render")
+                    # Setup is a page of its own: the section bar's Setup button shows it alone, Back returns.
+                    fr.click('#secbar a[href="#setup"]'); time.sleep(0.3)
+                    sv = fr.evaluate("[document.getElementById('setup').offsetParent !== null, document.getElementById('food').offsetParent === null]")
+                    if sv != [True, True]:
+                        failures.append(f"setup page: setup shown {sv[0]}, the cook hidden {sv[1]}")
                     # Grill Wi-Fi setup (Setup → Connection): join saved network / scan press the controller's buttons.
                     fr.evaluate("document.querySelector('#controlcard details[data-k=wifi]').open = true")
                     if "Grill-Network" not in fr.inner_text("#controlcard"):
@@ -610,6 +615,9 @@ def main():
                     if not any(c[0] == "button" and c[1] == "press" and c[2].get("entity_id") == "button.smoker_restart"
                                for c in pg.evaluate("window.calls")):
                         failures.append(f"restart not pressed after the second tap: {pg.evaluate('window.calls')[-2:]}")
+                    fr.click("#setup .sect-back"); time.sleep(0.3)
+                    if fr.evaluate("document.getElementById('setup').offsetParent !== null"):
+                        failures.append("setup page: Back to the cook didn't leave it")
                     # Fuel: 'Topped up to' then '1/2' calls the refill action with 50 %.
                     fr.click("#fuelcard .seg button:nth-child(3)")
                     time.sleep(0.3)

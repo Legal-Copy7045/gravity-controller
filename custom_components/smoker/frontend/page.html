@@ -226,6 +226,13 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 /* cards fill their row (as on the controller's page): no narrow card beside empty space */
 .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr))}
 @media (min-width:821px){.grid.g-pair{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.g-1-2{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.grid.g-2-1{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
+/* Setup on a page of its own (shared sections block) */
+.view-off{display:none!important}
+.setup-view .hero,.setup-view #s-start{display:none!important}
+.sect-back{display:none;align-self:flex-start}
+.setup-view .sect-back{display:inline-flex}
+.setup-view [data-sect="setup"] h2.sec .fold{display:none}
+.secbar a.on{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
 </style>
 </head>
 <body>
@@ -1594,6 +1601,8 @@ function renderRange() {
 // Assistant's): tests/render_page.py checks. Both pages have the same sections (data-sect), in the same order, and
 // every section folds from its heading. Planning comes first while nothing is cooking; during a cook, the cook does.
 // A section's starting fold is set by the page (SECT.want); a fold this browser chooses is remembered and wins.
+// Setup is a page of its own: the section bar's Setup button shows it alone (with "Back to the cook"), so the cook
+// isn't buried under settings; the phone's back gesture returns too.
 const SECT = (() => {
   const KEY = 'smoker-sections';
   const IDLE = ['plan', 'now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
@@ -1602,6 +1611,26 @@ const SECT = (() => {
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};
   const sec = k => document.querySelector(`[data-sect="${k}"]`);
+  let inSetup = false, pushed = false;
+  function view(setup, scroll) {
+    inSetup = !!setup;
+    document.documentElement.classList.toggle('setup-view', inSetup);
+    document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('view-off', inSetup ? s.dataset.sect !== 'setup' : s.dataset.sect === 'setup'));
+    const bar = document.getElementById('secbar'), st = sec('setup');
+    if (bar && st) bar.querySelectorAll('a').forEach(a => { if (a.getAttribute('href') === '#' + st.id) a.classList.toggle('on', inSetup); });
+    if (inSetup) { peek.setup = true; apply('setup'); }
+    if (scroll) window.scrollTo(0, 0);
+  }
+  function openSetup() {
+    if (inSetup) return;
+    try { history.pushState({ smokerSetup: 1 }, ''); pushed = true; } catch (e) { pushed = false; }
+    view(true, true);
+  }
+  function closeSetup() {
+    if (!inSetup) return;
+    if (pushed) { pushed = false; try { history.back(); return; } catch (e) { /* no history: below */ } }
+    view(false, true);
+  }
   function apply(k) {
     const s = sec(k); if (!s) return;
     const f = !peek[k] && (k in mine ? mine[k] : !!dflt[k]);
@@ -1628,12 +1657,24 @@ const SECT = (() => {
       h.addEventListener('click', e => { if (!e.target.closest('a,input,select,textarea,.seg,button:not(.fold)')) toggle(k); });
       apply(k);
     });
-    // A section-bar link opens its section (for now: the remembered fold isn't changed).
+    // A section-bar link opens its section (for now: the remembered fold isn't changed); Setup opens its own page,
+    // and any other link leaves it.
     const bar = document.getElementById('secbar');
     if (bar) bar.addEventListener('click', e => {
       const a = e.target.closest('a[href^="#"]'), s = a && document.getElementById(a.getAttribute('href').slice(1));
-      if (s && s.dataset.sect && s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
+      if (!s || !s.dataset.sect) return;
+      if (s.dataset.sect === 'setup') { e.preventDefault(); e.stopImmediatePropagation(); if (inSetup) closeSetup(); else openSetup(); return; }
+      if (inSetup) { pushed = false; view(false); }
+      if (s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
     }, true);
+    const st = sec('setup'), h = st && st.querySelector('h2.sec');
+    if (h && !st.querySelector('.sect-back')) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sect-back';
+      b.textContent = '← Back to the cook'; b.addEventListener('click', closeSetup);
+      st.insertBefore(b, h);
+    }
+    window.addEventListener('popstate', () => { if (inSetup) { pushed = false; view(false, true); } });
+    view(false);
   }
   // How a section starts unless this browser chose (folded or not), and the line its heading shows while folded.
   function want(k, folded, summary) { dflt[k] = !!folded; if (summary != null) sums[k] = summary; apply(k); }
@@ -1647,7 +1688,7 @@ const SECT = (() => {
       const a = bar && bar.querySelector(`a[href="#${s.id}"]`); if (a) bar.appendChild(a);
     });
   }
-  return { init, want, order, toggle };
+  return { init, want, order, toggle, openSetup, closeSetup, inSetup: () => inSetup };
 })();
 // ==== END page sections (shared block) ====
 

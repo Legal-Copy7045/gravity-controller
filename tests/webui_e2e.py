@@ -162,7 +162,8 @@ def run_page(browser, width, height, shots):
     check(ok, f"pit + changed the grill's target ({before} -> {value('sensor', 'Pit target reported')})")
     pg.wait_for_function(f"document.querySelector('#pitval').textContent.startsWith('{value('number', 'Pit target'):.0f}')", timeout=10000)
     check(True, "page shows the new target")
-    # a select through REST: Food 1 reads the spare probe (135.5 °F), then back
+    # a select through REST: Food 1 reads the spare probe (135.5 °F), then back (Setup: a page of its own)
+    pg.click('#secbar a[href="#s-setup"]')
     src = pg.locator("#sources select[data-n='Food 1 probe']")
     first = src.input_value()
     src.select_option("Spare")
@@ -173,6 +174,7 @@ def run_page(browser, width, height, shots):
     pg.locator("#sources select[data-n='Food 1 probe']").select_option(first)
     wait(lambda: abs((value("sensor", "Food 1 temperature") or 0) - 135.5) > 0.6, 15, "food 1 back on its probe")
     pg.locator("body").click(position={"x": 1, "y": 1})
+    pg.click("[data-sect=setup] .sect-back")
     pg.wait_for_timeout(3000)  # let the toast go
     # Your grill photo: with "Grill photo URL" set, the readings are pinned on the photo; cleared, the drawing returns.
     png = tiny_png()
@@ -222,15 +224,32 @@ def pin_flow(browser):
     pg = ctx.new_page()
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
+    def setup(open_=True):  # Setup is a page of its own, opened from the section bar's Setup button
+        if pg.evaluate("document.documentElement.classList.contains('setup-view')") != open_:
+            if open_:
+                pg.click('#secbar a[href="#s-setup"]')
+            else:
+                pg.click("[data-sect=setup] .sect-back")
+            pg.wait_for_timeout(300)
+
     pg.goto(BASE + "/")
-    pg.wait_for_selector("#lock h3", timeout=15000)
+    pg.wait_for_selector("#lock h3", state="attached", timeout=15000)
+    check(pg.locator("#s-setup").is_hidden() and pg.locator("#s-food").is_visible(), "Setup isn't on the main page")
+    setup()
+    check(pg.locator("#s-setup").is_visible() and pg.locator("#s-food").is_hidden() and pg.locator(".sect-back").is_visible(),
+          "Setup opens as a page of its own, with Back to the cook")
     check("not set" in pg.inner_text("#lock"), "a new controller asks for a PIN")
+    pg.go_back()
+    pg.wait_for_timeout(300)
+    check(pg.locator("#s-setup").is_hidden() and pg.locator("#s-food").is_visible(), "the browser's back returns to the cook")
     # First run without Home Assistant: the Get started checklist (the stand-in reports Home Assistant connected).
     pg.goto(BASE + "/?start")
-    pg.wait_for_selector("#lock h3", timeout=15000)
+    pg.wait_for_selector("#lock h3", state="attached", timeout=15000)
     check(pg.locator("#s-start").is_visible() and "Protect this page" in pg.inner_text("#start"), "Get started shows without Home Assistant")
     check(pg.locator("#start [data-a=quickntfy]").count() == 0, "no one-tap ntfy before a PIN")
-
+    pg.click("#start [data-a=opencard][data-c=lock]")
+    pg.wait_for_timeout(300)
+    check(pg.locator("#lock").is_visible(), "Get started's 'Set it' opens Setup at the PIN")
     check("Set a PIN" in pg.inner_text("#notif"), "keys can't be stored before a PIN")
     pg.fill("#pin1", "123456")
     pg.fill("#pin2", "123456")
@@ -242,11 +261,7 @@ def pin_flow(browser):
     pg.click("#lock [data-a=pinset]")
     pg.wait_for_function("document.querySelector('#lock').innerText.includes('unlocked')", timeout=5000)
     check(True, "PIN set: this browser is unlocked")
-    # Once a PIN is set, Setup folds away (a one-line summary in its heading); open it from the heading.
-    pg.wait_for_function("document.querySelector('[data-sect=setup]').classList.contains('folded')", timeout=5000)
-    check("PIN set" in pg.inner_text("[data-sect=setup] h2"), "Setup folds to a summary once a PIN is set")
-    pg.click("[data-sect=setup] h2 .fold")
-    check(not pg.evaluate("document.querySelector('[data-sect=setup]').classList.contains('folded')"), "Setup opens from its heading")
+    setup(False)
     check("2 of 4" in pg.inner_text("#start"), f"Get started counts the PIN and the grill: {pg.inner_text('#start')[:60]!r}")
     pg.click("#start [data-a=quickntfy]")
     pg.wait_for_function("document.querySelector('#start code')", timeout=5000)
@@ -255,10 +270,9 @@ def pin_flow(browser):
     check(json.loads(urllib.request.urlopen(BASE + "/local/status", timeout=5).read())["set"]["ntfy"], "the topic is stored")
     pg.click("#start [data-a=hidestart]")
     pg.goto(BASE + "/")
-    pg.wait_for_selector("#lock h3", timeout=15000)
+    pg.wait_for_selector("#lock h3", state="attached", timeout=15000)
     check(pg.locator("#s-start").is_hidden(), "Get started stays hidden once hidden (and with Home Assistant)")
-    if pg.evaluate("document.querySelector('[data-sect=setup]').classList.contains('folded')"):
-        pg.click("[data-sect=setup] h2 .fold")
+    setup()
     # A key: saved, shown only as set, never read back.
     pg.click("#notif details[data-k=ntfy] summary")
     pg.fill("#sec-ntfy_topic", "smoker-test-topic-k3v9")
@@ -273,24 +287,26 @@ def pin_flow(browser):
     # Lock: a change is refused (401) and the grill target doesn't move; anyone without the PIN is refused too.
     pg.click("#lock [data-a=logout]")
     pg.wait_for_function("document.querySelector('#lock').innerText.includes('locked')", timeout=5000)
+    setup(False)
     before = value("number", "Pit target")
     pg.locator("#pit [data-a=pit][data-d='1']").click()
     pg.wait_for_timeout(1500)
     check(value("number", "Pit target") == before, f"locked: pit + changed nothing ({before} -> {value('number', 'Pit target')})")
-    check("Enter the PIN" in pg.inner_text("#toast"), "locked: the page says to enter the PIN")
+    check(pg.locator("#pinsheet").is_visible(), "locked: the page asks for the PIN right there")
     try:
         post("/number/Pit target/set", value="300")
         check(False, "a POST without the PIN was accepted")
     except urllib.error.HTTPError as e:
         check(e.code == 401, f"a POST without the PIN is refused ({e.code})")
-    # Wrong then right PIN.
-    pg.fill("#pinin", "000000")
-    pg.click("#lock [data-a=login]")
-    pg.wait_for_timeout(500)
-    check("locked" in pg.inner_text("#lock"), "a wrong PIN doesn't unlock")
-    pg.fill("#pinin", "482913")
-    pg.click("#lock [data-a=login]")
-    pg.wait_for_function("document.querySelector('#lock').innerText.includes('unlocked')", timeout=5000)
+    # Wrong then right PIN, in the panel.
+    pg.fill("#pinsheet-in", "000000")
+    pg.click("#pinsheet [data-a=pinsheetgo]")
+    pg.wait_for_function("document.getElementById('pinsheet-msg').innerText.includes('Wrong')", timeout=5000)
+    check(pg.locator("#pinsheet").is_visible(), "a wrong PIN doesn't unlock")
+    pg.fill("#pinsheet-in", "482913")
+    pg.click("#pinsheet [data-a=pinsheetgo]")
+    pg.wait_for_function("document.getElementById('pinsheet').hidden", timeout=5000)
+    check(True, "the right PIN unlocks from the panel")
     pg.wait_for_timeout(2600)
     pg.locator("#pit [data-a=pit][data-d='1']").click()
     check(wait(lambda: (value("number", "Pit target") or 0) > (before or 0), 10, "the new target"), "unlocked: pit + works")
@@ -320,6 +336,7 @@ def pin_flow(browser):
     pg.wait_for_function("document.querySelector('#journal').innerText.includes('shared')", timeout=5000)
     check(True, "shared from the controller's page")
     # The notification route menu saves (it used to be ignored: no data-n).
+    setup()
     pg.select_option("#notif select[data-c=route]", "both")
     pg.wait_for_timeout(500)
     st = json.loads(urllib.request.urlopen(BASE + "/local/status", timeout=5).read())
@@ -331,11 +348,12 @@ def pin_flow(browser):
     check(True, "AI provider picked; its default model shown")
     pg.fill("#sec-ai_key", "sk-test-not-a-real-key-123")
     pg.click("#aisetup [data-a=secret][data-k=ai_key]")
-    pg.wait_for_function("!document.querySelector('#s-ai').hidden", timeout=5000)
+    pg.wait_for_function("!document.querySelector('#s-ai').classList.contains('x') && document.querySelector('#s-ai').hidden === false", timeout=5000)
     check("sk-test-not-a-real-key-123" not in pg.content(), "the AI key is never shown back")
     pg.click("#aisetup [data-a=aitest]")
     pg.wait_for_function("document.querySelector('#aisetup').innerText.includes('Working')", timeout=5000)
     check(True, "Test the key")
+    setup(False)
     pg.click("#aiadv [data-a=aiadvise]")
     pg.wait_for_function("document.querySelector('#aiadv').innerText.includes('stall')", timeout=5000)
     check("Wrap" in pg.inner_text("#aiadv"), "the AI's second opinion is shown")
