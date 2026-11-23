@@ -2,6 +2,7 @@
 // Reads a Govee H5198 meat thermometer's Bluetooth advertisements directly (no Home Assistant needed).
 
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/ble_device_base/ble_device.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
@@ -13,7 +14,9 @@ namespace govee_h5198 {
 
 class GoveeH5198 : public ble_device_base::ESPBTDeviceListener, public Component {
  public:
-  void set_address(uint64_t a) { this->address_ = a; }
+  void set_address(uint64_t a) { this->address_ = a; this->fixed_ = a != 0; }
+  /// Forget the remembered thermometer: the next H5198 heard (with real probe packets) is used and remembered.
+  void forget();
   void set_fahrenheit(bool f) { this->fahrenheit_ = f; }
   void set_log_raw(bool l) { this->log_raw_ = l; }
   void set_probe_sensor(int i, sensor::Sensor *s) { this->probes_[i] = s; }
@@ -27,7 +30,9 @@ class GoveeH5198 : public ble_device_base::ESPBTDeviceListener, public Component
   void dump_config() override;
 
  protected:
-  uint64_t address_{0};  // 0 = lock onto the first H5198 heard
+  uint64_t address_{0};  // 0 = lock onto the first H5198 heard (then remembered across restarts)
+  bool fixed_{false};    // set in the YAML (mac_address): never changed
+  ESPPreferenceObject pref_;
   bool fahrenheit_{true};
   bool log_raw_{false};
   sensor::Sensor *probes_[4]{nullptr, nullptr, nullptr, nullptr};

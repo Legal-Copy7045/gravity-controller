@@ -39,9 +39,13 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
     if (r.first_probe < 0)
       return this->address_ != 0;  // not a probe packet (other Govee devices share the company id)
     if (this->address_ == 0) {
-      // Lock onto the first device that sends real probe packets.
+      // Lock onto the first device that sends real probe packets, and remember it.
       this->address_ = device.address_uint64();
-      ESP_LOGI(TAG, "Found a Govee H5198 (RSSI %d); using it", device.get_rssi());
+      ESP_LOGI(TAG, "Found a Govee H5198 (RSSI %d); using it from now on", device.get_rssi());
+      if (!this->fixed_) {
+        uint64_t a = this->address_;
+        this->pref_.save(&a);
+      }
     }
     const uint32_t now = millis();
     this->last_packet_ = now;
@@ -83,8 +87,26 @@ bool GoveeH5198::parse_device(const ble_device_base::ESPBTDevice &device) {
 }
 
 void GoveeH5198::setup() {
+  // The thermometer found last time, so a neighbour's H5198 (or a look-alike) is never picked up instead of yours.
+  this->pref_ = global_preferences->make_preference<uint64_t>(fnv1_hash("govee_h5198_address_v1"), true);
+  uint64_t saved = 0;
+  if (!this->fixed_ && this->pref_.load(&saved) && saved != 0) {
+    this->address_ = saved;
+    ESP_LOGI(TAG, "Using the remembered H5198");
+  }
   if (this->connected_ != nullptr)
     this->connected_->publish_state(false);  // not heard yet
+}
+
+void GoveeH5198::forget() {
+  if (this->fixed_) {
+    ESP_LOGW(TAG, "The H5198's address is set in the YAML (mac_address): nothing to forget");
+    return;
+  }
+  this->address_ = 0;
+  uint64_t z = 0;
+  this->pref_.save(&z);
+  ESP_LOGI(TAG, "Forgot the H5198: the next one heard is used");
 }
 
 void GoveeH5198::loop() {

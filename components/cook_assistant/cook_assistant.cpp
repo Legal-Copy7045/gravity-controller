@@ -796,6 +796,26 @@ void CookAssistant::check_alerts_() {
       if (std::fabs(pit - sp) < 8.0f)
         this->pit_band_notified_ = false;
     }
+    // The fire is dying (a warning before "Fire may be out"): the fan has been blowing nearly all of the last 10 minutes,
+    // yet the pit is under target and still falling. A healthy fire recovers with that much air; a dying one (empty
+    // hopper, ash choking the grate, a jammed chute) doesn't.
+    {
+      int fan_min = 0;  // fan_hist_: one sample a minute, last 10 (kept by the fuel gauge's minute tick)
+      for (uint8_t f : this->fan_hist_) fan_min += f;
+      const bool dying = this->pit_reached_ && !lid_open && this->fan_hist_.size() >= 10 && fan_min >= 8 &&
+                         sp - pit > 5.5f && falling;  // 10 °F under and falling, fan flat out
+      if (dying && !this->fire_dying_notified_ && !this->fire_notified_) {
+        this->fire_dying_notified_ = true;
+        const float hrs = this->fuel_.hours_left();
+        std::string msg = "Pit " + this->fmt_temp_(pit) + " and falling (target " + this->fmt_temp_(sp) +
+                          ") with the fan running flat out.";
+        msg += std::isfinite(hrs) && hrs < 1.5f ? " The charcoal estimate is low: top up the hopper."
+                                                 : " Check the hopper has charcoal, the chute isn't jammed and the ash isn't choking the fire.";
+        this->notify("The fire may be dying", msg, 1, "fire_dying");
+      } else if (sp - pit < 3.0f) {
+        this->fire_dying_notified_ = false;
+      }
+    }
     // Fire out: > 28 °C (50 °F) below target and still falling for 15 min.
     bool low = this->pit_reached_ && !lid_open && sp - pit > 28.0f && falling;
     if (low) {

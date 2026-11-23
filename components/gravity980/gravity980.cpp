@@ -120,6 +120,37 @@ void Gravity980Component::setup() {
     this->recover_boots_ = 0;
   if (this->recover_boots_ != 0)
     ESP_LOGW(TAG, "Restarted by the link recovery (%u in a row)", unsigned(this->recover_boots_));
+  // The grill found last time: tried first after a restart (another Gravity 980 nearby isn't picked up instead).
+  this->grill_pref_ = global_preferences->make_preference<uint64_t>(fnv1_hash("gravity980_grill_addr_v1"), true);
+  if (!this->grill_pref_.load(&this->remembered_grill_))
+    this->remembered_grill_ = 0;
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr && !this->ble_->has_fixed_address() && this->remembered_grill_ != 0 &&
+      this->ble_->get_address() == 0) {
+    this->ble_->set_address(this->remembered_grill_);
+    ESP_LOGI(TAG, "BLE: trying the remembered grill first");
+  }
+#endif
+}
+
+void Gravity980Component::remember_grill(uint64_t a) {
+  if (a == 0 || a == this->remembered_grill_)
+    return;
+  this->remembered_grill_ = a;
+  this->grill_pref_.save(&a);
+}
+
+void Gravity980Component::forget_grill() {
+  this->remembered_grill_ = 0;
+  uint64_t z = 0;
+  this->grill_pref_.save(&z);
+#ifdef USE_GRAVITY980_BLE
+  if (this->ble_ != nullptr && !this->ble_->has_fixed_address()) {
+    this->ble_->reconnect("forgot the grill");
+    this->ble_->set_address(0);
+  }
+#endif
+  ESP_LOGI(TAG, "Forgot the grill: the next Gravity 980 heard is used");
 }
 
 void Gravity980Component::dump_config() {
@@ -994,11 +1025,12 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
     this->seen_at_ = now;
   if (a != 0 && (a == this->fixed_address_ || (this->fixed_address_ == 0 && a == this->get_address())))
     this->grill_seen_at_ = now;
-  // Found by name (no fixed address): learn the address. A grill that is power-cycled can come back on a different
-  // address, so while idle a name match from a new address takes over once the old one has gone quiet for 10 s.
+  // Found by name (no fixed address): learn the address and remember it. A grill that is power-cycled can come back
+  // on a different address, so while idle a match from a new address takes over once the one we know has been quiet
+  // for a minute (another Gravity 980 or a look-alike nearby doesn't snatch the link while ours is around).
   if (this->fixed_address_ == 0 && a != this->get_address() &&
       (this->get_address() == 0 ||
-       (this->state() == esp32_ble_tracker::ClientState::IDLE && (now - this->seen_at_) > 10000u))) {
+       (this->state() == esp32_ble_tracker::ClientState::IDLE && (now - this->seen_at_) > 60000u))) {
     if (this->is_grill_(device)) {
       this->seen_at_ = this->grill_seen_at_ = now;
       auto name = device.get_name();
@@ -1006,6 +1038,8 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
                unsigned((a >> 40) & 0xFF), unsigned((a >> 32) & 0xFF), unsigned((a >> 24) & 0xFF),
                unsigned((a >> 16) & 0xFF), unsigned((a >> 8) & 0xFF), unsigned(a & 0xFF), device.get_rssi());
       this->set_address(device.address_uint64());
+      if (this->parent_ != nullptr)
+        this->parent_->remember_grill(device.address_uint64());
     }
   }
   if (a != 0 && a == this->get_address())

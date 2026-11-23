@@ -116,6 +116,10 @@ class Gravity980BLE : public esp32_ble_client::BLEClientBase {
 
 class Gravity980Component : public Component {
  public:
+  /// The grill's Bluetooth address, remembered across restarts (it's preferred; see Gravity980BLE::parse_device).
+  void remember_grill(uint64_t a);
+  /// Forget it: the next Gravity 980 heard is used (a different or replaced grill).
+  void forget_grill();
   enum class Transport : uint8_t { NONE, TCP, BLE };
 
   // --- configuration ---
@@ -189,6 +193,8 @@ class Gravity980Component : public Component {
   void on_ble_disconnected(int reason = -1);
 
  protected:
+  ESPPreferenceObject grill_pref_;
+  uint64_t remembered_grill_{0};
   enum class TcpState : uint8_t { IDLE, CONNECTING, CONNECTED };
   void tcp_start_connect_();
   void tcp_check_connect_();

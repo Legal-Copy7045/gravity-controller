@@ -358,6 +358,7 @@ class CookAssistant : public Component {
   double link_lost_since_{-1};
   bool pit_band_notified_{false};
   bool fire_notified_{false};
+  bool fire_dying_notified_{false};
   bool lid_notified_{false};
   bool link_notified_{false};
   float last_pit_c_{NAN};

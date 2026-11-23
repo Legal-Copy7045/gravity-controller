@@ -236,6 +236,12 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 :root{--on-page:#fff}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--on-page:#1c0e04}}
 :root[data-theme="dark"]{--on-page:#1c0e04}
+.summary{position:fixed;inset:0;z-index:3000;background:var(--ground);overflow:auto;padding:16px}
+.sum-page{max-width:760px;margin:0 auto}.sum-page h1{margin:4px 0}
+.sum-tools{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-bottom:8px}
+.sum-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:12px 0}
+.sum-facts div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.sum-facts span{display:block;font-size:12px;color:var(--muted)}
+@media print{html.summary-open body>*:not(#summary){display:none!important}.summary{position:static;padding:0;background:#fff;color:#000}.sum-tools{display:none}}
 </style>
 </head>
 <body>
@@ -291,6 +297,8 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
   <div class="sect" id="temps" data-sect="chart">
     <h2 class="sec"><svg class="ic"><use href="#i-chart"/></svg>Temperatures <span class="seg" id="range"></span></h2>
     <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
+    <section class="tc" id="bestcard" style="display:none"><h3 id="besttitle">This cook vs your best</h3><p class="small" id="bestline" style="margin:0 0 6px"></p>
+      <div class="chart" id="bestchart"></div><div class="legend" id="bestlegend"></div></section>
   </div>
 
   <div class="sect" id="ai" data-sect="ai">
@@ -799,6 +807,8 @@ window.act = {
   pulled(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' pulled', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   slice(v) { setNum(E('Slice at', ['number']), parseFloat(v)); },
   inum(eid, v) { const x = parseFloat(v); if (!eid || !isFinite(x)) return; H().call('input_number', 'set_value', eid, { value: x }).then(() => toast('Saved')).catch(fail); },
+  sumClose() { const el = $('summary'); if (el) el.hidden = true; document.documentElement.classList.remove('summary-open'); },
+  sumShare() { const el = $('summary'); if (el && navigator.share) navigator.share({ title: 'Cook summary', text: el._text }).catch(() => {}); },
   boughtBag() { const s = SUP('charcoal in stock'); act.inum(s, (SUPV('charcoal in stock') || 0) + (SUPV('charcoal bag size') || 0)); },
   shareSet(o) { api('POST', '/api/smoker/sharing', o).then(d => { share = d; renderShare(); renderJournal(true);
     toast(o.enabled === true ? 'Sharing on: the journal asks after each cook' : o.enabled === false ? 'Sharing off: nothing more is sent' : o.auto ? 'Cooks are shared when they end' : 'The journal asks after each cook'); }).catch(fail); },
@@ -850,6 +860,7 @@ window.act = {
   note(id) { const f = $('jn-' + id); if (!f) return;
     api('POST', '/api/smoker/journal/' + id, { notes: f.value }).then(() => { clean('jn-' + id); toast('Saved'); loadJournal(true); }).catch(fail); },
   compare(id) { compareCooks(id).catch(fail); },
+  summary(id) { cookSummary(id).catch(fail); },
   jall() { journalAll = true; renderJournal(true); },
 };
 
@@ -1482,7 +1493,7 @@ function renderJournal(force) {
       ${(e.items || []).length ? `<div class="small">${e.items.map(i => esc(i.name) + (i.weight_lb ? ' (' + fmt(i.weight_lb, 1) + ' lb)' : '')).join(' · ')}</div>` : ''}
       ${(e.photos || []).length ? `<div class="thumbs">${e.photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
       <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" onclick="act.rate('${esc(e.id)}', ${n})" aria-label="${n} stars">★</button>`).join('')}</span>
-        <button class="btn" onclick="act.compare('${esc(e.id)}')">Compare</button></div>
+        <span><button class="btn" onclick="act.compare('${esc(e.id)}')">Compare</button> <button class="btn" onclick="act.summary('${esc(e.id)}')">Summary</button></span></div>
       ${tasteHTML(e)}
       <textarea id="jn-${esc(e.id)}" placeholder="Notes: bark, tenderness, what you'd change…" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:13.5px">${esc(e.notes || '')}</textarea>
       <div class="btns" style="margin-top:6px"><button class="btn" onclick="act.note('${esc(e.id)}')">Save notes</button></div></div>`;
@@ -1510,6 +1521,78 @@ async function compareCooks(id) {
   $('jcmptitle').textContent = 'Compared with similar cooks (' + (e.profile || 'Cook') + ', hours since the start)';
   drawLines($('jchart'), series, $('jlegend'), 'h');
 }
+// ---------------------------------------------------------------- this cook vs your best (live)
+// During a cook: the food probe's curve so far, over your best-rated earlier cook of the same cut (hours since each
+// started), and how far ahead or behind you are at this point.
+const bestCache = {};
+let bestAt = 0;
+async function probeCurve(label, from, to) {
+  const eid = E(label + ' temperature', ['sensor']); if (!eid) return [];
+  const r = await H().ws({ type: 'history/history_during_period', start_time: new Date(from * 1000).toISOString(),
+    end_time: new Date(to * 1000).toISOString(), entity_ids: [eid], minimal_response: true, no_attributes: true, significant_changes_only: false });
+  return (r[eid] || []).map(p => [((p.lu || p.lc) - from) / 3600, parseFloat(p.s)]).filter(p => isFinite(p[1]) && p[0] >= 0);
+}
+function at(pts, x) {  // linear interpolation, only inside the recorded span (never extrapolated)
+  if (pts.length < 2 || x < pts[0][0] || x > pts[pts.length - 1][0]) return null;
+  for (let i = 1; i < pts.length; i++) if (pts[i][0] >= x) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]; return x1 === x0 ? y1 : y0 + (y1 - y0) * (x - x0) / (x1 - x0); }
+  return null;
+}
+async function renderBest() {
+  const card = $('bestcard'); if (!card) return;
+  const cooking = val(E('Cook active', ['binary_sensor'])) === 'on', el = num(E('Cook elapsed', ['sensor']));
+  const p = cooking && el != null ? PROBES.find(x => { const prot = val(E(x.label + ' protein', ['select'])); return num(E(x.label + ' temperature', ['sensor'])) != null && prot && !/^(Auto|unknown|unavailable)$/.test(prot); }) : null;
+  const prot = p && val(E(p.label + ' protein', ['select']));
+  const best = p && [...journal.entries].filter(e => e.profile === prot && (e.rating || 0) >= 3 && e.started && e.ended)
+    .sort((a, b) => (b.rating - a.rating) || (b.ended - a.ended))[0];
+  if (!best) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  if (Date.now() - bestAt < 300e3 && card._k === best.id + p.key) return;  // the curves every 5 minutes
+  bestAt = Date.now(); card._k = best.id + p.key;
+  const now = Date.now() / 1000, start = now - el * 60;
+  if (!bestCache[best.id]) {
+    const label = PROBES.find(x => x.key === best.probe)?.label || 'Food 1';
+    bestCache[best.id] = await probeCurve(label, best.started, best.ended + 600);
+  }
+  const mine = await probeCurve(p.label, start, now), theirs = bestCache[best.id], h = el / 60;
+  const b = at(theirs, h), m = mine.length ? mine[mine.length - 1][1] : null;
+  const when = dayLabel(new Date(best.ended * 1000)), stars = '★'.repeat(best.rating);
+  $('besttitle').textContent = 'This cook vs your best ' + prot.toLowerCase();
+  $('bestline').textContent = b != null && m != null
+    ? (Math.abs(m - b) < 2 ? 'Right on track with' : (m > b ? Math.round(m - b) + '° ahead of' : Math.round(b - m) + '° behind')) +
+      ` your ${stars} ${prot.toLowerCase()} from ${when} at this point (${fmt(h, 1)} h in: it was at ${fmt(b)}°, you're at ${fmt(m)}°). It took ${fmt(best.total_h, 1)} h in all.`
+    : `Your ${stars} ${prot.toLowerCase()} from ${when} took ${fmt(best.total_h, 1)} h.`;
+  drawLines($('bestchart'), [{ name: 'This cook', color: 'var(--pit)', pts: mine }, { name: `${stars} ${when}`, color: 'var(--food1)', pts: theirs }], $('bestlegend'), 'h');
+}
+
+// ---------------------------------------------------------------- one-page cook summary (print, save as PDF, share)
+async function cookSummary(id) {
+  const e = journal.entries.find(x => x.id === id); if (!e) return;
+  const label = PROBES.find(x => x.key === e.probe)?.label || 'Food 1';
+  const pts = e.started && e.ended ? await probeCurve(label, e.started, e.ended + 600).catch(() => []) : [];
+  const d = new Date(e.ended * 1000), w = e.weight_kg ? (isF() ? fmt(e.weight_kg * 2.2046, 1) + ' lb' : fmt(e.weight_kg, 1) + ' kg') : '';
+  const facts = [['Total', fmt(e.total_h, 1) + ' h'], e.stall_h ? ['Stall', fmt(e.stall_h, 1) + ' h'] : null,
+    e.pit_c != null ? ['Pit', fmt(cToU(e.pit_c)) + TU()] : null, e.target_c != null ? ['Pulled at', fmt(cToU(e.target_c)) + TU()] : null,
+    e.ambient_c != null ? ['Outside', fmt(cToU(e.ambient_c)) + TU()] : null, ['Wrapped', e.wrapped ? 'yes' : 'no'],
+    e.rating ? ['Rating', '★'.repeat(e.rating) + '☆'.repeat(5 - e.rating)] : null].filter(Boolean);
+  const title = (e.profile || 'Cook') + (w ? ' · ' + w : ''), when = d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  let el = $('summary');
+  if (!el) { document.body.insertAdjacentHTML('beforeend', '<div id="summary" class="summary" role="dialog" aria-modal="true" aria-labelledby="sum-t"></div>'); el = $('summary'); }
+  el.innerHTML = `<div class="sum-page"><div class="sum-tools"><button class="btn pri" onclick="window.print()">Print or save as PDF</button>
+      ${navigator.share ? '<button class="btn" onclick="act.sumShare()">Share</button>' : ''}<button class="btn" onclick="act.sumClose()">Close</button></div>
+    <p class="eyebrow">Smoker · cook summary</p><h1 id="sum-t">${esc(title)}</h1><p class="muted">${esc(when)}${e.probe_name ? ' · ' + esc(e.probe_name) : ''}</p>
+    <div class="sum-facts">${facts.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
+    <div class="chart" id="sumchart" style="height:220px"></div><div class="legend" id="sumlegend"></div>
+    ${(e.tags || []).length ? `<p><b>How it was:</b> ${e.tags.map(esc).join(', ')}</p>` : ''}
+    ${e.notes ? `<p><b>Notes:</b> ${esc(e.notes)}</p>` : ''}
+    ${(e.items || []).length ? `<p><b>On the grill:</b> ${e.items.map(i => esc(i.name) + (i.weight_lb ? ' (' + fmt(i.weight_lb, 1) + ' lb)' : '')).join(' · ')}</p>` : ''}
+    ${(e.photos || []).length ? `<div class="thumbs">${e.photos.map(n => `<img alt="photo" src="${photo(n)}">`).join('')}</div>` : ''}</div>`;
+  el.onkeydown = ev => { if (ev.key === 'Escape') act.sumClose(); };
+  el.hidden = false; el._text = `${title}, ${when}: ` + facts.map(([k, v]) => k + ' ' + v).join(', ') + (e.notes ? '. ' + e.notes : '');
+  document.documentElement.classList.add('summary-open');
+  drawLines($('sumchart'), [{ name: 'Food temperature', color: 'var(--pit)', pts }], $('sumlegend'), 'h');
+  el.querySelector('.sum-tools .btn').focus();
+}
+
 function drawLines(box, series, legend, xunit) {
   const W = box.clientWidth || 600, Hh = box.clientHeight || 280, L = 40, R = 10, T = 10, B = 24;
   let x0 = 0, x1 = 1, lo = Infinity, hi = -Infinity;
@@ -1519,7 +1602,7 @@ function drawLines(box, series, legend, xunit) {
   const x = v => L + (W - L - R) * (v - x0) / (x1 - x0), y = v => T + (Hh - T - B) * (1 - (v - lo) / (hi - lo));
   let g = '';
   for (let v = lo; v <= hi; v += stepY) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
-  const xs = x1 > 12 ? 2 : 1;
+  const xs = Math.max(1, Math.ceil(x1 / 8));  // about 8 labels, whatever the span
   for (let v = 0; v <= x1; v += xs) g += `<text x="${x(v)}" y="${Hh - 6}" text-anchor="middle">${v}${xunit}</text>`;
   const lines = series.map(s => s.pts.length ? `<path d="${s.pts.map((p, i) => (i ? 'L' : 'M') + x(p[0]) + ',' + y(p[1])).join('')}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>` : '').join('');
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="Cook comparison">${g}${lines}</svg>`;
@@ -1770,6 +1853,7 @@ function render() {
   placeSections();
   findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
   loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange(); renderShare(); renderSupplies();
+  renderBest().catch(e => console.warn('best', e));
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }
 window.addEventListener('resize', () => drawChart());

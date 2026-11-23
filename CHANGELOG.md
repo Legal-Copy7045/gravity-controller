@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.2.39] - 2026-11-23
+
+Ten new features:
+1. **More notification buttons:** "Pulled it" alerts also offer *Not yet: hold it warm*; charcoal alerts offer *I
+   topped it up*. Alerts sent straight to your phone (ntfy, Pushover, Telegram) open the controller's page at the
+   right section when tapped.
+2. **The fire may be dying:** a warning before "Fire may be out", when the fan has been blowing for 8 of the last 10
+   minutes and the pit is still 10°F under target and falling. It says to top up if the charcoal estimate is low, and
+   otherwise to check the chute and the ash.
+3. **This cook vs your best:** during a cook, the Temperatures section compares your food probe with your
+   best-rated earlier cook of the same cut. It says how far ahead or behind you are at the same point.
+4. **Serve time from your calendar:** an event in the next two days with "BBQ", "brisket", "smoker", "ribs"... in
+   its title sets the serve-by time, unless you've set one by hand. Choose the calendar with the action
+   `smoker.install_package` (field *Calendar*).
+5. **The controller remembers your thermometer and grill:**
+   - The Govee H5198 is pinned once found, so a neighbour's isn't picked up. *Forget the thermometer* clears it.
+   - The grill's Bluetooth address is remembered across restarts. Another device now has to wait a minute after
+     your grill was last heard (not 10 s) before it can take over, and *Forget the grill* clears it.
+   - The grill can change address when it's switched off and on, so the controller can't lock it to one address
+     outright.
+6. **Charcoal stock and cost:**
+   - Set the bag size and price (Setup → Supplies and maintenance). Charcoal burned comes off the stock, and
+     *Bought a bag* adds one.
+   - The Charcoal card shows the kg, cost and kg/h of your last cook.
+   - Below one bag, "Charcoal for the smoker" goes on your to-do list.
+7. **One-page cook summary:** *Summary* on a journal entry shows the cut, timings, stall, pit, outside temperature,
+   rating, notes and its temperature chart. You can print it, save it as a PDF or share it.
+8. **Open Pitmaster has a public page:** https://api.open-pitmaster.workers.dev/ shows the shared averages by cut,
+   weight, pit and weather.
+9. **More voice commands:** "the brisket is wrapped", "push dinner back an hour" (or "bring it forward"), "when
+   should I light the grill".
+10. **Maintenance reminders:** burn hours count while a cook is on. The ash pan (12 h), grease tray (30 h), and
+    gasket and fan (100 h) send a reminder and go on your to-do list. Mark each done on the Setup page.
+
+`smoker.install_package` takes two new optional fields: *Calendar* and *To-do list* (default `todo.shopping_list`).
+
 ## [0.2.38] - 2026-11-23
 
 Fixes from a second independent review:

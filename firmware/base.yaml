@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.38"
+  project_version: "0.2.39"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -419,6 +419,20 @@ button:
     entity_category: config
     on_press:
       - lambda: id(local).clear_pin();
+  # Use a different Govee H5198: the controller remembers the first one it hears, so a neighbour's isn't picked up.
+  - platform: template
+    name: Forget the thermometer
+    icon: mdi:bluetooth-off
+    entity_category: config
+    on_press:
+      - lambda: id(h5198_hub).forget();
+  # A different grill (or a new one): forget the remembered one and pick up the next Gravity 980 heard.
+  - platform: template
+    name: Forget the grill
+    icon: mdi:grill-outline
+    entity_category: config
+    on_press:
+      - lambda: id(grill).forget_grill();
   # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
   - platform: restart
     name: Restart

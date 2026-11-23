@@ -443,6 +443,21 @@ void Standalone::notify(const std::string &title, const std::string &message, in
   bool direct = r == "direct" || r == "both" || (r == "auto" && !ha_connected()) || priority >= 2;
   if (!direct || !this->direct_configured_())
     return;
+  // Tapping the alert opens the controller's page at the right section (on the home Wi-Fi).
+  std::string page;
+  for (auto &ip : network::get_ip_addresses()) {
+    if (ip.is_set() && ip.is_ip4()) {
+      char b[network::IP_ADDRESS_BUFFER_SIZE];
+      page = std::string("http://") + ip.str_to(b) + "/";
+      break;
+    }
+  }
+  if (!page.empty()) {
+    const bool food = tag.rfind("done_", 0) == 0 || tag.rfind("pull_", 0) == 0 || tag.rfind("stall_", 0) == 0 ||
+                      tag.rfind("probe", 0) == 0 || tag.rfind("rest", 0) == 0;
+    page += food ? "#s-food" : (tag.rfind("fuel", 0) == 0 || tag.rfind("fire", 0) == 0) ? "#s-fuel"
+                 : (tag.rfind("pit", 0) == 0 || tag == "program" || tag == "lid") ? "#s-pit" : "";
+  }
   if (this->s_.ntfy_topic[0]) {
     std::string body = json::build_json([&](JsonObject root) {
       root["topic"] = this->s_.ntfy_topic;
@@ -450,20 +465,28 @@ void Standalone::notify(const std::string &title, const std::string &message, in
       root["message"] = message;
       root["priority"] = priority >= 2 ? 5 : priority == 1 ? 4 : 3;
       if (!tag.empty()) root["tags"].to<JsonArray>().add(tag);
+      if (!page.empty()) {
+        root["click"] = page;
+        JsonObject a = root["actions"].to<JsonArray>().add<JsonObject>();
+        a["action"] = "view";
+        a["label"] = "Open the smoker page";
+        a["url"] = page;
+      }
     }).c_str();
     this->queue_({"ntfy", "POST", std::string(this->s_.ntfy_server), body, "application/json", {}});
   }
   if (this->s_.pushover_user[0] && this->s_.pushover_token[0]) {
     std::string body = "token=" + url_encode(this->s_.pushover_token) + "&user=" + url_encode(this->s_.pushover_user) +
                        "&title=" + url_encode(title) + "&message=" + url_encode(message) +
-                       "&priority=" + (priority >= 1 ? "1" : "0");
+                       "&priority=" + (priority >= 1 ? "1" : "0") +
+                       (page.empty() ? std::string() : "&url=" + url_encode(page) + "&url_title=" + url_encode("Open the smoker page"));
     this->queue_({"pushover", "POST", "https://api.pushover.net/1/messages.json", body,
                   "application/x-www-form-urlencoded", {}});
   }
   if (this->s_.telegram_token[0] && this->s_.telegram_chat[0]) {
     std::string body = json::build_json([&](JsonObject root) {
       root["chat_id"] = this->s_.telegram_chat;
-      root["text"] = title + "\n" + message;
+      root["text"] = title + "\n" + message + (page.empty() ? std::string() : "\n" + page);
       root["disable_notification"] = priority == 0;
     }).c_str();
     this->queue_({"telegram", "POST", std::string("https://api.telegram.org/bot") + this->s_.telegram_token + "/sendMessage",

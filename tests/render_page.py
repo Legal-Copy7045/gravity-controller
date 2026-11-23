@@ -636,6 +636,19 @@ def main():
                         failures.append(f"section bar marks Setup on the main page: {lit}")
                     if fr.evaluate("document.getElementById('setup').offsetParent !== null"):
                         failures.append("setup page: Back to the cook didn't leave it")
+                    # This cook vs your best: the 4-star pork shoulder in the journal, during this pork shoulder cook.
+                    time.sleep(1.0)
+                    bl = fr.evaluate("[getComputedStyle(document.getElementById('bestcard')).display, document.getElementById('bestline').textContent, document.querySelectorAll('#bestchart path').length]")
+                    if bl[0] == "none" or "★★★★" not in bl[1] or bl[2] < 1:
+                        failures.append(f"this cook vs your best: {bl}")
+                    # One-page cook summary: opens with the facts and a chart; Close hides it.
+                    fr.evaluate("act.summary('abc123def456')"); time.sleep(0.8)
+                    sm = fr.evaluate("[!document.getElementById('summary').hidden, document.getElementById('summary').textContent]")
+                    if not sm[0] or "Total" not in sm[1] or "Great bark" not in sm[1] or "Print or save as PDF" not in sm[1]:
+                        failures.append(f"cook summary: {sm[1][:160]!r}")
+                    fr.click("#summary .sum-tools button:has-text('Close')"); time.sleep(0.2)
+                    if not fr.evaluate("document.getElementById('summary').hidden"):
+                        failures.append("cook summary: Close didn't close it")
                     # Supplies: the Charcoal card shows the stock and the last cook; Bought a bag adds one bag.
                     if "Bought a bag" not in fr.inner_text("#fuelcard") or "3.1 kg" not in fr.inner_text("#fuelcard"):
                         failures.append(f"charcoal stock rows: {fr.inner_text('#fuelcard')[-200:]!r}")
