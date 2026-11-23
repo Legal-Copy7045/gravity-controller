@@ -31,14 +31,15 @@ function start() {
   doc.body.insertAdjacentHTML('afterbegin', ICONS + `<div class="wrap">
   <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
   <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
-  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-plan">${ic('plan')}Plan</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
+  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal &amp; plan</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
   <section class="sect" id="s-food"><h2 class="sec">${ic('food')}Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
-  <section class="sect" id="s-pit"><h2 class="sec">${ic('grill')}Pit &amp; program</h2><div class="grid"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
-  <section class="sect" id="s-fuel"><h2 class="sec">${ic('hopper')}Charcoal</h2><div class="card" id="fuel"></div></section>
+  <section class="sect" id="s-pit"><h2 class="sec">${ic('grill')}Pit &amp; program</h2><div class="grid g-1-2"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
+  <section class="sect" id="s-fuel"><h2 class="sec">${ic('hopper')}Charcoal &amp; plan</h2><div class="grid g-pair"><div class="card" id="fuel"></div><div class="card" id="plan"></div></div></section>
   <section class="sect" id="s-chart"><h2 class="sec">${ic('chart')}Temperatures <span class="seg" id="range"></span></h2><div class="card"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></div></section>
-  <section class="sect" id="s-plan"><h2 class="sec">${ic('plan')}Plan</h2><div class="grid"><div class="card" id="plan"></div></div></section>
-  <section class="sect" id="s-journal"><h2 class="sec">${ic('book')}Cook journal</h2><div class="card" id="journal"></div></section>
-  <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><div class="grid"><div class="card" id="lock"></div><div class="card" id="conn"></div><div class="card" id="notif"></div><div class="card" id="place"></div><div class="card" id="share"></div><div class="card" id="sources"></div><div class="card" id="dev"></div></div></section>
+  <section class="sect" id="s-journal"><h2 class="sec">${ic('book')}Cook journal</h2><div class="grid g-2-1"><div class="card" id="journal"></div><div class="card" id="share"></div></div></section>
+  <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><h3 class="sub">Grill connection</h3><div class="grid g-pair"><div class="card" id="conn"></div><div class="card" id="sources"></div></div>
+    <h3 class="sub">Phone and weather</h3><div class="grid g-pair"><div class="card" id="notif"></div><div class="card" id="place"></div></div>
+    <h3 class="sub">This controller</h3><div class="grid g-pair"><div class="card" id="lock"></div><div class="card" id="dev"></div></div></section>
   <footer id="foot"></footer></div><div id="toast" role="status" aria-live="polite"></div>`);
   wire();
   connect();
@@ -896,10 +897,10 @@ function renderLocal() {
 
   const sec = (k, label, ph) => `<div class="row"><span>${label}</span><span class="entry"><input id="sec-${k}" type="password" autocomplete="off" placeholder="${esc(ph)}" aria-label="${esc(label)}" style="width:160px"><button class="btn" data-a="secret" data-k="${k}">Save</button></span></div>`;
   const svc = (name, on, last) => `<span class="chip ${on ? 'ok' : ''}">${name}${on ? ' ✓' : ''}</span>${last ? ` <span class="muted small">${esc(last)}</span>` : ''}`;
-  const routes = [['auto', 'Automatic: via Home Assistant when it\'s connected, straight to my phone when it isn\'t'], ['ha', 'Only via Home Assistant'], ['direct', 'Only straight to my phone'], ['both', 'Both (you may get two)']];
+  const routes = [['auto', 'Automatic'], ['ha', 'Only via Home Assistant'], ['direct', 'Only straight to my phone'], ['both', 'Both (you may get two)']];
   put('notif', `<h3><span>Notifications</span>${L.ha ? '<span class="chip ok">Home Assistant connected</span>' : '<span class="chip">no Home Assistant</span>'}</h3>
     <div class="row"><span>Send them</span><select data-c="route" aria-label="Where notifications go">${routes.map(([v, t]) => `<option value="${v}"${L.route === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
-    <p class="note">Critical alarms (fire out, way too hot) always go straight to your phone too, when a service below is set up.</p>
+    <p class="note">${L.route === 'auto' ? 'Automatic: via Home Assistant while it\'s connected, straight to your phone when it isn\'t. ' : ''}Critical alarms (fire out, way too hot) always go straight to your phone too, when a service below is set up.</p>
     <div class="chips" style="margin:6px 0">${svc('ntfy', L.set.ntfy, L.last.ntfy)} ${svc('Pushover', L.set.pushover, L.last.pushover)} ${svc('Telegram', L.set.telegram, L.last.telegram)}</div>
     ${L.authed ? `<details class="more" data-k="ntfy"><summary>ntfy (free app; pick a long random topic)</summary>
         <div class="row"><span>Server</span><span class="entry"><input id="ntfysrv" type="url" value="${esc(L.ntfy_server || 'https://ntfy.sh')}" style="width:160px" aria-label="ntfy server"><button class="btn" data-a="ntfyserver">Save</button></span></div>
@@ -913,7 +914,7 @@ function renderLocal() {
         ${L.set.telegram ? '<div class="btns"><button class="btn" data-a="secret" data-k="telegram_token" data-clear="1">Remove Telegram</button></div>' : ''}</details>
       <p class="note">Keys are stored on the controller and can be replaced or removed, never read back.</p>
       <div class="btns"><button class="btn" data-a="testnotify"${L.set.ntfy || L.set.pushover || L.set.telegram ? '' : ' disabled'}>Send a test</button></div>`
-    : `<p class="note">${L.pin ? 'Unlock this page (PIN above) to set up ntfy, Pushover or Telegram.' : 'Set a PIN for this page (above) to set up ntfy, Pushover or Telegram.'}</p>`}`);
+    : `<p class="note">${L.pin ? 'Unlock this page (This page\'s PIN, below) to set up ntfy, Pushover or Telegram.' : 'Set a PIN for this page (This page\'s PIN, below) to set up ntfy, Pushover or Telegram.'}</p>`}`);
 
   put('place', `<h3><span>Weather and time</span>${L.location ? '<span class="chip ok">weather here</span>' : ''}</h3>
     <div class="row"><span>Weather from</span><span class="r">${L.location ? 'Open-Meteo, for your area' + (L.weather_age_min >= 0 ? ' · ' + mins(L.weather_age_min) + ' ago' : '') : L.ha ? 'Home Assistant' : 'nowhere yet'}</span></div>
@@ -944,7 +945,7 @@ const dayLabel = t => { const d = new Date(t * 1000), now = new Date(); const da
 function drawChart() {
   put('range', [3, 6, 12, 24].map(h => `<button aria-pressed="${h === chartHours}" data-a="range" data-h="${h}">${h}h</button>`).join(''));
   const box = $('chart'); if (!box) return;
-  if (!HIST || !HIST.series || !HIST.series[0] || !HIST.series[0].length) { box.innerHTML = '<div class="empty">The chart fills in as the controller records (one point a minute; up to 24 hours, cleared by a restart).</div>'; put('legend', ''); return; }
+  if (!HIST || !HIST.series || !HIST.series[0] || !HIST.series[0].length) { box.innerHTML = '<div class="empty" style="padding:4px 0">The chart fills in as the controller records (one point a minute; up to 24 hours, cleared by a restart).</div>'; put('legend', ''); return; }
   const W = box.clientWidth || 600, Hh = 260, L = 40, R = 10, T = 10, B = 24, step = HIST.step_min * 60, now = Date.now() / 1000 - (HIST.age_s || 0);
   const series = HIST.series.map((pts, i) => ({ name: HIST.names[i], color: COLORS[i], dash: i === 1, pts: pts.map((v, k) => [now - (pts.length - 1 - k) * step, v]).filter(p => p[1] != null) })).filter(s => s.pts.length);
   const all = series.flatMap(s => s.pts.map(p => p[1])), t0 = now - (HIST.series[0].length - 1) * step;
@@ -1016,7 +1017,7 @@ function renderShare() {
 function renderSetup(u) {
   const wifi = T('Grill Wi-Fi'), ip = E('text', 'Grill IP address');
   put('conn', `<h3><span>Grill link</span><span class="chip ${on(E('binary_sensor', 'Grill connected')) ? 'ok' : 'bad'}">${on(E('binary_sensor', 'Grill connected')) ? (bothLinks() ? 'Wi-Fi + Bluetooth' : esc({ wifi: 'Wi-Fi', bluetooth: 'Bluetooth' }[T('Grill link')] || 'connected')) : 'not connected'}</span></h3>
-    ${T('Grill link status') ? row('Status', esc(T('Grill link status'))) : ''}
+    ${T('Grill link status') ? `<p class="linkstatus">${esc(T('Grill link status'))}</p>` : ''}
     ${(() => { const w = d => d >= -60 ? 'strong' : d >= -72 ? 'good' : d >= -82 ? 'weak' : 'very weak';
       const b = S('Grill Bluetooth signal'), g = S('Grill Wi-Fi signal');
       return (E('sensor', 'Grill Bluetooth signal') ? row('Bluetooth signal', b != null ? fmt(b) + ' dBm · ' + w(b) : 'no signal') : '') +

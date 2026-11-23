@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.30] - 2026-11-23
+
+The controller's page, tidied (it was all over the place on a wide screen):
+- **Cards fill their row:** a lone card no longer sits narrow next to empty space. The pit and program share a row
+  (the program wider); Charcoal and the Plan sit side by side; the journal is beside its Open Pitmaster card.
+- **Setup in three pairs:** Grill connection (link, probe sources), Phone and weather (notifications, weather and
+  time), This controller (PIN, controller details).
+- **Smaller fixes:** the link status reads as a sentence; the empty chart is compact; drop-downs fit their cards; the
+  notes box fills its row on a phone.
+
 ## [0.2.29] - 2026-11-23
 
 Running without Home Assistant, part 2: the controller's own page catches up (docs/standalone.md).

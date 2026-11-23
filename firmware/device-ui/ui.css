@@ -172,20 +172,35 @@
 .gx .topbar .conn .ic{width:18px;height:18px;color:var(--ink-2)}
 
 /* ---- chart, plan, journal, Open Pitmaster (stage 2) ---- */
-.chart{width:100%;min-height:120px}
-.chart svg{display:block}
-.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12.5px;color:var(--ink-2);margin-top:6px}
-.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
-.seg{display:inline-flex;gap:0;margin-left:auto;border:1px solid var(--line);border-radius:999px;overflow:hidden;font-size:12px}
-.seg button{border:0;background:var(--surface);color:var(--ink-2);padding:3px 10px;font:600 12px inherit;cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--page);color:#fff}
-.sec .seg{font-weight:600}
-.je{border-top:1px solid var(--line);padding:10px 0}
-.je:first-child{border-top:0}
-.stars button{border:0;background:none;font-size:22px;cursor:pointer;color:var(--line);padding:0 1px;min-height:32px}
-.stars button.on{color:var(--warn)}
-.taste{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
-.taste button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer;min-height:30px}
-.taste button[aria-pressed="true"]{background:var(--page);border-color:var(--page);color:#fff}
-.taste .grp{width:100%;font-size:11.5px;color:var(--muted);margin-top:2px}
-.sharebox{border:1px solid var(--page);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.gx .chart{width:100%;min-height:120px}
+.gx .chart svg{display:block}
+.gx .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.gx .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.gx .seg{display:inline-flex;gap:0;margin-left:auto;border:1px solid var(--line);border-radius:999px;overflow:hidden;font-size:12px}
+.gx .seg button{border:0;background:var(--surface);color:var(--ink-2);padding:3px 10px;font:600 12px inherit;cursor:pointer}
+.gx .seg button[aria-pressed="true"]{background:var(--page);color:#fff}
+.gx .sec .seg{font-weight:600}
+.gx .je{border-top:1px solid var(--line);padding:10px 0}
+.gx .je:first-child{border-top:0}
+.gx .stars button{border:0;background:none;font-size:22px;cursor:pointer;color:var(--line);padding:0 1px;min-height:32px}
+.gx .stars button.on{color:var(--warn)}
+.gx .taste{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
+.gx .taste button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer;min-height:30px}
+.gx .taste button[aria-pressed="true"]{background:var(--page);border-color:var(--page);color:#fff}
+.gx .taste .grp{width:100%;font-size:11.5px;color:var(--muted);margin-top:2px}
+.gx .sharebox{border:1px solid var(--page);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.gx .chart:has(.empty){min-height:0}
+/* layouts: cards stretch to fill their row (auto-fit); pairs and wide/narrow splits on wider screens */
+.gx .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))}
+@media (min-width:821px){
+  .gx .grid.g-pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .gx .grid.g-1-2{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+  .gx .grid.g-2-1{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+}
+@media (max-width:820px){.gx .grid.g-pair,.gx .grid.g-1-2,.gx .grid.g-2-1{grid-template-columns:minmax(0,1fr)}}
+.gx .sect>h3.sub{margin:6px 0 -4px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.gx .linkstatus{margin:-2px 0 8px;font-size:13.5px;color:var(--ink-2)}
+.gx .row select{max-width:62%;min-width:0;text-overflow:ellipsis}
+.gx .row select{min-width:9em;flex:0 1 auto}
+.gx .je .row>.entry{flex:1 1 auto;max-width:100%;display:flex;gap:6px;flex-wrap:nowrap}
+.gx .je .row>.entry input{flex:1 1 auto;min-width:0;width:auto}
