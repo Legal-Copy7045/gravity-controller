@@ -249,6 +249,7 @@ const ACT = {
   },
   aipick(el) { const f = $(el.dataset.k === 'cam' ? 'aicam' : 'aifile'); if (f) f.click(); },
   opencard(el) { openCard(el.dataset.c); },
+  unlock() { needPin(); },
   async pinsheetgo() {
     const f = $('pinsheet-in'), m = $('pinsheet-msg');
     m.textContent = 'Checking…';
@@ -1103,7 +1104,7 @@ function renderShare() {
     <p class="note" style="margin-top:0">Add finished cooks to an open, anonymous dataset that improves everyone's predictions. Only rounded numbers
       and how it turned out: never dates, place, notes or names. If you share from Home Assistant's Smoker page, leave this off (or you'd share each cook twice).</p>
     ${L.authed ? tg('enabled', sh.enabled, 'Share my cooks') + (sh.enabled ? tg('auto', sh.auto, 'Share automatically', 'Once rated (or 12 h after the cook); only cooks from now on') : '')
-      : `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page to turn sharing on or off.</p>`}
+      : `<p class="note">${L.pin ? 'Unlock this page to turn sharing on or off. <button class="btn" data-a="unlock">Unlock</button>' : 'Set a PIN for this page to turn sharing on or off.'}</p>`}
     ${row('Shared from here', fmt(shared))}${COMMUNITY ? row('Open Pitmaster', fmt(COMMUNITY.cooks) + ' shared cooks') : ''}
     <div class="btns"><button class="btn" data-a="sharedl">Download my cooks (anonymised)</button>${shared && L.authed ? `<button class="btn${armed.wd ? ' arm' : ''}" data-a="sharewithdraw">${armed.wd ? 'Tap again to remove them' : 'Remove my shared cooks'}</button>` : ''}</div>`);
 }
@@ -1216,7 +1217,8 @@ function renderAI() {
   if (!ready) put('aiplan', '');
   if (!A || !L) { put('aisetup', L ? '<h3>AI pitmaster</h3><p class="note">The AI on the controller needs firmware 0.2.31 or later.</p>' : ''); return; }
   const busy = A.busy || {}, au = L.authed;
-  const lockNote = what => `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page (Setup → This page's PIN) to ${what}.</p>`;
+  const lockNote = what => L.pin ? `<p class="note">Unlock this page to ${what}. <button class="btn" data-a="unlock">Unlock</button></p>`
+    : `<p class="note">Set a PIN for this page (Setup → This page's PIN) to ${what}.</p>`;
   put('aisetup', `<h3><span>AI pitmaster</span>${ready ? '<span class="chip ok">on</span>' : '<span class="chip">off</span>'}</h3>
     <p class="note" style="margin-top:0">Advice during a cook, Plan with AI and reading package labels, with your own key: the provider charges per question
       (pennies a cook). The controller sends the cook's numbers and your journal notes; never your area, Wi-Fi or other keys.</p>
