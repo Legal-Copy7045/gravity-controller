@@ -18,6 +18,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
+#include "esphome/components/json/json_util.h"
 
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
@@ -49,6 +50,36 @@ struct Settings {
   uint8_t tz_raw[32]{};        // a time::ParsedTimezone, as sent by the device page
 };
 
+// Stage 2 settings (a separate record: changing Settings' size would wipe the keys on upgrade).
+struct Settings2 {
+  uint32_t version{1};
+  uint32_t serve_by{0};       // epoch (UTC), 0 = no plan
+  uint16_t rest_min{60};
+  uint8_t share_enabled{0};   // Open Pitmaster sharing from the controller: off unless turned on
+  uint8_t share_auto{0};
+  uint32_t auto_since{0};     // automatic sharing covers cooks that end after this
+  uint32_t light_notified_for{0};
+};
+
+// One finished cook in the controller's journal (flash; JOURNAL_SLOTS kept).
+struct JEntry {
+  uint32_t id{0};             // random, 0 = empty slot
+  uint32_t seq{0};            // order
+  uint32_t ended{0};          // epoch, 0 = clock wasn't set
+  char profile[16]{};
+  float weight_kg{NAN}, pit_c{NAN}, target_c{NAN}, stall_h{NAN}, total_h{NAN}, ambient_c{NAN};
+  uint8_t wrapped{2};         // 0 no, 1 yes, 2 unknown
+  uint8_t rating{0};          // 0 = none
+  uint16_t tags{0};           // bit i = TAGS[i]
+  uint8_t share{0};           // 0 pending, 1 shared, 2 declined
+  char share_id[33]{};
+  char share_key[49]{};       // deletion key: never leaves except to delete
+  char notes[100]{};
+};
+static constexpr size_t JOURNAL_SLOTS = 24;
+static constexpr size_t HIST_SERIES = 8;  // pit, pit target, food 1-6
+static constexpr size_t HIST_LEN = 1440;  // 24 h at one a minute
+
 struct Job {
   std::string what;  // "ntfy" / "pushover" / "telegram" / "weather"
   std::string method, url, body, content_type;
@@ -70,6 +101,11 @@ class Standalone : public Component {
   }
 #endif
   void set_cook_assistant(cook_assistant::CookAssistant *c) { this->cook_ = c; }
+#ifdef USE_SENSOR
+  void set_pit_sensors(sensor::Sensor *pit, sensor::Sensor *target) { this->pit_ = pit; this->pit_target_ = target; }
+#endif
+  /// A finished cook (the cook assistant's on_cook_complete JSON): into the journal.
+  void add_cook(const std::string &summary_json);
 
   // --- notifications (called from the cook assistant's on_notify) ---
   /// Should this notification also go out as a Home Assistant event?
@@ -100,6 +136,18 @@ class Standalone : public Component {
   void worker_();
   static void worker_task_(void *arg);
   void fetch_weather_();
+  // stage 2 (standalone_cook.cpp)
+  void setup_cook_();
+  void loop_cook_(uint32_t now);
+  void sample_history_();
+  void save_journal_(size_t slot);
+  std::string history_json_(int hours);
+  std::string journal_json_(bool authed);
+  std::string community_json_();
+  std::string record_json_(const JEntry &e, const char *id);  // the anonymous Open Pitmaster record
+  bool share_entry_(JEntry &e, std::string &why);
+  int light_by_(uint32_t now_epoch, float *est_min);
+  std::string api_cook_(const std::string &path, JsonDocument &in, bool authed, int &status);
   std::string status_json_(bool authed);
   bool direct_configured_() const;
 
@@ -126,6 +174,31 @@ class Standalone : public Component {
   std::vector<float> fc_min_, fc_t_;
   uint32_t wx_at_{0}, wx_fetched_{0};
   std::atomic<bool> save_pending_{false};
+
+  // stage 2
+  Settings2 s2_{};
+  ESPPreferenceObject pref2_;
+  ESPPreferenceObject jpref_[JOURNAL_SLOTS];
+  JEntry journal_[JOURNAL_SLOTS];
+  uint32_t journal_dirty_{0};  // bit per slot
+  int16_t *hist_{nullptr};     // HIST_SERIES x HIST_LEN, tenths of a degree, INT16_MIN = no reading
+  size_t hist_head_{0}, hist_count_{0};
+  uint32_t hist_last_{0};
+  std::mutex hist_lock_;
+#ifdef USE_SENSOR
+  sensor::Sensor *pit_{nullptr}, *pit_target_{nullptr};
+#endif
+  // community averages (Open Pitmaster aggregates.json), compact lines per group
+  struct Group { std::string cut, line; };
+  std::vector<Group> community_;
+  uint32_t community_cooks_{0}, community_at_{0};
+  std::string community_updated_;
+  std::vector<std::pair<uint32_t, std::string>> share_results_;  // entry id, "shared"/"refused …"
+  struct Done { std::string what; int code; std::string body; };
+  std::vector<Done> done_;  // finished worker jobs for the main loop (under results_lock_)
+  bool network_ready_();
+  int8_t fuel_mode_{-1};  // a charcoal log from the device page, applied in the main loop
+  float fuel_pct_{NAN};
 };
 
 }  // namespace standalone

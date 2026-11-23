@@ -62,6 +62,25 @@ Pick one or more services:
   - **Use this phone's time zone** sends the zone's offsets and daylight-saving rules, worked out by your browser.
     Without it, and without Home Assistant, clock times show in UTC.
 
+## On the device page (no Home Assistant needed)
+
+- **Temperatures:** a chart of the pit, the pit target and every food probe for the last 3, 6, 12 or 24 hours. The
+  controller keeps one point a minute for 24 hours in memory, so a restart clears it.
+- **Charcoal:** log it as on the dashboard: *Started at*, *It's at*, *Topped up to*, *Added*, *Finished with*.
+- **Plan:** set **Serve by** and the rest time. The controller works out *Light the grill by* from its own estimate
+  (set the cut and weight on a Food card) and sends a notification when it's time. Resting and the "ready to slice"
+  alert were already on the controller.
+- **Cook journal:**
+  - every finished cook is kept in the controller's flash (the last 24);
+  - you can add stars, **How was it?** tags (texture, doneness, bark, smoke, fat) and a note, or remove an entry.
+- **Open Pitmaster:**
+  - share cooks anonymously straight from the controller (Setup → Open Pitmaster; off unless you turn it on);
+  - the journal asks *Share this cook?* once a cook is rated or 12 hours old, and shows exactly what's sent;
+  - **Share automatically** skips the question, **Remove my shared cooks** deletes what you've shared, and
+    **Download my cooks (anonymised)** lets you look first;
+  - the Plan card shows the shared averages for the cuts you're cooking;
+  - if you also share from Home Assistant's Smoker page, turn one of them off, or each cook would be shared twice.
+
 ## Still needs Home Assistant
 
 | Feature | Without Home Assistant |
@@ -69,5 +88,4 @@ Pick one or more services:
 | Thermometers that live in Home Assistant (e.g. the Govee via its integration) | Use the H5198 directly (Bluetooth) or wired probes |
 | Voice ("when is it done?") | Not available |
 | The AI pitmaster, Plan with AI, reading labels | Coming: on the controller with your own Gemini, Claude or OpenAI key |
-| The journal (stars, "How was it?", notes), the 24-hour chart, serve-by and rest timer, Open Pitmaster sharing | Coming to the device page |
 | "Controller offline" alert | A controller can't report its own power cut; Home Assistant (or a ping service) can |

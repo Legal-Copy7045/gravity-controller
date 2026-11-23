@@ -23,6 +23,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("outdoor_humidity"): cv.use_id(sensor.Sensor),
         cv.Optional("wind_speed"): cv.use_id(sensor.Sensor),
         cv.Optional("cook_assistant"): cv.use_id(CookAssistant),
+        # For the device page's chart.
+        cv.Optional("pit_temperature"): cv.use_id(sensor.Sensor),
+        cv.Optional("pit_target"): cv.use_id(sensor.Sensor),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -36,5 +39,8 @@ async def to_code(config):
         cg.add(var.set_weather_sensors(await cg.get_variable(config["outdoor_temperature"]),
                                        await cg.get_variable(config["outdoor_humidity"]),
                                        await cg.get_variable(config["wind_speed"])))
+    if "pit_temperature" in config and "pit_target" in config:
+        cg.add(var.set_pit_sensors(await cg.get_variable(config["pit_temperature"]),
+                                   await cg.get_variable(config["pit_target"])))
     if "cook_assistant" in config:
         cg.add(var.set_cook_assistant(await cg.get_variable(config["cook_assistant"])))

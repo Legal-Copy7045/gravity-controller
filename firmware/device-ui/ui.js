@@ -31,15 +31,21 @@ function start() {
   doc.body.insertAdjacentHTML('afterbegin', ICONS + `<div class="wrap">
   <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
   <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
-  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
+  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-plan">${ic('plan')}Plan</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
   <section class="sect" id="s-food"><h2 class="sec">${ic('food')}Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
   <section class="sect" id="s-pit"><h2 class="sec">${ic('grill')}Pit &amp; program</h2><div class="grid"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
   <section class="sect" id="s-fuel"><h2 class="sec">${ic('hopper')}Charcoal</h2><div class="card" id="fuel"></div></section>
-  <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><div class="grid"><div class="card" id="lock"></div><div class="card" id="conn"></div><div class="card" id="notif"></div><div class="card" id="place"></div><div class="card" id="sources"></div><div class="card" id="dev"></div></div></section>
+  <section class="sect" id="s-chart"><h2 class="sec">${ic('chart')}Temperatures <span class="seg" id="range"></span></h2><div class="card"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></div></section>
+  <section class="sect" id="s-plan"><h2 class="sec">${ic('plan')}Plan</h2><div class="grid"><div class="card" id="plan"></div></div></section>
+  <section class="sect" id="s-journal"><h2 class="sec">${ic('book')}Cook journal</h2><div class="card" id="journal"></div></section>
+  <section class="sect" id="s-setup"><h2 class="sec">${ic('setup')}Setup</h2><div class="grid"><div class="card" id="lock"></div><div class="card" id="conn"></div><div class="card" id="notif"></div><div class="card" id="place"></div><div class="card" id="share"></div><div class="card" id="sources"></div><div class="card" id="dev"></div></div></section>
   <footer id="foot"></footer></div><div id="toast" role="status" aria-live="polite"></div>`);
   wire();
   connect();
   loadLocal(); setInterval(loadLocal, 60000);
+  loadHistory(); setInterval(loadHistory, 60000);
+  loadJournal(); setInterval(loadJournal, 60000);
+  loadCommunity(); setInterval(loadCommunity, 3600e3);
   setInterval(() => { render(); }, 5000);  // the connection dot and "ago" texts
 }
 
@@ -218,6 +224,44 @@ const ACT = {
   },
   async clearplace() { try { LOCAL = await local('settings', { clear_location: true }); toast('Location removed: weather comes from Home Assistant again'); renderLocal(); } catch (e) { toast(e.message); } },
   async tz() { try { LOCAL = await local('settings', { tz: tzRules() }); toast('Time zone set from this browser'); renderLocal(); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); } },
+  range(el) { chartHours = +el.dataset.h; loadHistory(); },
+  fuelmode(el) { fuelMode = el.dataset.m; renderFuel(); },
+  async fuel(el) {
+    const words = { start: 'Started at', check: 'Level', refill: 'Topped up to', add: 'Added', end: 'Finished with' };
+    try { await local('fuel', { mode: fuelMode, percent: +el.dataset.p }); toast(words[fuelMode] + ' ' + el.dataset.p + '%'); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+  },
+  async jrate(el) { await jpost(el.dataset.id, { rating: +el.dataset.n }); },
+  async jtag(el) {
+    const e = (JOURNAL.entries || []).find(x => x.id === el.dataset.id); if (!e) return;
+    const t = new Set(e.tags || []); t.has(el.dataset.t) ? t.delete(el.dataset.t) : t.add(el.dataset.t);
+    e.tags = TASTE.flat().filter(x => t.has(x)); renderJournal();
+    await jpost(e.id, { tags: e.tags });
+  },
+  async jnote(el) { const f = $('jn-' + el.dataset.id); if (!f) return; await jpost(el.dataset.id, { notes: f.value.slice(0, 99) }); delete f.dataset.dirty; toast('Saved'); },
+  async jdel(el) {
+    const k = 'del' + el.dataset.id;
+    if (!armed[k]) { armed[k] = setTimeout(() => { delete armed[k]; renderJournal(); }, 3000); return renderJournal(); }
+    clearTimeout(armed[k]); delete armed[k]; await jpost(el.dataset.id + '/delete', {}); toast('Removed from the journal');
+  },
+  async jshare(el) { if (await sharePost('share/' + el.dataset.id)) toast('Sharing, anonymously… thank you!'); setTimeout(loadJournal, 4000); },
+  async jdecline(el) { await sharePost('share/' + el.dataset.id + '/decline'); },
+  async sharecfg(el) { const o = {}; o[el.dataset.k] = el.dataset.v === '1'; if (await sharePost('share/settings', o)) toast(el.dataset.k === 'enabled' ? (o.enabled ? 'Sharing on: the journal asks after each cook' : 'Sharing off') : o.auto ? 'Cooks are shared once rated (or after 12 h)' : 'The journal asks after each cook'); },
+  async sharewithdraw() {
+    if (!armed.wd) { armed.wd = setTimeout(() => { delete armed.wd; renderShare(); }, 4000); return renderShare(); }
+    clearTimeout(armed.wd); delete armed.wd;
+    try { const d = await local('share/withdraw', {}); toast(`Removing ${d.removing} shared cook${d.removing === 1 ? '' : 's'}…`); setTimeout(loadJournal, 5000); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+  },
+  sharedl() {
+    const recs = (JOURNAL.entries || []).filter(e => e.record).map(e => Object.assign({}, e.record, { id: undefined }));
+    const a = doc.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ v: 1, records: recs }, null, 1)], { type: 'application/json' }));
+    a.download = 'smoker-cooks-anonymised.json'; doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  },
+  async plansave() {
+    const v = ($('servein') || {}).value, r = parseInt(($('restin') || {}).value, 10);
+    const o = {}; if (v) o.serve_by = Math.round(new Date(v).getTime() / 1000); if (Number.isFinite(r)) o.rest_min = r;
+    try { await local('plan', o); ['servein', 'restin'].forEach(k => { const f = $(k); if (f) delete f.dataset.dirty; }); toast('Plan saved'); loadLocal(); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); }
+  },
+  async planclear() { try { await local('plan', { serve_by: 0 }); toast('Plan cleared'); loadLocal(); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); } },
   ip() { const v = $('ipin').value.trim(); post('text', 'Grill IP address', 'set', { value: v }).then(ok => { if (ok) { delete $('ipin').dataset.dirty; toast(v ? 'Grill address set' : 'Finding the grill automatically'); } }); },
 };
 function wire() {
@@ -442,6 +486,7 @@ function renderFood(u) {
   put('food', cards.join('') || '<div class="empty">No food probe is reading. Plug one in, or pick a thermometer for a slot under Setup.</div>');
 }
 
+let fuelMode = 'check';
 function renderFuel() {
   const lvl = S('Charcoal level'), hrs = S('Charcoal hours left'), empty = T('Charcoal empty at'), basis = T('Charcoal estimate basis');
   const left = E('sensor', 'Charcoal left'), rate = E('sensor', 'Charcoal burn rate');
@@ -450,7 +495,12 @@ function renderFuel() {
       <div class="gauge"><i class="${lvl < 25 ? 'low' : ''}" style="width:${Math.max(0, Math.min(100, lvl))}%"></i></div>
       ${row('Runs out', esc(empty || '--'))}${rate ? row('Burning', num(rate) != null ? fmt(num(rate), 2) + ' ' + esc(rate.uom || '') : '--') : ''}
       ${basis ? `<p class="note">${esc(basis)}</p>` : ''}` : '<p class="note" style="margin-top:0">No charcoal level yet.</p>'}
-    <p class="note">Log charcoal (lit, checked, topped up) from Home Assistant: the fuel log is an action this page can't call.</p>`);
+    ${LOCAL && LOCAL.plan ? (() => {
+      const modes = [['start', 'Started at'], ['check', 'It\'s at'], ['refill', 'Topped up to'], ['add', 'Added'], ['end', 'Finished with']];
+      const fr = fuelMode === 'add' ? [[25, '¼'], [50, '½'], [75, '¾']] : fuelMode === 'end' ? [[0, 'Empty'], [12.5, '⅛'], [25, '¼'], [50, '½'], [75, '¾']] : [[25, '¼'], [50, '½'], [75, '¾'], [100, 'Full']];
+      return `<div class="seg" style="margin:8px 0;flex-wrap:wrap">${modes.map(([k, l]) => `<button aria-pressed="${fuelMode === k}" data-a="fuelmode" data-m="${k}">${l}</button>`).join('')}</div>
+        <div class="btns">${fr.map(([v, l]) => `<button class="btn" data-a="fuel" data-p="${v}">${l}</button>`).join('')}</div>`;
+    })() : '<p class="note">Log charcoal (lit, checked, topped up) from Home Assistant: this controller\'s firmware is too old to log it here.</p>'}`);
 }
 
 // ==== BEGIN cook program editor (shared block) ====
@@ -822,6 +872,7 @@ function wifiSetup() {
 // ---------------------------------------------------------------- without Home Assistant: PIN, notifications, place
 let geoHits = [];
 function renderLocal() {
+  renderPlan(); renderShare();
   const L = LOCAL;
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
@@ -872,6 +923,94 @@ function renderLocal() {
       <p class="note">Stored on the controller, rounded to about 1 km, and only sent to Open-Meteo for the forecast. Searching asks Open-Meteo from this phone.</p>
       <div class="row"><span>Time zone<br><span class="muted small">${L.tz ? 'set' : L.ha ? 'from Home Assistant' : 'not set: clock times are UTC'}</span></span><button class="btn" data-a="tz">Use this phone's (${esc((Intl.DateTimeFormat().resolvedOptions().timeZone || '').replace(/_/g, ' '))})</button></div>`
     : `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page to set your area (for the weather) and time zone.</p>`}`);
+}
+
+// ---------------------------------------------------------------- chart, plan, journal, Open Pitmaster (stage 2)
+let chartHours = 6, HIST = null, JOURNAL = { entries: [], share: {} }, COMMUNITY = null;
+const TASTE = [['juicy', 'tender', 'dry', 'tough'], ['undercooked', 'just right', 'overcooked'], ['great bark', 'soft bark'],
+  ['good smoke', 'too smoky', 'too little smoke'], ['fat rendered', 'fat not rendered']];
+const TASTE_GROUPS = ['Texture', 'Doneness', 'Bark', 'Smoke', 'Fat'];
+const COLORS = ['var(--pit)', 'var(--muted)', 'var(--food1, #2563eb)', 'var(--food2, #16a34a)', '#a855f7', '#d97706', '#0891b2', '#db2777'];
+async function loadHistory() { try { HIST = await local('history?hours=' + chartHours); } catch (e) { /* older firmware */ } drawChart(); }
+async function loadJournal() { try { JOURNAL = await local('journal'); } catch (e) { /* older firmware */ } renderJournal(); renderShare(); }
+async function loadCommunity() { try { COMMUNITY = await local('community'); } catch (e) { /* offline */ } renderPlan(); }
+async function jpost(path, body) { try { JOURNAL = await local('journal/' + path, body); renderJournal(); renderShare(); return true; } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); return false; } }
+async function sharePost(path, body) { try { JOURNAL = await local(path, body || {}); renderJournal(); renderShare(); return true; } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); return false; } }
+const tF = c => c == null ? null : (isF() ? c * 9 / 5 + 32 : c);
+const atClock = t => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const dayLabel = t => { const d = new Date(t * 1000), now = new Date(); const days = Math.round((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
+
+function drawChart() {
+  put('range', [3, 6, 12, 24].map(h => `<button aria-pressed="${h === chartHours}" data-a="range" data-h="${h}">${h}h</button>`).join(''));
+  const box = $('chart'); if (!box) return;
+  if (!HIST || !HIST.series || !HIST.series[0] || !HIST.series[0].length) { box.innerHTML = '<div class="empty">The chart fills in as the controller records (one point a minute; up to 24 hours, cleared by a restart).</div>'; put('legend', ''); return; }
+  const W = box.clientWidth || 600, Hh = 260, L = 40, R = 10, T = 10, B = 24, step = HIST.step_min * 60, now = Date.now() / 1000 - (HIST.age_s || 0);
+  const series = HIST.series.map((pts, i) => ({ name: HIST.names[i], color: COLORS[i], dash: i === 1, pts: pts.map((v, k) => [now - (pts.length - 1 - k) * step, v]).filter(p => p[1] != null) })).filter(s => s.pts.length);
+  const all = series.flatMap(s => s.pts.map(p => p[1])), t0 = now - (HIST.series[0].length - 1) * step;
+  let lo = Math.min(...all), hi = Math.max(...all); const pad = Math.max(10, (hi - lo) * 0.08); lo = Math.floor((lo - pad) / 25) * 25; hi = Math.ceil((hi + pad) / 25) * 25;
+  const x = t => L + (W - L - R) * (t - t0) / Math.max(1, now - t0), y = v => T + (Hh - T - B) * (1 - (v - lo) / Math.max(1, hi - lo));
+  let g = '';
+  for (let v = lo; v <= hi; v += Math.max(25, Math.round((hi - lo) / 5 / 25) * 25)) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  const hstep = chartHours <= 6 ? 1 : chartHours <= 12 ? 2 : 4;
+  for (let t = Math.ceil(t0 / 3600 / hstep) * hstep * 3600; t <= now; t += hstep * 3600) g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric' })}</text>`;
+  const lines = series.map(s => `<path d="${s.pts.map((p, k) => (k ? 'L' : 'M') + x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1)).join('')}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? 1.5 : 2.2}"${s.dash ? ' stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`).join('');
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" width="100%" height="${Hh}" role="img" aria-label="Temperature history" style="font:11px var(--mono, monospace);fill:var(--muted)">${g}${lines}</svg>`;
+  put('legend', series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join(''));
+}
+
+function renderPlan() {
+  const L = LOCAL, P = L && L.plan;
+  if (!P) { put('plan', '<p class="note">Planning needs firmware 0.2.29 or later.</p>'); return; }
+  const sv = P.serve_by ? new Date(P.serve_by * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+  const profiles = [1, 2, 3, 4, 5, 6].map(i => T('Food ' + i + ' protein') || str(E('select', 'Food ' + i + ' protein'))).filter(Boolean);
+  const like = COMMUNITY && COMMUNITY.groups ? COMMUNITY.groups.filter(g => profiles.includes(g.cut)).slice(0, 3) : [];
+  put('plan', `<h3><span>Plan a cook</span>${P.serve_by ? '<span class="chip ok">planned</span>' : ''}</h3>
+    <div class="row"><span>Serve by</span><span class="entry"><input id="servein" type="datetime-local" value="${esc(sv)}" aria-label="Serve by"></span></div>
+    <div class="row"><span>Rest</span><span class="entry"><input id="restin" type="number" min="0" max="360" step="5" value="${P.rest_min}" style="width:70px" aria-label="Rest minutes"><span class="muted">min</span></span></div>
+    <div class="btns"><button class="btn pri" data-a="plansave">Save</button>${P.serve_by ? '<button class="btn" data-a="planclear">Clear</button>' : ''}</div>
+    ${P.serve_by ? row('Light the grill by', P.light_by ? `${atClock(P.light_by)} <span class="muted small">(${P.light_by <= P.now ? 'now' : 'in ' + mins((P.light_by - P.now) / 60)})</span>` : '<span class="muted small">set the cut and weight on a Food card for an estimate</span>') : ''}
+    ${P.est_min ? row('Cooking time', '~' + mins(P.est_min) + (P.rest_min ? ' + ' + P.rest_min + ' min rest' : '')) : ''}
+    ${P.serve_by ? '<p class="note">You\'ll get a notification when it\'s time to light the grill.</p>' : '<p class="note">Pick when you want to eat: the controller works out when to light the grill from its estimate and reminds you.</p>'}
+    ${like.length ? `<h3 style="margin-top:12px"><span>Shared cooks like this</span><span class="muted small">Open Pitmaster · ${fmt(COMMUNITY.cooks)} cooks</span></h3>${like.map(g => `<p class="note" style="margin:4px 0">${esc(g.line)}</p>`).join('')}` : ''}`);
+}
+
+const recWords = r => [r.cut, r.weight_lb != null ? r.weight_lb + ' lb' : '', r.pit_f != null ? 'pit ' + r.pit_f + '°F' : '', r.stall_h != null ? 'stall ' + r.stall_h + ' h' : '',
+  r.total_h + ' h total', r.wrapped === true ? 'wrapped' : '', r.outside_f != null ? r.outside_f + '–' + (r.outside_f + 5) + '°F outside' : '', r.season, r.rating ? r.rating + '★' : '', (r.tags || []).join(', ')].filter(Boolean).join(' · ');
+let journalAll = false;
+function renderJournal() {
+  const J = JOURNAL, list = J.entries || [], shown = journalAll ? list : list.slice(0, 5), u = TU();
+  const sh = J.share || {}, pend = sh.enabled && !sh.auto ? list.find(e => e.share === 'pending' && e.record) : null;
+  const ask = pend ? `<div class="sharebox"><b>Share this cook with Open Pitmaster?</b><p class="small muted" style="margin:4px 0">${esc(recWords(pend.record))}</p>
+      <div class="btns"><button class="btn pri" data-a="jshare" data-id="${pend.id}">Share it</button><button class="btn" data-a="jdecline" data-id="${pend.id}">Not this one</button></div>
+      <details class="more" data-k="exact"><summary>Exactly what's sent</summary><pre class="small" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(pend.record))}</pre>
+      <p class="note">No date or time, place, notes or names; a new random id.</p></details></div>` : '';
+  const ent = e => {
+    const w = e.weight_kg ? (isF() ? fmt(e.weight_kg * 2.2046, 1) + ' lb' : fmt(e.weight_kg, 1) + ' kg') : '';
+    const chip = (c, t) => `<span class="chip ${c}">${t}</span>`;
+    return `<div class="je"><div class="row"><span><b>${esc(e.profile || 'Cook')}</b>${w ? ' · ' + w : ''}</span><span class="muted small">${e.ended ? dayLabel(e.ended) : ''}</span></div>
+      <div class="chips">${chip('', fmt(e.total_h, 1) + ' h total')}${e.stall_h ? chip('warn', 'stall ' + fmt(e.stall_h, 1) + ' h') : ''}${e.pit_c != null ? chip('hot', 'pit ' + fmt(tF(e.pit_c)) + u) : ''}${e.ambient_c != null ? chip('', 'outside ' + fmt(tF(e.ambient_c)) + u) : ''}${e.wrapped ? chip('', 'wrapped') : ''}${e.share === 'shared' ? chip('ok', 'shared') : e.share === 'sending' ? chip('', 'sharing…') : ''}</div>
+      <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" data-a="jrate" data-id="${e.id}" data-n="${n}" aria-label="${n} stars">★</button>`).join('')}</span>
+        <span>${sh.enabled && e.share === 'declined' ? `<button class="btn" data-a="jshare" data-id="${e.id}">Share</button>` : ''}<button class="btn${armed['del' + e.id] ? ' arm' : ''}" data-a="jdel" data-id="${e.id}">${armed['del' + e.id] ? 'Tap again to remove' : 'Remove'}</button></span></div>
+      <details class="more" data-k="t${e.id}"${(e.tags || []).length ? '' : ' open'}><summary>How was it?${(e.tags || []).length ? ' · ' + esc(e.tags.join(', ')) : ''}</summary>
+        <div class="taste">${TASTE.map((g, k) => `<span class="grp">${TASTE_GROUPS[k]}</span>` + g.map(t => `<button aria-pressed="${(e.tags || []).includes(t)}" data-a="jtag" data-id="${e.id}" data-t="${t}">${t}</button>`).join('')).join('')}</div></details>
+      <div class="row"><span class="entry" style="flex:1"><input id="jn-${e.id}" type="text" maxlength="99" value="${esc(e.notes || '')}" placeholder="Notes (bark, tenderness, what you'd change)" aria-label="Notes" style="flex:1"><button class="btn" data-a="jnote" data-id="${e.id}">Save</button></span></div></div>`;
+  };
+  put('journal', ask + (list.length ? shown.map(ent).join('') + (list.length > shown.length ? `<div class="btns"><button class="btn" onclick="journalAll=true;renderJournal()">Show all ${list.length}</button></div>` : '')
+    : '<div class="empty">No cooks yet. Each finished cook is added here: rate it and tick how it was, and the controller learns from it.</div>'));
+}
+
+function renderShare() {
+  const sh = JOURNAL.share || {}, L = LOCAL, shared = (JOURNAL.entries || []).filter(e => e.share === 'shared').length;
+  if (!L) { put('share', ''); return; }
+  const tg = (k, on, label, note) => `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span><button class="tg${on ? ' on' : ''}" data-a="sharecfg" data-k="${k}" data-v="${on ? 0 : 1}" role="switch" aria-checked="${on}" aria-label="${esc(label)}"></button></div>`;
+  put('share', `<h3><span>Open Pitmaster</span><span class="muted small">anonymous · off unless you turn it on</span></h3>
+    <p class="note" style="margin-top:0">Add finished cooks to an open, anonymous dataset that improves everyone's predictions. Only rounded numbers
+      and how it turned out: never dates, place, notes or names. If you share from Home Assistant's Smoker page, leave this off (or you'd share each cook twice).</p>
+    ${L.authed ? tg('enabled', sh.enabled, 'Share my cooks') + (sh.enabled ? tg('auto', sh.auto, 'Share automatically', 'Once rated (or 12 h after the cook); only cooks from now on') : '')
+      : `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page to turn sharing on or off.</p>`}
+    ${row('Shared from here', fmt(shared))}${COMMUNITY ? row('Open Pitmaster', fmt(COMMUNITY.cooks) + ' shared cooks') : ''}
+    <div class="btns"><button class="btn" data-a="sharedl">Download my cooks (anonymised)</button>${shared && L.authed ? `<button class="btn${armed.wd ? ' arm' : ''}" data-a="sharewithdraw">${armed.wd ? 'Tap again to remove them' : 'Remove my shared cooks'}</button>` : ''}</div>`);
 }
 
 function renderSetup(u) {

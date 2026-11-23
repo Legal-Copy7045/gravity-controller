@@ -13,6 +13,7 @@
 #ifdef USE_API
 #include "esphome/components/api/api_server.h"
 #endif
+#include "esphome/components/network/util.h"
 #ifdef USE_TIME_TIMEZONE
 #include "esphome/components/time/posix_tz.h"
 #endif
@@ -71,7 +72,10 @@ class Handler : public AsyncWebHandler {
     }
     const char *m = req->method() == HTTP_GET ? "GET" : req->method() == HTTP_POST ? "POST" : "OTHER";
     int status = 200;
-    std::string out = this->p_->api(m, std::string(url.c_str() + 7), this->body_, token_(req), status);
+    std::string path(url.c_str() + 7);
+    if (req->hasArg("hours"))
+      path += "?hours=" + req->arg("hours");
+    std::string out = this->p_->api(m, path, this->body_, token_(req), status);
     this->body_.clear();
     auto *res = req->beginResponse(status, "application/json", out);
     res->addHeader("Cache-Control", "no-store");
@@ -110,6 +114,7 @@ void Standalone::setup() {
   if (this->pin_pref_.load(&pin) && pin.set == 1)
     this->guard_->load(pin);
   this->apply_tz_();
+  this->setup_cook_();
   auto *base = web_server_base::global_web_server_base;
   if (base != nullptr) {
     base->add_handler(new Handler(this));  // NOLINT
@@ -137,6 +142,7 @@ void Standalone::dump_config() {
 
 void Standalone::loop() {
   const uint32_t now = millis();
+  this->loop_cook_(now);
   if (this->save_pending_.exchange(false))
     this->save_();
   // Weather: every 30 min while a location is set (and straight away after it changes).
@@ -169,12 +175,15 @@ void Standalone::loop() {
 
 void Standalone::save_() {
   Settings copy;
+  Settings2 copy2;
   {
     std::lock_guard<std::recursive_mutex> g(this->lock_);
     copy = this->s_;
+    copy2 = this->s2_;
     this->pin_pref_.save(&this->guard_->stored());
   }
   this->pref_.save(&copy);
+  this->pref2_.save(&copy2);
   global_preferences->sync();
 }
 
@@ -356,7 +365,7 @@ void Standalone::worker_() {
     std::string resp;
     esp_http_client_config_t cfg{};
     cfg.url = j.url.c_str();
-    cfg.method = j.method == "POST" ? HTTP_METHOD_POST : HTTP_METHOD_GET;
+    cfg.method = j.method == "POST" ? HTTP_METHOD_POST : j.method == "DELETE" ? HTTP_METHOD_DELETE : HTTP_METHOD_GET;
     cfg.timeout_ms = 15000;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;  // real certificate checks
     cfg.event_handler = collect_;
@@ -368,6 +377,8 @@ void Standalone::worker_() {
     esp_http_client_set_header(c, "User-Agent", "smoker-controller");
     if (!j.content_type.empty())
       esp_http_client_set_header(c, "Content-Type", j.content_type.c_str());
+    for (auto &h : j.headers)
+      esp_http_client_set_header(c, h.first.c_str(), h.second.c_str());
     if (!j.body.empty())
       esp_http_client_set_post_field(c, j.body.c_str(), j.body.size());
     esp_err_t err = esp_http_client_perform(c);
@@ -381,6 +392,10 @@ void Standalone::worker_() {
       std::snprintf(result, sizeof(result), code >= 200 && code < 300 ? "sent (HTTP %d)" : "refused (HTTP %d)", code);
     ESP_LOGI(TAG, "%s: %s", j.what.c_str(), result);
     std::lock_guard<std::mutex> g(this->results_lock_);
+    if (j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0 || j.what == "aggregates") {
+      this->done_.push_back({j.what, code, j.what == "aggregates" && code == 200 ? std::move(resp) : std::string()});
+      continue;
+    }
     if (j.what == "ntfy") this->last_result_[0] = result;
     else if (j.what == "pushover") this->last_result_[1] = result;
     else if (j.what == "telegram") this->last_result_[2] = result;
@@ -442,6 +457,17 @@ std::string Standalone::status_json_(bool authed) {
       o["lon"] = this->s_.lon;
     }
     o["tz"] = this->s_.tz_set != 0;
+    {
+      float est = NAN;
+      uint32_t t = ::time(nullptr) > 1700000000 ? uint32_t(::time(nullptr)) : 0;
+      int light = this->light_by_(t, &est);
+      JsonObject plan = o["plan"].to<JsonObject>();
+      plan["serve_by"] = this->s2_.serve_by;
+      plan["rest_min"] = this->s2_.rest_min;
+      plan["now"] = t;
+      if (light > 0) plan["light_by"] = light;
+      if (!std::isnan(est)) plan["est_min"] = std::round(est);
+    }
     o["weather_age_min"] = this->wx_at_ ? int((millis() - this->wx_at_) / 60000) : -1;
     JsonObject last = o["last"].to<JsonObject>();
     last["ntfy"] = r[0];
@@ -460,6 +486,16 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   const bool authed = this->guard_->pin_set() && this->guard_->check(token);
   if (method == "GET" && path == "status")
     return this->status_json_(authed);
+  if (method == "GET" && path.rfind("history", 0) == 0) {
+    int h = 6;
+    size_t q = path.find("hours=");
+    if (q != std::string::npos) h = atoi(path.c_str() + q + 6);
+    return this->history_json_(h);
+  }
+  if (method == "GET" && path == "journal")
+    return this->journal_json_(authed);
+  if (method == "GET" && path == "community")
+    return this->community_json_();
   if (method != "POST") {
     status = 404;
     return err_json("not found");
@@ -576,6 +612,8 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     this->save_pending_ = true;
     return this->status_json_(true);
   }
+  if (path == "plan" || path == "fuel" || path.rfind("journal/", 0) == 0 || path.rfind("share/", 0) == 0)
+    return this->api_cook_(path, in, authed, status);
   if (path == "test-notify") {
     if (!this->direct_configured_()) { status = 400; return err_json("Set up ntfy, Pushover or Telegram first"); }
     this->test_notify();

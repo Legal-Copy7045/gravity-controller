@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.29] - 2026-11-23
+
+Running without Home Assistant, part 2: the controller's own page catches up (docs/standalone.md).
+- **Temperatures chart** (3/6/12/24 h): the pit, the pit target and every food probe, recorded on the controller.
+- **Charcoal log** from the controller's page (started at, it's at, topped up, added, finished with).
+- **Plan:** serve-by time and rest. *Light the grill by* comes from the controller's estimate, with a notification
+  when it's time.
+- **Cook journal** on the controller: the last 24 cooks, with stars, "How was it?" tags, notes and removal.
+- **Open Pitmaster from the controller:** opt-in anonymous sharing (asks per cook, or automatic once rated),
+  removal with keys kept on the controller, anonymised download, and the shared averages shown in the Plan card.
+
 ## [0.2.28] - 2026-11-23
 
 - The integration has its own icon in Home Assistant (Settings → Devices & services, and wherever the integration is

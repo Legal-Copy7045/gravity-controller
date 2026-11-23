@@ -231,7 +231,15 @@ class Local:
         self.pin, self.tokens, self.fails = None, set(), 0
         self.s = {"route": "auto", "ntfy_server": "https://ntfy.sh", "set": {"ntfy": False, "pushover": False,
                                                                             "telegram": False, "ai": False},
-                  "location": False, "tz": False, "lat": None, "lon": None}
+                  "location": False, "tz": False, "lat": None, "lon": None,
+                  "plan": {"serve_by": 0, "rest_min": 60, "now": 0}}
+        rec = {"v": 1, "id": "0123456789abcdef0123456789abcdef", "grill": "gravity980", "release": "0.2.29",
+               "season": "autumn", "cut": "Pork shoulder", "weight_lb": 8.5, "wrapped": True, "pit_f": 250,
+               "target_f": 203, "stall_h": 3.1, "total_h": 11.6, "outside_f": 35, "rating": None, "tags": []}
+        self.journal = {"share": {"enabled": False, "auto": False}, "results": [], "entries": [
+            {"id": "a1b2c3d4", "ended": 1795300000, "profile": "Pork shoulder", "weight_kg": 3.86, "pit_c": 121.1,
+             "stall_h": 3.1, "total_h": 11.6, "ambient_c": 2.0, "wrapped": True, "notes": "", "share": "pending",
+             "tags": [], "record": rec}]}
 
     def authed(self, request):
         return self.pin is not None and request.headers.get("X-Smoker-Token", "") in self.tokens
@@ -253,6 +261,16 @@ class Local:
     async def handle(self, request):
         path = request.match_info["path"]
         if request.method == "GET":
+            if path == "history":
+                n = min(int(request.query.get("hours", "6")) * 60, 180)
+                pit = [round(250 + 5 * ((i % 20) - 10) / 10, 1) for i in range(n)]
+                return web.json_response({"step_min": 1, "age_s": 10, "names": ["Pit", "Pit target", "Food 1"],
+                                          "series": [pit, [250.0] * n, [round(120 + i * 0.2, 1) for i in range(n)]]})
+            if path == "journal":
+                return web.json_response(self.journal)
+            if path == "community":
+                return web.json_response({"cooks": 42, "updated": "2026-11-23", "groups": [
+                    {"cut": "Pork shoulder", "line": "Pork shoulder 8-10 lb at 225-255°F: typically 11.2 h; 12 cooks"}]})
             return web.json_response(self.status(request))
         body = await request.json() if request.can_read_body else {}
         err = lambda m, c=400: web.json_response({"error": m}, status=c)  # noqa: E731
@@ -289,6 +307,35 @@ class Local:
             if "tz" in body:
                 self.s["tz"] = True
                 self.s["tz_rules"] = body["tz"]
+        elif path == "plan":
+            self.s["plan"].update({k: body[k] for k in ("serve_by", "rest_min") if k in body})
+            if self.s["plan"]["serve_by"]:
+                self.s["plan"]["light_by"] = self.s["plan"]["serve_by"] - (600 + self.s["plan"]["rest_min"]) * 60
+                self.s["plan"]["est_min"] = 600
+        elif path == "fuel":
+            self.s["last_fuel"] = body
+        elif path.startswith("journal/"):
+            e = self.journal["entries"][0]
+            if path.endswith("/delete"):
+                self.journal["entries"] = []
+            else:
+                for k in ("rating", "tags", "notes"):
+                    if k in body:
+                        e[k] = body[k]
+                        if k != "notes":
+                            e["record"][k] = body[k]
+                if e.get("rating") or e.get("tags"):
+                    e["share"] = e["share"] if e["share"] != "waiting" else "pending"
+            return web.json_response(self.journal)
+        elif path == "share/settings":
+            self.journal["share"].update({k: body[k] for k in ("enabled", "auto") if k in body})
+            return web.json_response(self.journal)
+        elif path.startswith("share/"):
+            e = self.journal["entries"][0]
+            if not self.journal["share"]["enabled"]:
+                return err("Turn on sharing first", 409)
+            e["share"] = "declined" if path.endswith("/decline") else "shared"
+            return web.json_response(self.journal)
         elif path == "test-notify":
             self.s["last_test"] = True
         else:
@@ -346,7 +393,7 @@ async def main():
     for p in files:
         app.router.add_get(p, static(p))
     app.router.add_get("/events", br.events)
-    app.router.add_route("*", "/local/{path}", LOCAL.handle)
+    app.router.add_route("*", "/local/{path:.*}", LOCAL.handle)
     app.router.add_get("/{domain}/{name}", br.get)
     app.router.add_post("/{domain}/{name}/{action}", br.post)
     runner = web.AppRunner(app)

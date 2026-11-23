@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.28"
+  project_version: "0.2.29"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -172,6 +172,8 @@ standalone:
   outdoor_humidity: outdoor_humidity
   wind_speed: outdoor_wind
   cook_assistant: smoker
+  pit_temperature: pit_temp
+  pit_target: pit_target_reported
 
 esp32_ble:
   # 1 for the grill's own BLE link + 3 proxy slots (e.g. the Govee H5198) + 1 spare.
@@ -640,6 +642,7 @@ cook_assistant:
                 tag: !lambda return tag;
     - lambda: id(local).notify(title, message, priority, tag);
   on_cook_complete:
+    - lambda: id(local).add_cook(json);   # the controller's own journal (device page)
     - homeassistant.event:
         event: esphome.smoker_cook_complete
         data:
