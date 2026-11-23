@@ -105,7 +105,10 @@ class Handler : public AsyncWebHandler {
       // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body. Reading labels is
       // using the AI, not changing anything, so it needs no PIN (handleRequest still wants the page's own origin).
       char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
-      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 ? 400000u : 4096u;
+      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && !bad_host_(req) && !foreign_origin_(req) &&
+                           write_ok_(req)
+                       ? 400000u
+                       : 4096u;  // (the big allowance only for the page itself)
       if (total > 0 && total <= this->cap_) this->body_.reserve(total);  // one allocation, not doubling up to 512 KB
     }
     if (this->too_big_ || this->body_.size() + len > this->cap_) {
@@ -1160,6 +1163,7 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     return this->status_json_(true);
   }
   if (path.rfind("ai/", 0) == 0)
+    this->ai_req_authed_ = authed;
     return this->api_ai_(path, in, status);
   if (path == "plan" || path == "fuel" || path.rfind("journal/", 0) == 0 || path.rfind("share/", 0) == 0)
     return this->api_cook_(path, in, authed, status);

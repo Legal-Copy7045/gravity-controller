@@ -96,7 +96,7 @@ std::string Standalone::ai_context_() {
     std::snprintf(b, sizeof(b), "%s %.1f kg, %.1f h total, stall %.1f h, %d stars, notes: ", e->profile,
                   std::isnan(e->weight_kg) ? 0.0f : e->weight_kg, e->total_h, std::isnan(e->stall_h) ? 0.0f : e->stall_h,
                   e->rating);
-    j += std::string("- ") + b + e->notes + "\n";
+    j += std::string("- ") + b + (this->ai_ctx_notes_ ? std::string(e->notes) : std::string("(private)")) + "\n";
   }
   if (!j.empty()) c += "The cook's journal (recent cooks; low stars with 'dry' means cook lower or wrap earlier):\n" + j;
   std::string like;
@@ -315,7 +315,9 @@ void Standalone::loop_ai_(uint32_t now) {
       std::string kind, text;
       kind.swap(this->ai_defer_kind_);
       text.swap(this->ai_defer_text_);
+      this->ai_ctx_notes_ = this->ai_defer_notes_;
       std::string why = kind == "plan" ? this->ai_plan_ask_(text) : this->ai_advise_();
+      this->ai_ctx_notes_ = true;
       if (!why.empty()) this->ai_error_ = why;
     }
   }
@@ -423,6 +425,7 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     if (!this->ai_cook_on_()) return err(400, "Nothing's cooking or planned: start a cook, or set Serve by under Plan a cook");
     if (!this->ai_ready_()) return err(400, "Set up the AI first (Setup > AI: provider and key)");
     this->ai_defer_kind_ = "advise";  // asked from the main loop: the cook's state is read there, not on this task
+    this->ai_defer_notes_ = this->ai_req_authed_;
     return this->ai_json_();
   }
   if (path == "ai/plan") {
@@ -430,6 +433,7 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     if (req.empty() || req.size() > 600) return err(400, "Describe the cook (up to 600 characters)");
     if (!this->ai_ready_()) return err(400, "Set up the AI first (Setup > AI: provider and key)");
     this->ai_defer_kind_ = "plan";  // asked from the main loop (it reads the cook's state)
+    this->ai_defer_notes_ = this->ai_req_authed_;
     this->ai_defer_text_ = req;
     return this->ai_json_();
   }
@@ -449,6 +453,8 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
   if (path == "ai/assign") {
     int idx = in["index"] | -1, probe = in["probe"] | 0;
     JsonDocument l = json::parse_json(this->ai_labels_);
+    // Only the labels the page is showing (someone else may have read another photo since).
+    if ((in["at"] | 0u) != (l["at"] | 0u)) return err(409, "The labels changed: check them again");
     JsonObject it = l["items"][idx];
     if (it.isNull() || probe < 1 || probe > 6) return err(400, "Pick an item and a food slot");
     this->ai_assign_cut_ = it["profile"] | "";
@@ -458,6 +464,8 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
   }
   if (path == "ai/load-program") {
     JsonDocument pl = json::parse_json(this->ai_plan_);
+    // Only the plan the page is showing (someone else may have asked for another plan since).
+    if ((in["at"] | 0u) != (pl["at"] | 0u)) return err(409, "The plan changed: check it again");
     std::string prog = pl["program"] | "";
     if (prog.empty()) return err(400, "This plan has no program");
     this->ai_program_ = prog;

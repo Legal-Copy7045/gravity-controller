@@ -257,6 +257,9 @@ class Standalone : public Component {
   bool ai_ready_() const;
   std::string ai_model_() const;
   std::string ai_context_();
+  // Whether the journal's notes go into the AI's context: not for a question from a locked page (the notes are only
+  // shown to an unlocked page, and a prompt could ask the AI to repeat them).
+  bool ai_ctx_notes_{true}, ai_req_authed_{true}, ai_defer_notes_{true};
   int ai_kind_(const std::string &k) const;
   bool ai_ask_(const std::string &kind, const std::string &system, const std::string &user, const std::string &image_b64,
                std::string &why);

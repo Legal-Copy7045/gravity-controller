@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.51"
+  project_version: "1.0.0"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -605,7 +605,8 @@ switch:
       name: Bridge enabled
   # Target changes over Bluetooth, for grills whose Wi-Fi is unreliable (it is on some mesh/UniFi networks). On by
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
-  # changes nothing), and only pit/food targets are ever sent. Wi-Fi is used instead whenever it's connected.
+  # changes nothing). Only pit/food targets, Turbo and power on/off (two presses) are ever sent. Wi-Fi is used
+  # instead whenever it's connected.
   - platform: template
     name: Control over Bluetooth
     id: ble_control

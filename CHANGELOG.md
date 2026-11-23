@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.0.0] - 2026-11-23
+
+**The first major release.** A controller for the Char-Griller Gravity 980 that works with Home Assistant or on its
+own, through two full security audits, with documentation for other owners.
+
+- **Everything the Char-Griller app does, confirmed on a 980:**
+  - pit and food targets;
+  - **Turbo**;
+  - **turning the grill on and off**, which always takes two presses within 10 s;
+  - a **timer**;
+  - live temperatures and the chart.
+
+  On top of that: cook programs (with a simple form for common cooks), finish-time predictions, charcoal tracking,
+  the AI pitmaster, planning and a cook journal. **Basic** mode shows the app's essentials; **Advanced** shows
+  everything.
+- **Removed:**
+  - **Boost** (Turbo is the real thing);
+  - the developer tools used to find the Turbo and power commands (command tests and the app-capture mode).
+
+  If a controller was boosting when it updates, it puts the grill's real target back once.
+- **The device-page PIN is optional:**
+  - With no PIN set, nothing is locked.
+  - With a PIN set, it locks changes only: the grill, programs, settings, keys, sharing, the journal and updates.
+  - Using the AI (advice, Plan with AI, reading labels) works without unlocking.
+  - The journal's private notes aren't given to the AI for a question asked from a locked page.
+  - "Load as program" and setting a food slot from a label act only on the plan or labels the page is showing.
+  - The PIN card is now at the bottom of Setup.
+- **Quieter:** normal logging only. *Raw status frame* and *Log raw grill data* stay for troubleshooting (the "Grill
+  data" issue form) and are off by default.
+- **Licence:** MIT, with the firmware binary under GPLv3 because it includes ESPHome; see THIRD_PARTY.md.
+
 ## [0.2.51] - 2026-11-23
 
 **Security release from a second full audit, plus documentation for other owners.**

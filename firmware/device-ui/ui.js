@@ -262,7 +262,7 @@ const ACT = {
   },
   // The controller loads it in its main loop: ask again a moment later for what happened.
   async aiload() {
-    if (!await aiPost('ai/load-program', {})) return;
+    if (!await aiPost('ai/load-program', { at: (AI && AI.plan && AI.plan.at) || 0 })) return;
     toast('Loading the program…');
     for (let i = 0; i < 6; i++) {
       await new Promise(r => setTimeout(r, 700));
@@ -274,7 +274,7 @@ const ACT = {
   },
   async aiassign(el) {
     const sel = $('aip-' + el.dataset.i), n = sel ? sel.value : 1;
-    if (await aiPost('ai/assign', { index: +el.dataset.i, probe: +n })) toast('Set on Food ' + n);
+    if (await aiPost('ai/assign', { index: +el.dataset.i, probe: +n, at: (AI && AI.labels && AI.labels.at) || 0 })) toast('Set on Food ' + n);
   },
   aipick(el) { const f = $(el.dataset.k === 'cam' ? 'aicam' : 'aifile'); if (f) f.click(); },
   opencard(el) { openCard(el.dataset.c); },
