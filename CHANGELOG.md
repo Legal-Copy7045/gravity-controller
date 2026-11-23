@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.49] - 2026-11-23
+
+- **Turbo and Turn the grill off, as the Char-Griller app sends them**, found in the app's own code (v2.0.8).
+  - Both are command 0x04, whose value holds four flags: F leaves a flag alone, 0 or 1 sets it.
+  - Turbo on is `FF 04 FF 1F`, turbo off is `FF 04 FF 0F`, and power off is `FF 04 0F FF`.
+  - New entities: *Turbo* (switch; its state is the grill's own turbo flag) and *Turn the grill off* (button).
+  - Not yet confirmed on a grill.
+- **Command 0x05 shows a pairing code on the grill's display.** It doesn't silence the alarm. The app sends the code
+  as hex digits (`FF 05 46 55` shows 4655) and asks you to type it in.
+- **Capture mode is out of the released firmware.** It's now a developer config, `firmware/dev-capture.yaml`, which
+  CI still checks.
+- **Command tests accept 0x04, one flag at a time** (like `0FFF` or `FF1F`), for checking these on a real grill.
+
 ## [0.2.48] - 2026-11-23
 
 - **Basic and Advanced mode** (both dashboards; the switch sits above the section bar, and each browser remembers

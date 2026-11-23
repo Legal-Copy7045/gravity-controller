@@ -199,6 +199,10 @@ class Gravity980Component : public Component {
   // such as turbo. Only while command tests are on (they switch themselves off after 30 minutes), at most one every
   // 15 s, and never ids 0x01, 0x04 or 0x05 (known to crash the grill's Wi-Fi side). Returns why not, or "".
   std::string send_test_command(int id, int value);
+  /// The Char-Griller app's own controls (command 0x04, one flag at a time). Return why not, or "".
+  std::string set_turbo(bool on);
+  std::string power_off();
+  bool turbo() const;
   void set_test_mode(bool on) { const uint32_t n = millis(); this->test_until_ = on ? (n ? n : 1) : 0; }
   bool test_mode() const { return this->test_until_ != 0 && millis() - this->test_until_ < TEST_MODE_MS; }
   // Boost: the panel's turbo has no remote command (tested), so this raises the grill's pit target by 100 °F (to at
@@ -333,6 +337,7 @@ class Gravity980Component : public Component {
   std::string boost_msg_;
   ESPPreferenceObject boost_pref_;
   bool write_target_(Probe probe, uint16_t f);
+  std::string send_flags_(uint16_t flags, const char *what);
   void boost_step_(const Status &s);
   void boost_end_(const char *why);
   uint16_t shown_target_f_(int p, const ProbeReading &r) const {

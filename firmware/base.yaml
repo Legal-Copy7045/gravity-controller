@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.48"
+  project_version: "0.2.49"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -35,8 +35,6 @@ esphome:
           id(local).migrate_ntfy_topic(id(ntfy_topic).state);
           if (!id(ntfy_topic).state.empty())
             id(ntfy_topic).make_call().set_value("").perform();
-          // Capture mode's records for the device page (GET /local/capture, POST /local/capture/clear).
-          id(local).set_capture([]() { return id(grill).capture_json(); }, []() { id(grill).capture_clear(); });
 
 esp32:
   variant: esp32s3
@@ -423,8 +421,6 @@ text_sensor:
       name: Grill Wi-Fi
     wifi_networks:
       name: Grill Wi-Fi networks
-    captured_commands:
-      name: Captured app commands
   - platform: version
     name: Firmware version
     hide_timestamp: true
@@ -518,9 +514,13 @@ button:
     entity_category: config
     on_press:
       - lambda: id(grill).forget_grill();
-  - platform: gravity980
-    clear_capture:
-      name: Clear captured app commands
+  # Turn the grill off, as the Char-Griller app does (command 0x04: FF 04 0F FF). The app can't turn it on, and nor
+  # can this.
+  - platform: template
+    name: Turn the grill off
+    icon: mdi:power
+    on_press:
+      - lambda: id(grill).power_off();
   # Restart the controller (keeps all settings and learned history). Also on its own page and the dashboard.
   - platform: restart
     name: Restart
@@ -554,12 +554,6 @@ switch:
   - platform: gravity980
     bridge_enabled:
       name: Bridge enabled
-    # Capture mode (docs/protocol.md, "Capturing the app's commands"): the controller poses as the grill over
-    # Bluetooth so the Char-Griller app connects to it, and records every byte the app writes (looking for its Power
-    # and Turbo commands). Nothing is sent to the real grill, whose Bluetooth link is paused meanwhile. Off at boot
-    # (it never advertises as a grill otherwise) and off again after 10 minutes.
-    app_capture:
-      name: Capture the app's commands
   # Log every raw TCP/BLE byte from the grill (for protocol investigation; logs at DEBUG level).
   # Target changes over Bluetooth, for grills whose Wi-Fi is unreliable (it is on some mesh/UniFi networks). On by
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
@@ -575,6 +569,17 @@ switch:
       - lambda: id(grill).set_ble_writes(true);
     on_turn_off:
       - lambda: id(grill).set_ble_writes(false);
+  # The panel's Turbo, as the Char-Griller app sends it (command 0x04: FF 04 FF 1F on, FF 04 FF 0F off; found in
+  # the app's code, docs/protocol.md). The state is the grill's own turbo flag.
+  - platform: template
+    name: Turbo
+    id: turbo_switch
+    icon: mdi:fan-chevron-up
+    lambda: return id(grill).turbo();
+    turn_on_action:
+      - lambda: id(grill).set_turbo(true);
+    turn_off_action:
+      - lambda: id(grill).set_turbo(false);
   # Boost: the panel's turbo has no remote command, so the pit target goes up 100 °F (fan hard) until the pit reaches
   # the real target or 15 minutes pass, then back. The pit target entities keep showing the real target.
   - platform: template

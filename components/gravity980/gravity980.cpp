@@ -1207,13 +1207,50 @@ bool Gravity980Component::write_target_(Probe probe, uint16_t f) {
   return true;
 }
 
+std::string Gravity980Component::send_flags_(uint16_t flags, const char *what) {
+  if (this->read_only_)
+    return "the bridge is read-only";
+  if (!g980proto::one_flag_command(flags))
+    return "one flag at a time";
+  bool use_tcp = this->active_ == Transport::TCP, use_ble = false;
+#ifdef USE_GRAVITY980_BLE
+  use_ble = !use_tcp && this->active_ == Transport::BLE && this->ble_writes_ && this->ble_ != nullptr && this->ble_->ready();
+#endif
+  if (!use_tcp && !use_ble)
+    return this->ble_writes_ ? "not connected to the grill" : "not connected (over Bluetooth, turn on \"Control over Bluetooth\")";
+  std::vector<uint8_t> cmd;
+  if (use_ble)
+    cmd.insert(cmd.end(), {0x00, 0x19, 0x04, 0x00});
+  cmd.insert(cmd.end(), {0xFF, 0x04, uint8_t(flags >> 8), uint8_t(flags & 0xFF)});
+  ESP_LOGI(TAG, "%s via %s: %s", what, use_tcp ? "TCP" : "BLE", hex_dump(cmd).c_str());
+  if (use_tcp) {
+    this->tx_.insert(this->tx_.end(), cmd.begin(), cmd.end());
+    this->tcp_flush_();
+  }
+#ifdef USE_GRAVITY980_BLE
+  else if (!this->ble_->write(cmd)) {
+    return "the Bluetooth write failed";
+  }
+#endif
+  return "";
+}
+
+// The Char-Griller app's Turbo button (flags: FF 04 FF 1F on, FF 04 FF 0F off) and its power-off (FF 04 0F FF).
+std::string Gravity980Component::set_turbo(bool on) { return this->send_flags_(on ? 0xFF1F : 0xFF0F, on ? "Turbo on" : "Turbo off"); }
+std::string Gravity980Component::power_off() { return this->send_flags_(0x0FFF, "Power off"); }
+bool Gravity980Component::turbo() const { return this->have_status_ && this->status_.fan_turbo; }
+
 std::string Gravity980Component::send_test_command(int id, int value) {
   if (!this->test_mode())
     return "command tests are off (turn on \"Command tests\")";
   if (id < 0 || id > 0xFF || value < 0 || value > 0xFFFF)
     return "id must be 0-255 and value 0-65535";
-  if (id == 0x01 || id == 0x04 || id == 0x05)
-    return "ids 0x01, 0x04 and 0x05 are never sent (they crash the grill's Wi-Fi side)";
+  // 0x04 sets the grill's flags (the Char-Griller app, v2.0.8): four hex digits, F = leave alone, 0/1 = set. Only
+  // one flag at a time, as the app does (FF 04 0F FF power off, FF 04 FF 1F/0F turbo); 00 00 crashed the Wi-Fi side.
+  if (id == 0x04 && !g980proto::one_flag_command(uint16_t(value)))
+    return "0x04 takes one flag at a time: like 0FFF, F1FF, FF1F (F = leave alone)";
+  if (id == 0x01 || id == 0x05)
+    return "ids 0x01 and 0x05 are never sent (0x01 crashed the grill's Wi-Fi side; 0x05 shows a pairing code)";
   for (uint8_t t : CMD_TARGET_ID)
     if (id == t)
       return "use the target entities for setpoints";  // they check the grill's range

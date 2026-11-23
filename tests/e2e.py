@@ -103,7 +103,7 @@ async def main():
         cli.switch_command(by_id["command_tests"].key, True)
         check(await wait_for(lambda: val("command_tests") is True, 5, "tests on"), "command tests switch on")
         await cli.execute_service(svc["test_command"], {"command_id": 4, "value": 0})
-        check(await wait_for(lambda: "never sent" in (val("command_test") or ""), 5, "0x04 refused"), f"id 0x04 refused ({val('command_test')!r})")
+        check(await wait_for(lambda: "one flag at a time" in (val("command_test") or ""), 5, "0x04 refused"), f"id 0x04 with every flag set is refused ({val('command_test')!r})")
         await cli.execute_service(svc["test_command"], {"command_id": 6, "value": 1})
         check(await wait_for(lambda: val("command_test") == "sent FF 06 00 01", 5, "sent"), f"test command sent ({val('command_test')!r})")
         await cli.execute_service(svc["test_command"], {"command_id": 7, "value": 0})

@@ -1024,6 +1024,18 @@ static void test_pin_auth() {
   printf("pin auth ok\n");
 }
 
+static bool flag_cmd_ran = [] {
+  CHECK(g980proto::one_flag_command(0x0FFF));
+  CHECK(g980proto::one_flag_command(0xFF1F));
+  CHECK(g980proto::one_flag_command(0xFF0F));
+  CHECK(g980proto::one_flag_command(0xF1FF));
+  CHECK(!g980proto::one_flag_command(0x0000));
+  CHECK(!g980proto::one_flag_command(0xFFFF));
+  CHECK(!g980proto::one_flag_command(0x0F0F));
+  CHECK(!g980proto::one_flag_command(0xFF2F));
+  return true;
+}();
+
 int main() {
   test_pin_auth();
   test_protocol();
@@ -1264,18 +1276,21 @@ static void test_capture() {
   CHECK(capture_guess(r) == "pit target 225°F");
   CHECK(capture_guess(w({0xFF, 0x02, 0x00, 0xA0})) == "food 1 target 160°F");
   CHECK(capture_guess(w({0xFF, 0x03, 0x10, 0x00})) == "food 2 target off");
-  CHECK(capture_guess(w({0xFF, 0x04, 0x00, 0x01})).rfind("power?", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x04, 0x00, 0x01})).rfind("grill flags", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x04, 0x0F, 0xFF})) == "power off");
+  CHECK(capture_guess(w({0xFF, 0x04, 0xFF, 0x1F})) == "turbo on");
+  CHECK(capture_guess(w({0xFF, 0x05, 0x46, 0x55})).rfind("show pairing code 4655", 0) == 0);
   CHECK(capture_guess(w({0xFF, 0x01, 0x00, 0x0A})).rfind("timer?", 0) == 0);
-  CHECK(capture_guess(w({0xFF, 0x05, 0x00, 0x00})).rfind("silence", 0) == 0);
+  CHECK(capture_guess(w({0xFF, 0x05, 0x00, 0x00})).rfind("show pairing code 0000", 0) == 0);
   CHECK(capture_guess(w({0xFF, 0x06, 0x00, 0x02})).rfind("fan speed?", 0) == 0);
   CHECK(capture_guess(w({0xFF, 0x0B, 0x00, 0x01})).rfind("unknown command FF 0B", 0) == 0);
-  CHECK(capture_guess(w({0x00, 0x19, 0x04, 0x00, 0xFF, 0x04, 0x00, 0x00})) == "power? (FF 04, value 0) (Bluetooth framing)");
+  CHECK(capture_guess(w({0x00, 0x19, 0x04, 0x00, 0xFF, 0x04, 0x00, 0x00})) == "grill flags (FF 04 00 00) (Bluetooth framing)");
   CHECK(capture_guess(w({0x06, 0x00, 0x00, 0x00})) == "Wi-Fi: join the saved network");
   CHECK(capture_guess(w({0x00, 0x00, 0x02, 0x00, 0x01, 0x02})) == "Wi-Fi: scan");
   CHECK(capture_guess(w({0x12, 0x34})).empty());  // unknown: no guess, bytes kept
   CHECK(capture_hex(w({0x12, 0x34})) == "12 34");
   { CaptureRecord o = capture_write(0, CAPTURE_NOTIFY_UUID, r.data, 4); CHECK(capture_guess(o).empty()); }
-  CHECK(capture_line(w({0xFF, 0x04, 0x00, 0x01}, 12345)) == "+12.3 s BBB0 4 bytes: FF 04 00 01 (power? (FF 04, value 1))");
+  CHECK(capture_line(w({0xFF, 0x04, 0x00, 0x01}, 12345)) == "+12.3 s BBB0 4 bytes: FF 04 00 01 (grill flags (FF 04 00 01))");
   CHECK(capture_line(capture_event(500, CaptureEvent::CONNECT)) == "+0.5 s phone connected");
 
   // Wi-Fi credentials: only the type bytes are kept, never the password (alone or in the Bluetooth framing).
@@ -1317,7 +1332,7 @@ static void test_capture() {
   CHECK(log.size() == CAPTURE_SLOTS && log.total() == 101);
   CHECK(log.newest(0).data[3] == 99 && log.newest(CAPTURE_SLOTS - 1).data[3] == 36);
   std::string sum = log.summary(255);
-  CHECK(sum.size() <= 255 && sum.rfind("+99s FF 04 00 63 = power?", 0) == 0);
+  CHECK(sum.size() <= 255 && sum.rfind("+99s FF 04 00 63 = grill flags", 0) == 0);
   std::string j = log.json();
   CHECK(j.front() == '[' && j.back() == ']' && j.find("\"ev\":\"write\"") != std::string::npos);
   CHECK(j.find("\"t\":99000,\"ev\":\"write\",\"uuid\":\"BBB0\",\"len\":4,\"hex\":\"FF 04 00 63\"") != std::string::npos);

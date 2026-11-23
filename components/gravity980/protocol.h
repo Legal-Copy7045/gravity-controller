@@ -58,6 +58,19 @@ bool parse_status(const uint8_t *data, size_t len, Status &out);
 /// Returns false if the notification is something else (Wi-Fi info, scan result...).
 bool ble_status_payload(const uint8_t *data, size_t len, const uint8_t **payload, size_t *payload_len);
 
+/// Command 0x04 (the grill's flags, from the Char-Griller app): four hex digits, F = leave alone, 0 or 1 = set; true
+/// when exactly one digit is 0 or 1 and the rest are F (e.g. 0x0FFF power off, 0xFF1F turbo on, 0xFF0F turbo off).
+inline bool one_flag_command(uint16_t v) {
+  int set = 0;
+  for (int i = 0; i < 4; i++) {
+    uint8_t d = (v >> (12 - 4 * i)) & 0xF;
+    if (d == 0xF) continue;
+    if (d > 1) return false;
+    set++;
+  }
+  return set == 1;
+}
+
 /// Build a setpoint command. Returns false (and builds nothing) if out of range.
 /// `ble` prefixes the BLE framing `00 19 04 00`.
 bool build_target_command(Probe probe, uint16_t value_f, bool ble, std::vector<uint8_t> &out);

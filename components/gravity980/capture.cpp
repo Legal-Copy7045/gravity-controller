@@ -84,8 +84,17 @@ static std::string ff_guess(uint8_t id, size_t n, uint16_t v) {
       return b;
     }
     case 0x01: what = "timer?"; break;
-    case 0x04: what = "power?"; break;
-    case 0x05: what = "silence the alarm?"; break;
+    case 0x04: {  // the grill's flags (the Char-Griller app): F = leave alone
+      if (v == 0x0FFF) return "power off";
+      if (v == 0xFF1F) return "turbo on";
+      if (v == 0xFF0F) return "turbo off";
+      what = "grill flags";
+      std::snprintf(b, sizeof b, "%s (FF 04 %02X %02X)", what, unsigned(v >> 8), unsigned(v & 0xFF));
+      return b;
+    }
+    case 0x05:  // the pairing code the grill shows (the digits are the hex value)
+      std::snprintf(b, sizeof b, "show pairing code %04X", unsigned(v));
+      return b;
     case 0x06: what = "fan speed?"; break;
     default: break;
   }
