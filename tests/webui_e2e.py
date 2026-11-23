@@ -236,6 +236,11 @@ def pin_flow(browser):
     pg.click("#lock [data-a=pinset]")
     pg.wait_for_function("document.querySelector('#lock').innerText.includes('unlocked')", timeout=5000)
     check(True, "PIN set: this browser is unlocked")
+    # Once a PIN is set, Setup folds away (a one-line summary in its heading); open it from the heading.
+    pg.wait_for_function("document.querySelector('[data-sect=setup]').classList.contains('folded')", timeout=5000)
+    check("PIN set" in pg.inner_text("[data-sect=setup] h2"), "Setup folds to a summary once a PIN is set")
+    pg.click("[data-sect=setup] h2 .fold")
+    check(not pg.evaluate("document.querySelector('[data-sect=setup]').classList.contains('folded')"), "Setup opens from its heading")
     # A key: saved, shown only as set, never read back.
     pg.click("#notif details[data-k=ntfy] summary")
     pg.fill("#sec-ntfy_topic", "smoker-test-topic-k3v9")
@@ -370,6 +375,9 @@ def program_editor(pg, width, shots):
             sent.append(q.get("value", [""])[0])
             r.fulfill(status=200, body="")
         pg.route(BASE + "/text/Program/set*", catch)
+    pg.wait_for_selector("#progfold", timeout=10000)
+    if not pg.evaluate("document.getElementById('progfold').open"):  # a loaded program folds the editor away
+        pg.click("#progfold > summary")
     pg.wait_for_selector("#progedit #pe-addstep", timeout=10000)
     while pg.locator("#progedit .pe-step").count():  # start from an empty program
         pg.locator("#progedit [data-pe-act=del-step]").first.click()

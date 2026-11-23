@@ -31,3 +31,9 @@ After the release exists: HACS update entity `update.smoker_gravity_980` → `up
 the permission classifier asks); then refresh and install `update.smoker_firmware` (OTA, ~1 min). The package then
 updates itself (see above): confirm the "Smoker package" notification or the file's first line. Never control the
 grill, never turn the AI advisor on/off for him, and never touch other devices.
+
+## The two dashboards share their layout
+
+`custom_components/smoker/frontend/page.html` (Home Assistant) and `firmware/device-ui/ui.js` (the controller) carry two
+identical shared blocks, checked by tests/render_page.py: the cook program editor and the page sections (`SECT`: the
+same `data-sect` sections, folding from the heading, planning first while idle). Change both copies together.

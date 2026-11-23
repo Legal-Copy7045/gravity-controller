@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.33] - 2026-11-23
+
+- **Fix: the controller's update to 0.2.31/0.2.32 didn't stick.** The new firmware started a second background task
+  for the AI at boot, taking internal memory that Bluetooth and Wi-Fi need. The controller restarted and fell back to
+  the old firmware. The AI's task now starts only when an AI question is first asked.
+- **New diagnostics:** *Last restart reason* and *Free memory*, so a crash or low memory shows in Home Assistant.
+- **One layout for both dashboards** (Home Assistant's Smoker page and the controller's own page):
+  - the same sections in the same order: planning first while nothing's cooking, the cook first during one;
+  - every section folds from its heading, and each browser remembers what you folded;
+  - Setup folds to a one-line summary once it's set up; the journal folds during a cook;
+  - the cook program editor stays folded once a program is loaded ("Edit the program" opens it);
+  - cards fill their row, and the "Right now" tiles no longer leave a grey gap;
+  - the controller's page gains the "Right now" strip, and Charcoal and Plan are separate sections, as in
+    Home Assistant. Plan with AI and What's cooking sit in Plan.
+
 ## [0.2.32] - 2026-11-23
 
 - **Home Assistant reconnects to a controller it has lost.** Home Assistant's link to the controller can get stuck:

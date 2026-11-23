@@ -4,7 +4,7 @@
 # ESPHome dashboard config (see docs/install.md). Override any substitution.
 
 substitutions:
-  project_version: "0.2.32"
+  project_version: "0.2.33"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -119,6 +119,9 @@ ota:
 
 http_request:
   timeout: 15s
+
+debug:
+  update_interval: 60s
 
 update:
   - platform: http_request
@@ -418,6 +421,12 @@ sensor:
   - platform: uptime
     name: Uptime
     entity_category: diagnostic
+  # Why it last restarted and how much internal memory is free: so a crash or a tight-memory restart shows up in
+  # Home Assistant instead of only on a USB cable.
+  - platform: debug
+    free:
+      name: Free memory
+      entity_category: diagnostic
 
 binary_sensor:
   # The board's BOOT button: hold it 10 s to clear the device page's PIN (someone at the grill, not on the network).
@@ -454,6 +463,10 @@ binary_sensor:
       name: Grill alarm
 
 text_sensor:
+  - platform: debug
+    reset_reason:
+      name: Last restart reason
+      entity_category: diagnostic
   - platform: gravity980
     raw_frame:
       name: Raw status frame

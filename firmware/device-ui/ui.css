@@ -5,6 +5,7 @@
 @media (prefers-color-scheme:dark){:root.gx:not([data-theme="light"]){--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#7b8a9a;--line:#233040;--ok:#3cc08a;--warn:#e0a24a;--bad:#ef6b61;--page:#fb8a3c;--exp:#a78bfa}}
 :root.gx[data-theme="dark"]{--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#7b8a9a;--line:#233040;--ok:#3cc08a;--warn:#e0a24a;--bad:#ef6b61;--page:#fb8a3c;--exp:#a78bfa}
 .gx [hidden]{display:none!important}
+.gx h3.split{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .gx body{background:var(--ground);color:var(--ink);font:15px/1.5 "Instrument Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;padding:14px 16px 56px;-webkit-text-size-adjust:100%;overflow-x:hidden}
 .gx h1,.gx h2,.gx h3{font-family:"Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;text-wrap:balance}
 .gx .num,.gx .mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
@@ -36,12 +37,13 @@
 .gx h2.sec{font:700 21px/1.2 "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;padding-top:12px;border-top:2px solid var(--page);margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;letter-spacing:-.01em}
 .gx h2.sec small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--muted)}
 /* kpis, cards, rows */
-.gx .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.gx .kpi{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.gx .kpis{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.gx .kpi{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 150px}
+.gx .kpi .n{font-size:12.5px;color:var(--ink-2)}
 .gx .kpi .l{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .gx .kpi .v{font:500 24px/1.15 "JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gx .kpi .v small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2);margin-left:3px}
-@media (max-width:560px){.gx .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.gx .kpi .v{font-size:20px}}
+@media (max-width:560px){.gx .kpi{flex-basis:40%}.gx .kpi .v{font-size:20px}}
 .gx .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;position:relative;overflow:hidden}
 .gx .card>h3{margin:0 0 8px;font:700 16px "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
 .gx .card>h3 small{font:500 12px "Instrument Sans",system-ui,sans-serif;color:var(--muted)}
@@ -205,3 +207,15 @@
 .gx .row select{min-width:9em;flex:0 1 auto}
 .gx .je .row>.entry{flex:1 1 auto;max-width:100%;display:flex;gap:6px;flex-wrap:nowrap}
 .gx .je .row>.entry input{flex:1 1 auto;min-width:0;width:auto}
+
+/* page sections (shared block in the scripts): a fold button on every heading */
+.gx h2.sec{cursor:pointer}
+.gx h2.sec .fsum{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--muted);letter-spacing:0}
+.gx h2.sec .fsum:empty{display:none}
+.gx h2.sec .fold{margin-left:auto;flex:none;align-self:center;width:30px;height:30px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);display:inline-grid;place-items:center;cursor:pointer;padding:0}
+.gx h2.sec .seg~.fold{margin-left:0}
+.gx h2.sec .fold:hover,.gx h2.sec .fold:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
+.gx h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.gx .sect.folded h2.sec .fold svg{transform:rotate(-90deg)}
+.gx .sect.folded>:not(h2),.gx .sect.folded h2.sec .seg{display:none!important}
+.gx .sect.folded h2.sec{padding-bottom:2px}

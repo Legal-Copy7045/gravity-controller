@@ -184,13 +184,16 @@ def presets():
 
 
 def shared_blocks_match():
-    """page.html and the device page's ui.js carry the same cook program editor block."""
-    b, e = "// ==== BEGIN cook program editor (shared block) ====", "// ==== END cook program editor (shared block) ===="
-    out = []
-    for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
-        s = open(os.path.join(ROOT, f), encoding="utf-8").read()
-        out.append(s[s.index(b):s.index(e)] if b in s and e in s else None)
-    return out[0] is not None and out[0] == out[1]
+    """page.html and the device page's ui.js carry the same shared blocks (cook program editor, page sections)."""
+    for name in ("cook program editor", "page sections"):
+        b, e = f"// ==== BEGIN {name} (shared block) ====", f"// ==== END {name} (shared block) ===="
+        out = []
+        for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
+            s = open(os.path.join(ROOT, f), encoding="utf-8").read()
+            out.append(s[s.index(b):s.index(e)] if b in s and e in s else None)
+        if out[0] is None or out[0] != out[1]:
+            return False
+    return True
 
 
 def set_program(pg, fr, text, error=""):
@@ -364,7 +367,7 @@ def main():
     open(hp, "w").write(harness)
     failures = []
     if not shared_blocks_match():
-        failures.append("the cook program editor blocks in page.html and ui.js differ")
+        failures.append("the shared blocks (program editor, page sections) in page.html and ui.js differ")
     with sync_playwright() as p:
         exe = os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1243/chrome-linux64/chrome")
         b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()

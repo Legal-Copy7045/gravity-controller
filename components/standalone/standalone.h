@@ -176,6 +176,7 @@ class Standalone : public Component {
   std::deque<Job> jobs_[2];
   std::mutex jobs_lock_[2];
   void *jobs_sem_[2]{nullptr, nullptr};
+  bool ai_task_{false};  // the AI lane's task, started on first use
   // results handed back to the main loop
   std::mutex results_lock_;
   std::string last_result_[3];  // ntfy, pushover, telegram

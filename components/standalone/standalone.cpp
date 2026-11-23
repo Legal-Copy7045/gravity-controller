@@ -128,7 +128,8 @@ void Standalone::setup() {
   this->jobs_sem_[0] = xSemaphoreCreateCounting(16, 0);
   this->jobs_sem_[1] = xSemaphoreCreateCounting(8, 0);
   xTaskCreate(Standalone::worker_task_, "standalone_http", 8192, this, 2, nullptr);
-  xTaskCreate(Standalone::worker_task_ai_, "standalone_ai", 8192, this, 1, nullptr);
+  // The AI lane's task starts with the first AI question (Standalone::queue_), not at boot: internal memory is
+  // tight next to Bluetooth and Wi-Fi, and a controller without an AI key never needs it.
 #endif
 }
 
@@ -334,7 +335,21 @@ void Standalone::queue_(Job j) {
     std::lock_guard<std::mutex> g(this->jobs_lock_[lane]);
     if (this->jobs_[lane].size() >= 12) {
       ESP_LOGW(TAG, "Too many outgoing requests waiting; dropped %s", j.what.c_str());
+      if (lane == 1) {
+        std::lock_guard<std::mutex> r(this->results_lock_);
+        this->done_.push_back({j.what, 0, std::string()});
+      }
       return;
+    }
+    if (lane == 1 && !this->ai_task_) {
+      this->ai_task_ = true;
+      if (xTaskCreate(Standalone::worker_task_ai_, "standalone_ai", 8192, this, 1, nullptr) != pdPASS) {
+        this->ai_task_ = false;
+        ESP_LOGW(TAG, "Not enough memory to start the AI right now; dropped %s", j.what.c_str());
+        std::lock_guard<std::mutex> r(this->results_lock_);
+        this->done_.push_back({j.what, 0, std::string()});  // the page sees "couldn't reach the AI", not a stuck "asking"
+        return;
+      }
     }
     this->jobs_[lane].push_back(std::move(j));
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(this->jobs_sem_[lane]));

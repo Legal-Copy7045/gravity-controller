@@ -22,14 +22,13 @@
 .statusline{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink-2)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;flex:none}
 .dot.on{background:var(--ok)}.dot.stale{background:var(--warn)}.dot.off{background:var(--bad)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.kpi:last-child:nth-child(odd){grid-column:1/-1}
-.kpi{background:var(--surface);padding:13px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpis{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kpi{background:var(--surface);padding:13px 16px;display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 150px}
 .kpi .l{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .kpi .v{font:500 26px/1.15 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi .v small{font:500 13px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:3px}
 .kpi .n{font-size:12.5px;color:var(--ink-2)}
-@media (max-width:560px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.kpi .v{font-size:21px}}
+@media (max-width:560px){.kpi{flex-basis:40%}.kpi .v{font-size:21px}}
 h2.sec{font:700 22px/1.2 "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;padding-top:14px;border-top:2px solid var(--page);margin:0 0 12px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;letter-spacing:-.01em}
 h2.sec small{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--muted)}
 h2.sec .seg{margin-left:auto}
@@ -213,6 +212,20 @@ label.btn{display:inline-flex;align-items:center}
 .empty{color:var(--muted);font-size:13.5px;padding:8px 0}
 .sharebox{border:1px solid var(--page);border-radius:12px;padding:10px 12px;margin-bottom:12px}
 footer{color:var(--muted);font-size:12px;text-align:center}
+/* page sections (shared block in the scripts): a fold button on every heading */
+h2.sec{cursor:pointer}
+h2.sec .fsum{font:500 13px "Instrument Sans",system-ui,sans-serif;color:var(--muted);letter-spacing:0}
+h2.sec .fsum:empty{display:none}
+h2.sec .fold{margin-left:auto;flex:none;align-self:center;width:30px;height:30px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);display:inline-grid;place-items:center;cursor:pointer;padding:0}
+h2.sec .seg~.fold{margin-left:0}
+h2.sec .fold:hover,h2.sec .fold:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
+h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.sect.folded h2.sec .fold svg{transform:rotate(-90deg)}
+.sect.folded>:not(h2),.sect.folded h2.sec .seg{display:none!important}
+.sect.folded h2.sec{padding-bottom:2px}
+/* cards fill their row (as on the controller's page): no narrow card beside empty space */
+.grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr))}
+@media (min-width:821px){.grid.g-pair{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.g-1-2{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.grid.g-2-1{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
 </style>
 </head>
 <body>
@@ -239,7 +252,7 @@ footer{color:var(--muted);font-size:12px;text-align:center}
     <a href="#now"><svg class="ic"><use href="#i-now"/></svg>Now</a><a href="#food"><svg class="ic"><use href="#i-food"/></svg>Food</a><a href="#pit"><svg class="ic"><use href="#i-grill"/></svg>Pit &amp; program</a><a href="#charcoal"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</a><a href="#temps"><svg class="ic"><use href="#i-chart"/></svg>Chart</a><a href="#ai"><svg class="ic"><use href="#i-flame"/></svg>AI</a><a href="#plan"><svg class="ic"><use href="#i-plan"/></svg>Plan</a><a href="#journal-sec"><svg class="ic"><use href="#i-book"/></svg>Journal</a><a href="#setup"><svg class="ic"><use href="#i-setup"/></svg>Setup</a>
   </nav>
 
-  <div class="sect" id="now">
+  <div class="sect" id="now" data-sect="now">
     <section class="live" aria-live="polite">
       <div class="live-head"><div class="lt-wrap"><span class="dot" id="ldot"></span><h2 class="lh">Right now</h2></div>
         <span class="live-status" id="lstatus">Connecting to Home Assistant…</span></div>
@@ -247,45 +260,45 @@ footer{color:var(--muted);font-size:12px;text-align:center}
     </section>
   </div>
 
-  <div class="sect" id="food">
+  <div class="sect" id="food" data-sect="food">
     <h2 class="sec"><svg class="ic"><use href="#i-food"/></svg>Food <small id="foodsub"></small></h2>
     <div class="grid" id="probes"></div>
   </div>
 
-  <div class="sect" id="pit">
+  <div class="sect" id="pit" data-sect="pit">
     <h2 class="sec"><svg class="ic"><use href="#i-grill"/></svg>Pit &amp; program</h2>
-    <div class="grid">
+    <div class="grid g-1-2">
       <section class="tc" id="pitcard"></section>
       <section class="tc" id="progcard"></section>
     </div>
   </div>
 
-  <div class="sect" id="charcoal">
+  <div class="sect" id="charcoal" data-sect="charcoal">
     <h2 class="sec"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</h2>
     <div class="grid"><section class="tc" id="fuelcard"></section></div>
   </div>
 
-  <div class="sect" id="temps">
+  <div class="sect" id="temps" data-sect="chart">
     <h2 class="sec"><svg class="ic"><use href="#i-chart"/></svg>Temperatures <span class="seg" id="range"></span></h2>
     <section class="tc"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></section>
   </div>
 
-  <div class="sect" id="ai">
-    <h2 class="sec"><svg class="ic"><use href="#i-flame"/></svg>AI pitmaster <small>a second opinion</small></h2>
-    <div class="grid">
+  <div class="sect" id="ai" data-sect="ai">
+    <h2 class="sec"><svg class="ic"><use href="#i-flame"/></svg>AI pitmaster</h2>
+    <div class="grid g-pair">
       <section class="tc" id="aicard"></section>
       <section class="tc" id="recs"></section>
     </div>
   </div>
-  <div class="sect" id="plan">
-    <h2 class="sec"><svg class="ic"><use href="#i-plan"/></svg>Plan the next cook</h2>
-    <div class="grid">
+  <div class="sect" id="plan" data-sect="plan">
+    <h2 class="sec"><svg class="ic"><use href="#i-plan"/></svg>Plan</h2>
+    <div class="grid g-pair">
       <section class="tc" id="plancard"></section>
       <section class="tc" id="scancard"></section>
     </div>
   </div>
 
-  <div class="sect" id="journal-sec">
+  <div class="sect" id="journal-sec" data-sect="journal">
     <h2 class="sec"><svg class="ic"><use href="#i-book"/></svg>Cook journal</h2>
     <section class="tc" id="journal"><div id="jshare"></div><div id="jlist"><div class="empty">Loading…</div></div>
       <div id="jcmp" style="display:none"><h3 id="jcmptitle" style="margin-top:14px">Compared with similar cooks</h3>
@@ -293,8 +306,8 @@ footer{color:var(--muted);font-size:12px;text-align:center}
     <section class="tc" id="learncard"></section>
   </div>
 
-  <div class="sect" id="setup">
-    <h2 class="sec"><svg class="ic"><use href="#i-setup"/></svg>Setup <small>connection, probes and the controller</small></h2>
+  <div class="sect" id="setup" data-sect="setup">
+    <h2 class="sec"><svg class="ic"><use href="#i-setup"/></svg>Setup
     <div class="grid">
       <section class="tc" id="controlcard"></section>
       <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
@@ -1086,7 +1099,7 @@ function renderRecs() {
         <span class="d">${esc(i.detail || '')}</span></div>`).join('') + '</div>'
     : '<div class="empty">No recommendations yet. Set the protein, weight and serve-by time (or start a cook) and ask the AI.</div>';
   put('recs', `<h3>Recommendations ${EXP('Written by the AI from the cook data, the weather and your journal. Use your judgement.')}</h3>
-      <div class="row"><span class="small muted">${esc(mode)}${when ? ' · written ' + esc(when) : ' · not written yet'}</span><button class="btn" onclick="act.advise()">Ask the AI</button></div>
+      <div class="row"><span class="small muted">${esc(mode)}${when ? ' · written ' + esc(when) : ' · not written yet'}</span><button class="btn" onclick="act.advise()"${aiCook() ? '' : ' disabled title="Only for a cook underway or planned"'}>Ask the AI</button></div>
     ${a.summary ? `<p style="margin:0">${esc(a.summary)}</p>` : ''}${body}`);
 }
 
@@ -1156,8 +1169,11 @@ function renderProgram() {
   const opts = preset ? (preset.attributes.options || []) : [];
   const running = st === 'Running', paused = st === 'Paused';
   if (!$('progedit')) $('progcard').innerHTML = '<h3 id="proghead"></h3><div id="progstat"></div><details class="more" id="progfold"><summary>Edit the program</summary><div id="progedit" class="pe"></div></details><div id="progbtns"></div>';
-  const fold = $('progfold'), live = running || paused;
-  if (fold && fold._live !== live) { fold._live = live; fold.open = !live; }
+  // The editor opens only when there's no program yet; a loaded or running one shows as its status line (as on the
+  // controller's page). "Edit the program" opens it.
+  const txt = val(E('Program', ['text'])), fold = $('progfold'), live = running || paused;
+  if (fold && fold._live === undefined) { fold._live = live; fold.open = !live && !txt; }
+  else if (fold && fold._live !== live) { fold._live = live; if (live) fold.open = false; }
   put('proghead', `Cook program <span class="chip ${running ? 'ok' : paused ? 'warn' : ''}">${esc(st)}</span>`);
   put('progstat', `<div class="small" style="margin-bottom:8px">${esc(status)}</div>
     ${err ? `<div class="err" role="alert">The controller says: ${esc(err)}</div>` : ''}
@@ -1187,7 +1203,14 @@ function renderAI() {
     <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span>${left != null && left > 0 ? EXP('A language model reading the cook so far; not learned from your grill.') : ''}</div>
     <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
     ${sug ? `<div class="row"><span>Tip</span><span class="small" style="text-align:right">${esc(sug)}</span></div>` : ''}
-    <div class="btns"><button class="btn" onclick="act.advise()">Ask now</button></div>`);
+    ${aiCook() ? '' : '<p class="note">The AI only works on a cook: it waits until one is underway, or a serve-by time is set within two days, so it never spends credits on an idle grill.</p>'}
+    <div class="btns"><button class="btn" onclick="act.advise()"${aiCook() ? '' : ' disabled'}>Ask now</button></div>`);
+}
+// A cook underway, or planned (serve-by within two days): the same rule as the package's AI script.
+function aiCook() {
+  if (val(E('Cook active', ['binary_sensor'])) === 'on') return true;
+  const sv = Date.parse(String(val(byName('Smoker serve by', ['input_datetime'])) || '').replace(' ', 'T')) - Date.now();
+  return sv > 0 && sv < 48 * 3600e3;
 }
 
 function rangeBar(s, ai) {
@@ -1566,18 +1589,80 @@ function renderRange() {
 }
 
 // ---------------------------------------------------------------- loop
-// Nothing cooking: planning the next cook is what's wanted, so Plan sits first; during a cook it goes after the AI.
-let planUp = null;
-function placePlan() {
+// ==== BEGIN page sections (shared block) ====
+// Identical in firmware/device-ui/ui.js (the controller's page) and custom_components/smoker/frontend/page.html (Home
+// Assistant's): tests/render_page.py checks. Both pages have the same sections (data-sect), in the same order, and
+// every section folds from its heading. Planning comes first while nothing is cooking; during a cook, the cook does.
+// A section's starting fold is set by the page (SECT.want); a fold this browser chooses is remembered and wins.
+const SECT = (() => {
+  const KEY = 'smoker-sections';
+  const IDLE = ['plan', 'now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
+  const COOKING = ['now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'plan', 'journal', 'setup'];
+  let mine = {};
+  try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
+  const dflt = {}, sums = {}, peek = {};
+  const sec = k => document.querySelector(`[data-sect="${k}"]`);
+  function apply(k) {
+    const s = sec(k); if (!s) return;
+    const f = !peek[k] && (k in mine ? mine[k] : !!dflt[k]);
+    s.classList.toggle('folded', f);
+    const b = s.querySelector('h2.sec .fold'); if (b) b.setAttribute('aria-expanded', String(!f));
+    const m = s.querySelector('h2.sec .fsum'), t = f ? (sums[k] || '') : '';
+    if (m && m.textContent !== t) m.textContent = t;
+  }
+  function toggle(k) {
+    const s = sec(k); if (!s) return;
+    mine[k] = !s.classList.contains('folded'); delete peek[k];
+    try { localStorage.setItem(KEY, JSON.stringify(mine)); } catch (e) { /* not remembered */ }
+    apply(k);
+  }
+  function init() {
+    document.querySelectorAll('[data-sect]').forEach(s => {
+      const h = s.querySelector('h2.sec'), k = s.dataset.sect;
+      if (!h || h.querySelector('.fold')) return;
+      const m = document.createElement('span'); m.className = 'fsum';
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'fold';
+      b.setAttribute('aria-label', 'Show or hide ' + h.textContent.trim());
+      b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+      h.append(m, b);
+      h.addEventListener('click', e => { if (!e.target.closest('a,input,select,textarea,.seg,button:not(.fold)')) toggle(k); });
+      apply(k);
+    });
+    // A section-bar link opens its section (for now: the remembered fold isn't changed).
+    const bar = document.getElementById('secbar');
+    if (bar) bar.addEventListener('click', e => {
+      const a = e.target.closest('a[href^="#"]'), s = a && document.getElementById(a.getAttribute('href').slice(1));
+      if (s && s.dataset.sect && s.classList.contains('folded')) { peek[s.dataset.sect] = true; apply(s.dataset.sect); }
+    }, true);
+  }
+  // How a section starts unless this browser chose (folded or not), and the line its heading shows while folded.
+  function want(k, folded, summary) { dflt[k] = !!folded; if (summary != null) sums[k] = summary; apply(k); }
+  let was = null;
+  function order(cooking) {
+    cooking = !!cooking; if (was === cooking) return; was = cooking;
+    const foot = document.getElementById('foot'), bar = document.getElementById('secbar');
+    (cooking ? COOKING : IDLE).forEach(k => {
+      const s = sec(k); if (!s || !foot) return;
+      foot.parentNode.insertBefore(s, foot);
+      const a = bar && bar.querySelector(`a[href="#${s.id}"]`); if (a) bar.appendChild(a);
+    });
+  }
+  return { init, want, order, toggle };
+})();
+// ==== END page sections (shared block) ====
+
+// Which sections start folded, and what their headings say while folded.
+function placeSections() {
   const cooking = val(E('Cook active', ['binary_sensor'])) === 'on' || /Running|Paused/.test(val(E('Program state', ['sensor'])) || '');
-  if (planUp === !cooking) return; planUp = !cooking;
-  const plan = $('plan'), bar = $('secbar'), link = bar && bar.querySelector('a[href="#plan"]');
-  const before = planUp ? $('now') : $('journal-sec'), beforeLink = bar && bar.querySelector(planUp ? 'a[href="#now"]' : 'a[href="#journal-sec"]');
-  if (plan && before) before.parentNode.insertBefore(plan, before);
-  if (link && beforeLink) bar.insertBefore(link, beforeLink);
+  SECT.order(cooking);
+  const conn = val(E('Grill connected', ['binary_sensor'])) === 'on', rel = val(E('Release', ['sensor']));
+  SECT.want('setup', true, `${conn ? 'grill connected' : 'grill not connected'}${rel ? ' · controller ' + rel : ''}`);
+  const ai = byName('Smoker AI advisor', ['input_boolean']);
+  SECT.want('ai', !hasPkg() || val(ai) !== 'on', hasPkg() ? (val(ai) === 'on' ? '' : 'off') : 'needs the Smoker package');
+  SECT.want('journal', cooking, 'past cooks');
 }
 function render() {
-  placePlan();
+  placeSections();
   findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
   loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange(); renderShare();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
@@ -1611,6 +1696,7 @@ window.addEventListener('resize', () => drawChart());
   let raf = 0; addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
   mark();
 })();
+SECT.init();
 live(render, 20000);
 </script>
 </body>
