@@ -614,8 +614,9 @@ void Gravity980Component::tcp_close_(const char *reason) {
   if (this->tcp_state_ == TcpState::CONNECTED) {
     ESP_LOGW(TAG, "TCP disconnected: %s", reason);
     this->last_drop_ = std::string("Wi-Fi: ") + reason;
-  } else if (this->tcp_state_ == TcpState::CONNECTING)
+  } else if (this->tcp_state_ == TcpState::CONNECTING) {
     ESP_LOGD(TAG, "TCP connect failed: %s", reason);
+  }
   this->tcp_state_ = TcpState::IDLE;
   this->tx_.clear();
   this->assembler_.reset();
@@ -1389,8 +1390,9 @@ void Gravity980BLE::request_rssi() {
   if (this->state() != esp32_ble_tracker::ClientState::ESTABLISHED)
     return;
   esp_err_t err = esp_ble_gap_read_rssi(this->get_remote_bda());
-  if (err != ESP_OK)
+  if (err != ESP_OK) {
     ESP_LOGD(TAG, "BLE: read RSSI failed: %d", err);
+  }
 }
 
 void Gravity980BLE::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
@@ -1483,8 +1485,9 @@ bool Gravity980BLE::write(const std::vector<uint8_t> &data) {
   // Short commands go without response (as the grill's own app does). Anything longer than one packet (the Wi-Fi
   // credentials) is written with response, which the stack splits into a long write when needed.
   bool long_write = data.size() + 3 > this->mtu_;
-  if (long_write)
+  if (long_write) {
     ESP_LOGD(TAG, "BLE write of %u bytes (MTU %u): with response", (unsigned) data.size(), this->mtu_);
+  }
   auto err = esp_ble_gattc_write_char(this->get_gattc_if(), this->get_conn_id(), this->write_handle_, data.size(),
                                       const_cast<uint8_t *>(data.data()),
                                       long_write ? ESP_GATT_WRITE_TYPE_RSP : ESP_GATT_WRITE_TYPE_NO_RSP,
