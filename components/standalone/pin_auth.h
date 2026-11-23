@@ -10,7 +10,8 @@
 //  - a PIN that can't be one (empty, too short or too long) is refused without hashing or counting;
 //  - the first PIN: only within 15 minutes of the controller being powered on or of the PIN being cleared (BOOT
 //    button, Home Assistant), so whoever happens to be on the Wi-Fi later can't claim the page. Without a PIN the page stays
-//    open to changes, as before (the owner's choice; keys and settings still need one);
+//    open to changes, as before (the owner's choice; keys and settings still need one). Home Assistant (trusted through
+//    its API key) can set or replace it at any time (replace_pin);
 //  - sessions: 32 random bytes as hex, 12 h, renewed on use, at most 4 (the oldest is dropped). Expired ones are
 //    dropped by tick() (so an idle one can't come back when millis() wraps); kept across a restart with the time
 //    they had left (and their expiry on the clock, once it's set), never a fresh 12 h.
@@ -66,6 +67,23 @@ std::string pin_problem(const std::string &pin);
 /// Could this be a PIN at all? (Anything else is refused before hashing and doesn't count as a wrong PIN.)
 inline bool well_formed(const std::string &pin) { return pin.size() >= PIN_MIN && pin.size() <= PIN_MAX; }
 
+/// Two presses within window_ms (the first arms it, like the grill's power buttons): for things that can't be undone
+/// (the factory reset). press() is true on the confirming press; armed() says whether one is waiting.
+struct ConfirmTwice {
+  uint32_t window_ms{10000};
+  uint32_t armed_at{0};  // millis() of the arming press, 0 = none
+  bool armed(uint32_t now) const { return this->armed_at != 0 && now - this->armed_at < this->window_ms; }
+  bool press(uint32_t now) {
+    if (this->armed(now)) {
+      this->armed_at = 0;
+      return true;
+    }
+    this->armed_at = now ? now : 1;
+    return false;
+  }
+  void cancel() { this->armed_at = 0; }
+};
+
 class Guard {
  public:
   // random: fills a buffer with secure random bytes; now_ms: a millisecond clock.
@@ -81,6 +99,10 @@ class Guard {
   /// Set (first use, within its window) or change the PIN; returns "" or why not. Changing needs the current PIN.
   /// client: who's asking (an IP address), for the lockout.
   std::string set_pin(const std::string &pin, const std::string &current, const std::string &client = "");
+  /// Set or replace the PIN for Home Assistant (trusted through its API key, so neither the current PIN nor the first
+  /// PIN's window is needed); "" clears it like clear(). Returns "" or why not (the same rules as set_pin). Ends every
+  /// session and every lockout, like clear().
+  std::string replace_pin(const std::string &pin);
   /// Clear the PIN (recovery: BOOT button or Home Assistant), every session and every lockout; opens the first
   /// PIN's window again.
   void clear();
@@ -117,6 +139,7 @@ class Guard {
 
  protected:
   bool verify_(const std::string &pin) const;
+  void store_pin_(const std::string &pin);  // hash and keep a new PIN; every session ends
   std::string new_token_();
   void open_first_pin_();
   struct Client {

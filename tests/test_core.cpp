@@ -1022,6 +1022,46 @@ static void test_pin_auth() {
     e.clear();
     CHECK(e.locked_for("192.168.2.0") == 0);
   }
+
+  // Home Assistant sets or replaces the PIN whenever (no window, no current PIN), with the same rules; every session
+  // and lockout ends; "" clears it.
+  {
+    uint32_t c = 1000;
+    uint8_t sd = 21;
+    Guard r([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    c += 16 * 60 * 1000;
+    r.tick();
+    CHECK(r.first_pin_for() == 0 && r.set_pin("482913", "") == FIRST_PIN_CLOSED);  // the page's window has closed
+    CHECK(r.replace_pin("12345") == pin_problem("12345") && !r.pin_set());         // too short
+    CHECK(r.replace_pin("654321") != "" && r.replace_pin("aaaaaa") != "" && !r.pin_set());  // too easy
+    CHECK(r.replace_pin(std::string(33, 'x') + "1") != "" && !r.pin_set());        // too long
+    CHECK(r.replace_pin("482913") == "" && r.pin_set() && r.first_pin_for() == 0);
+    std::string tok = r.login("482913", "10.0.0.2");
+    CHECK(tok.size() == 64 && r.check(tok));
+    for (int i = 0; i < 5; i++) r.login("999999", "10.0.0.66");
+    CHECK(r.locked_for("10.0.0.66") == 30);
+    uint32_t gen = r.generation();
+    CHECK(r.replace_pin("739215") == "");                                          // replaced: no current PIN needed
+    CHECK(!r.check(tok) && r.generation() != gen && r.locked_for("10.0.0.66") == 0);
+    CHECK(r.login("482913", "10.0.0.2") == "" && r.login("739215", "10.0.0.2").size() == 64);
+    CHECK(r.replace_pin("12") != "" && r.pin_set());                               // a bad one leaves the PIN as it was
+    CHECK(r.replace_pin("") == "" && !r.pin_set() && r.first_pin_for() == 900);    // cleared (window open again)
+  }
+
+  // Two presses within 10 s (the factory reset): the first arms, a second in time confirms, a late one arms again.
+  {
+    ConfirmTwice ct;
+    CHECK(!ct.armed(5000) && !ct.press(5000) && ct.armed(5000));
+    CHECK(ct.armed(14999) && ct.press(14999) && !ct.armed(15000));   // confirmed, and disarmed
+    CHECK(!ct.press(20000));
+    CHECK(!ct.armed(30000) && !ct.press(30000));                      // too late: armed again, not confirmed
+    CHECK(ct.press(31000));
+    CHECK(!ct.press(0) && ct.armed(0) && ct.press(9999));             // millis() at 0 still arms
+    CHECK(!ct.press(0xFFFFF000u) && ct.press(0x00001000u));           // across millis() wrapping
+    ct.press(100);
+    ct.cancel();
+    CHECK(!ct.armed(200));
+  }
   printf("pin auth ok\n");
 }
 

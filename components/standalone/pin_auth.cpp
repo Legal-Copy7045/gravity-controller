@@ -169,6 +169,12 @@ std::string Guard::set_pin(const std::string &pin, const std::string &current, c
   }
   std::string why = pin_problem(pin);
   if (!why.empty()) return why;
+  this->store_pin_(pin);
+  this->forget_(client);
+  return "";
+}
+
+void Guard::store_pin_(const std::string &pin) {
   Stored s;
   s.set = 1;
   this->random_(s.salt, SALT_LEN);
@@ -178,7 +184,20 @@ std::string Guard::set_pin(const std::string &pin, const std::string &current, c
   this->sessions_.clear();  // a new PIN logs everyone out
   this->gen_++;
   this->first_open_ = false;
-  this->forget_(client);
+}
+
+std::string Guard::replace_pin(const std::string &pin) {
+  if (pin.empty()) {
+    this->clear();
+    return "";
+  }
+  std::string why = pin_problem(pin);
+  if (!why.empty()) return why;
+  this->store_pin_(pin);
+  // The owner may have locked themselves out guessing: a fresh start, as when the PIN is cleared.
+  this->clients_.clear();
+  this->global_on_ = false;
+  this->overflow_ = false;
   return "";
 }
 
