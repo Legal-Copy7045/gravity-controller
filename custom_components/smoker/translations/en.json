@@ -13,5 +13,17 @@
       "title": "The Smoker package isn't installed",
       "description": "The smoker's phone alerts, AI advisor and voice commands live in the Smoker package, and /config/packages/smoker.yaml isn't there. Go to Developer tools > Actions, run \"Install the Smoker package\" (smoker.install_package) with your phone's notify action, then restart Home Assistant."
     }
+  },
+  "services": {
+    "set_device_pin": {
+      "name": "Set the device page PIN",
+      "description": "Sets, replaces or clears the PIN of the smoker controller's own web page, whenever (no need to power it off and on first, or to know the current PIN). 6 to 32 characters, not 123456 or 111111; leave it empty to clear it. Every browser that had unlocked the page has to unlock again; the controller's \"Device page PIN\" sensor shows the result.",
+      "fields": {
+        "pin": {
+          "name": "PIN",
+          "description": "The new PIN (6 to 32 characters). Leave it empty to clear the PIN."
+        }
+      }
+    }
   }
 }

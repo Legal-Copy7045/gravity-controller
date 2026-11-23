@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 from .controller_events import async_setup_controller_events, async_unload_controller_events
+from .device_pin import async_setup_device_pin, async_unload_device_pin
 from .journal import async_setup_journal, async_unload_journal
 from .sharing import async_setup_sharing, async_unload_sharing
 from .package_install import async_setup_package_install
@@ -35,6 +36,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_setup_sharing(hass, journal, version)
     await async_setup_package_install(hass, version)
     await async_setup_watchdog(hass)
+    # Set or clear the controller's device page PIN from Home Assistant (admin).
+    await async_setup_device_pin(hass)
     return True
 
 
@@ -44,6 +47,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_unload_sharing(hass)
     async_remove_panel(hass)
     async_unload_watchdog(hass)
+    async_unload_device_pin(hass)
     # Removed or disabled: its action and the states it published go too.
     hass.services.async_remove(DOMAIN, "install_package")
     for eid in ("sensor.smoker_journal", "sensor.smoker_community"):

@@ -507,3 +507,53 @@ async def test_install_package_checks(hass: HomeAssistant, tmp_path):
     pkg.write_text(old)
     res = await pi.async_update_installed(hass, "9.9.9")
     assert res.get("edited") and pkg.read_text() == old
+
+
+async def test_set_device_pin(hass: HomeAssistant, tmp_path, hass_admin_user, hass_read_only_user, caplog):
+    """smoker.set_device_pin hands the PIN to the controller's set_device_pin action (admin only): checked first with
+    the controller's own rules, empty clears it, and the PIN never shows in the log or an error."""
+    import logging
+
+    import pytest
+    from homeassistant.core import Context
+    from homeassistant.exceptions import HomeAssistantError, ServiceValidationError, Unauthorized
+
+    from custom_components.smoker.device_pin import pin_problem
+
+    caplog.set_level(logging.DEBUG)
+    await _setup(hass, tmp_path)
+    assert hass.services.has_service(DOMAIN, "set_device_pin")
+    admin = Context(user_id=hass_admin_user.id)
+    # The controller isn't connected (or its firmware is older): said so, nothing sent.
+    with pytest.raises(HomeAssistantError, match="firmware"):
+        await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": "482913"}, blocking=True, context=admin)
+    sent = []
+
+    async def set_pin(call: ServiceCall):
+        sent.append(call.data["pin"])
+
+    hass.services.async_register("esphome", "gravity980_set_device_pin", set_pin)
+    await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": "k3v9-x2q7"}, blocking=True, context=admin)
+    await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": 482913}, blocking=True, context=admin)  # a YAML number
+    await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": ""}, blocking=True, context=admin)    # clears it
+    await hass.services.async_call(DOMAIN, "set_device_pin", {}, blocking=True, context=admin)
+    assert sent == ["k3v9-x2q7", "482913", "", ""]
+    # The controller's rules: 6 to 32 characters, not repeated or in sequence. Refused here, never sent.
+    for bad in ("12345", "123456", "654321", "aaaaaaa", "abcdefg", "x" * 33, "s3cr3t-but-far-too-long-for-the-pin"):
+        assert pin_problem(bad)
+        with pytest.raises(ServiceValidationError) as err:
+            await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": bad}, blocking=True, context=admin)
+        assert bad not in str(err.value)
+    assert pin_problem("482913") == "" and pin_problem("x" * 31 + "1") == "" and pin_problem("") == ""
+    assert len(sent) == 4
+    # Admin only.
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": "739215"}, blocking=True,
+                                       context=Context(user_id=hass_read_only_user.id))
+    assert len(sent) == 4
+    for pin in ("k3v9-x2q7", "482913", "739215", "s3cr3t-but-far-too-long"):
+        assert pin not in caplog.text
+    # Removed with the integration.
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert not hass.services.has_service(DOMAIN, "set_device_pin")
