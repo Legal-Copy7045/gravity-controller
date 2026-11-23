@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.34] - 2026-11-23
+
+- **Fix: the controller restarted when its page was used, and kept asking for the PIN.** Since 0.2.31 the controller
+  crashed ("exception/panic") when you entered the PIN or used its page, and each restart forgot that your browser
+  was unlocked. (The 0.2.31 update failing to stick was the same crash, not the memory at boot that 0.2.33 blamed.)
+  - The page's requests now run on a task of their own, on the controller's second processor core: the web server's
+    task has too little room, and checking a PIN takes a second or two that must never stall the controller's main
+    work.
+  - The PIN has its own lock, so the main loop never waits on it.
+- **Unlocking survives a restart:** unlocked browsers are saved on the controller, so an update or a restart no
+  longer locks them out.
 
 Running without Home Assistant, part 4:
 - **Get started** on the controller's page: a checklist for a controller used on its own: PIN, find the grill,

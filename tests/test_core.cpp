@@ -888,6 +888,18 @@ static void test_pin_auth() {
   CHECK(g.check(t));
   clock += 13UL * 3600 * 1000;
   CHECK(!g.check(t));
+  // Sessions survive a restart: saved, then restored into a new Guard (12 h from then); junk is ignored.
+  t = g.login("739215");
+  uint32_t gen = g.generation();
+  std::string t2 = g.login("739215");
+  CHECK(g.generation() != gen && g.tokens().size() == 2);
+  Guard g2([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = seed++; }, [&]() { return clock; });
+  g2.load(g.stored());
+  g2.restore({t, t2, "not-a-token", std::string(64, 'Z')});
+  CHECK(g2.check(t) && g2.check(t2) && g2.tokens().size() == 2);
+  gen = g2.generation();
+  g2.logout(t);
+  CHECK(!g2.check(t) && g2.check(t2) && g2.generation() != gen);
   // Recovery clears everything.
   g.clear();
   CHECK(!g.pin_set() && g.login("739215") == "");

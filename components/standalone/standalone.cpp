@@ -24,6 +24,7 @@
 #include <esp_http_client.h>
 #include <esp_random.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #endif
@@ -78,7 +79,8 @@ class Handler : public AsyncWebHandler {
     std::string path(url.c_str() + 7);
     if (req->hasArg("hours"))
       path += "?hours=" + req->arg("hours");
-    std::string out = this->p_->api(m, path, this->body_, token_(req), status);
+    // Run on the controller's API task: the web server's own task has a 4.5 KB stack, too small for this work.
+    std::string out = this->p_->api_call(m, path, this->body_, token_(req), status);
     this->body_.clear();
     auto *res = req->beginResponse(status, "application/json", out);
     res->addHeader("Cache-Control", "no-store");
@@ -93,6 +95,45 @@ class Handler : public AsyncWebHandler {
   Standalone *p_;
   mutable std::string body_;
 };
+
+// ---------------------------------------------------------------- the API task
+// The web server runs handlers on a task with a 4.5 KB stack (ESPHome's web_server_idf, fixed). The PIN's PBKDF2, the
+// JSON and the journal need more: from 0.2.31 the page's requests overflowed it and the controller restarted
+// (exception/panic) whenever the page was open. Requests now run one at a time on a task of their own.
+#ifdef USE_ESP32
+struct ApiCall {
+  const char *method;
+  const std::string *path, *body, *token;
+  std::string out;
+  int status;
+};
+void Standalone::api_task_(void *arg) {
+  auto *s = static_cast<Standalone *>(arg);
+  for (;;) {
+    ApiCall *c = nullptr;
+    if (xQueueReceive(static_cast<QueueHandle_t>(s->api_q_), &c, portMAX_DELAY) != pdTRUE || c == nullptr) continue;
+    c->out = s->api(c->method, *c->path, *c->body, *c->token, c->status);
+    xSemaphoreGive(static_cast<SemaphoreHandle_t>(s->api_done_));
+  }
+}
+#endif
+
+std::string Standalone::api_call(const char *method, const std::string &path, const std::string &body,
+                                 const std::string &token, int &status) {
+#ifdef USE_ESP32
+  if (this->api_q_ != nullptr) {
+    ApiCall c{method, &path, &body, &token, std::string(), 200};
+    ApiCall *pc = &c;
+    xSemaphoreTake(static_cast<SemaphoreHandle_t>(this->api_mutex_), portMAX_DELAY);  // one request at a time
+    xQueueSend(static_cast<QueueHandle_t>(this->api_q_), &pc, portMAX_DELAY);
+    xSemaphoreTake(static_cast<SemaphoreHandle_t>(this->api_done_), portMAX_DELAY);  // c lives until it's answered
+    xSemaphoreGive(static_cast<SemaphoreHandle_t>(this->api_mutex_));
+    status = c.status;
+    return std::move(c.out);
+  }
+#endif
+  return this->api(method, path, body, token, status);
+}
 
 // ---------------------------------------------------------------- setup / loop
 
@@ -116,6 +157,14 @@ void Standalone::setup() {
   pinauth::Stored pin{};
   if (this->pin_pref_.load(&pin) && pin.set == 1)
     this->guard_->load(pin);
+  this->sess_pref_ = global_preferences->make_preference<SavedSessions>(fnv1_hash("standalone_sessions_v1"), true);
+  SavedSessions ss{};
+  if (this->guard_->pin_set() && this->sess_pref_.load(&ss) && ss.n <= 4) {
+    std::vector<std::string> toks;
+    for (uint8_t i = 0; i < ss.n; i++) { ss.tok[i][64] = 0; toks.emplace_back(ss.tok[i]); }
+    this->guard_->restore(toks);
+  }
+  this->sess_gen_ = this->guard_->generation();
   this->apply_tz_();
   this->setup_cook_();
   auto *base = web_server_base::global_web_server_base;
@@ -125,6 +174,16 @@ void Standalone::setup() {
     ESP_LOGW(TAG, "No web server: the device page's PIN and settings are unavailable");
   }
 #ifdef USE_ESP32
+  this->api_q_ = xQueueCreate(1, sizeof(void *));
+  this->api_done_ = xSemaphoreCreateBinary();
+  this->api_mutex_ = xSemaphoreCreateMutex();
+  if (this->api_q_ == nullptr || this->api_done_ == nullptr || this->api_mutex_ == nullptr ||
+      // Core 1 at the main loop's priority (1): the PIN's hashing takes a second or two there and must never starve
+      // the main loop (core 0), or its watchdog restarts the controller.
+      xTaskCreatePinnedToCore(Standalone::api_task_, "standalone_api", 12288, this, 1, nullptr, 1) != pdPASS) {
+    this->api_q_ = nullptr;  // fall back to the web server's own task (as before 0.2.34)
+    ESP_LOGE(TAG, "Couldn't start the API task");
+  }
   this->jobs_sem_[0] = xSemaphoreCreateCounting(16, 0);
   this->jobs_sem_[1] = xSemaphoreCreateCounting(8, 0);
   xTaskCreate(Standalone::worker_task_, "standalone_http", 8192, this, 2, nullptr);
@@ -150,6 +209,18 @@ void Standalone::loop() {
   const uint32_t now = millis();
   this->loop_cook_(now);
   this->loop_ha_watch_(now);
+  {  // keep the unlocked browsers across a restart (saved only when the list changes: login, logout, expiry)
+    std::unique_lock<std::mutex> g(this->guard_lock_, std::try_to_lock);  // never wait here: the PIN may be hashing
+    if (g.owns_lock() && this->guard_ != nullptr && this->guard_->generation() != this->sess_gen_) {
+      this->sess_gen_ = this->guard_->generation();
+      SavedSessions ss{};
+      for (auto &t : this->guard_->tokens()) {
+        if (ss.n >= 4) break;
+        std::strncpy(ss.tok[ss.n++], t.c_str(), 64);
+      }
+      this->sess_pref_.save(&ss);
+    }
+  }
   if (this->save_pending_.exchange(false))
     this->save_();
   // Weather: every 30 min while a location is set (and straight away after it changes).
@@ -206,18 +277,18 @@ void Standalone::apply_tz_() {
 }
 
 bool Standalone::pin_set() {
-  std::lock_guard<std::recursive_mutex> g(this->lock_);
+  std::lock_guard<std::mutex> g(this->guard_lock_);
   return this->guard_ != nullptr && this->guard_->pin_set();
 }
 
 bool Standalone::write_allowed(const std::string &token) {
-  std::lock_guard<std::recursive_mutex> g(this->lock_);
+  std::lock_guard<std::mutex> g(this->guard_lock_);
   return this->guard_ == nullptr || !this->guard_->pin_set() || this->guard_->check(token);
 }
 
 void Standalone::clear_pin() {
   {
-    std::lock_guard<std::recursive_mutex> g(this->lock_);
+    std::lock_guard<std::mutex> g(this->guard_lock_);
     this->guard_->clear();
   }
   ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page");
@@ -506,31 +577,11 @@ static std::string err_json(const std::string &msg) {
   return json::build_json([&](JsonObject o) { o["error"] = msg; }).c_str();
 }
 
-std::string Standalone::api(const std::string &method, const std::string &path, const std::string &body,
-                            const std::string &token, int &status) {
-  std::lock_guard<std::recursive_mutex> g(this->lock_);
-  const bool authed = this->guard_->pin_set() && this->guard_->check(token);
-  if (method == "GET" && path == "status")
-    return this->status_json_(authed);
-  if (method == "GET" && path.rfind("history", 0) == 0) {
-    int h = 6;
-    size_t q = path.find("hours=");
-    if (q != std::string::npos) h = atoi(path.c_str() + q + 6);
-    return this->history_json_(h);
-  }
-  if (method == "GET" && path == "journal")
-    return this->journal_json_(authed);
-  if (method == "GET" && path == "community")
-    return this->community_json_();
-  if (method == "GET" && path == "ai")
-    return this->ai_json_();
-  if (method != "POST") {
-    status = 404;
-    return err_json("not found");
-  }
+// login / pin / logout (called with guard_lock_ held, not lock_).
+std::string Standalone::api_pin_(const std::string &path, const std::string &body, const std::string &token,
+                                 int &status) {
   JsonDocument in = json::parse_json(body);
   auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
-
   if (path == "login") {
     if (!this->guard_->pin_set()) { status = 409; return err_json("No PIN yet: set one first"); }
     std::string t = this->guard_->login(str("pin"));
@@ -554,6 +605,43 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     this->guard_->logout(token);
     return "{}";
   }
+  status = 404;
+  return err_json("not found");
+}
+
+std::string Standalone::api(const std::string &method, const std::string &path, const std::string &body,
+                            const std::string &token, int &status) {
+  // The PIN (login, set or change, logout) first, under its own lock: hashing it takes a while on the controller,
+  // and the main loop must never wait on that (it takes lock_ below).
+  bool authed;
+  {
+    std::lock_guard<std::mutex> gl(this->guard_lock_);
+    authed = this->guard_->pin_set() && this->guard_->check(token);
+    if (method == "POST" && (path == "login" || path == "pin" || path == "logout"))
+      return this->api_pin_(path, body, token, status);
+  }
+  std::lock_guard<std::recursive_mutex> g(this->lock_);
+  if (method == "GET" && path == "status")
+    return this->status_json_(authed);
+  if (method == "GET" && path.rfind("history", 0) == 0) {
+    int h = 6;
+    size_t q = path.find("hours=");
+    if (q != std::string::npos) h = atoi(path.c_str() + q + 6);
+    return this->history_json_(h);
+  }
+  if (method == "GET" && path == "journal")
+    return this->journal_json_(authed);
+  if (method == "GET" && path == "community")
+    return this->community_json_();
+  if (method == "GET" && path == "ai")
+    return this->ai_json_();
+  if (method != "POST") {
+    status = 404;
+    return err_json("not found");
+  }
+  JsonDocument in = json::parse_json(body);
+  auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
+
   // Everything below changes settings or keys: a PIN must be set (so keys are never stored on an open page) and
   // this request must carry a live session.
   if (!this->guard_->pin_set()) { status = 409; return err_json("Set a PIN for the device page first"); }

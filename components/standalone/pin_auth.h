@@ -59,6 +59,13 @@ class Guard {
   bool check(const std::string &token);
   void logout(const std::string &token);
 
+  /// The live sessions (to keep across a restart: an update or a crash shouldn't lock every browser out), and
+  /// putting them back after one, each valid for 12 hours from then.
+  std::vector<std::string> tokens() const;
+  void restore(const std::vector<std::string> &tokens);
+  /// Changes whenever the list of sessions does (login, logout, expiry, PIN change or clear).
+  uint32_t generation() const { return this->gen_; }
+
  protected:
   bool verify_(const std::string &pin) const;
   std::string new_token_();
@@ -73,6 +80,7 @@ class Guard {
     uint32_t expires;
   };
   std::vector<Session> sessions_;
+  uint32_t gen_{0};
 };
 
 }  // namespace pinauth

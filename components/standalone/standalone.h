@@ -134,6 +134,9 @@ class Standalone : public Component {
   // --- used by the web handler (httpd task; everything below takes the lock) ---
   std::string api(const std::string &method, const std::string &path, const std::string &body, const std::string &token,
                   int &status);
+  /// api() on the controller's API task (a roomy stack), waiting for the answer. Used by the web handler.
+  std::string api_call(const char *method, const std::string &path, const std::string &body, const std::string &token,
+                       int &status);
   bool write_allowed(const std::string &token);
   bool pin_set();
 
@@ -160,11 +163,13 @@ class Standalone : public Component {
   std::string api_cook_(const std::string &path, JsonDocument &in, bool authed, int &status);
   std::string status_json_(bool authed);
   bool direct_configured_() const;
+  std::string api_pin_(const std::string &path, const std::string &body, const std::string &token, int &status);
 
   Settings s_{};
   ESPPreferenceObject pref_, pin_pref_;
   pinauth::Guard *guard_{nullptr};
   std::recursive_mutex lock_;
+  std::mutex guard_lock_;  // the PIN and sessions (guard_): never held by the main loop while waiting
   bool fahrenheit_{true};
   const char *wind_unit_{"mph"};
   cook_assistant::CookAssistant *cook_{nullptr};
@@ -177,6 +182,12 @@ class Standalone : public Component {
   std::mutex jobs_lock_[2];
   void *jobs_sem_[2]{nullptr, nullptr};
   bool ai_task_{false};  // the AI lane's task, started on first use
+  // Unlocked browsers survive a restart (pin_auth.h Guard::tokens/restore).
+  struct SavedSessions { uint8_t n; char tok[4][65]; };
+  ESPPreferenceObject sess_pref_;
+  uint32_t sess_gen_{0};
+  static void api_task_(void *arg);
+  void *api_q_{nullptr}, *api_done_{nullptr}, *api_mutex_{nullptr};
   // results handed back to the main loop
   std::mutex results_lock_;
   std::string last_result_[3];  // ntfy, pushover, telegram

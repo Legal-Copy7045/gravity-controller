@@ -156,6 +156,7 @@ std::string Guard::set_pin(const std::string &pin, const std::string &current) {
                 HASH_LEN);
   this->stored_ = s;
   this->sessions_.clear();  // a new PIN logs everyone out
+  this->gen_++;
   this->failures_ = 0;
   return "";
 }
@@ -163,6 +164,7 @@ std::string Guard::set_pin(const std::string &pin, const std::string &current) {
 void Guard::clear() {
   this->stored_ = Stored{};
   this->sessions_.clear();
+  this->gen_++;
   this->failures_ = 0;
   this->locked_until_ = 0;
 }
@@ -178,6 +180,7 @@ std::string Guard::new_token_() {
   std::string t = to_hex(r, sizeof(r));
   if (this->sessions_.size() >= 4) this->sessions_.erase(this->sessions_.begin());
   this->sessions_.push_back({t, this->now_() + uint32_t(12UL * 3600 * 1000)});
+  this->gen_++;
   return t;
 }
 
@@ -202,6 +205,7 @@ bool Guard::check(const std::string &token) {
   for (auto it = this->sessions_.begin(); it != this->sessions_.end(); ++it) {
     if (int32_t(it->expires - now) <= 0) {
       this->sessions_.erase(it);
+      this->gen_++;
       return this->check(token);
     }
     if (it->token.size() == token.size() &&
@@ -216,7 +220,23 @@ bool Guard::check(const std::string &token) {
 
 void Guard::logout(const std::string &token) {
   for (auto it = this->sessions_.begin(); it != this->sessions_.end(); ++it)
-    if (it->token == token) { this->sessions_.erase(it); return; }
+    if (it->token == token) { this->sessions_.erase(it); this->gen_++; return; }
+}
+
+std::vector<std::string> Guard::tokens() const {
+  std::vector<std::string> out;
+  for (auto &s : this->sessions_) out.push_back(s.token);
+  return out;
+}
+
+void Guard::restore(const std::vector<std::string> &tokens) {
+  this->sessions_.clear();
+  for (auto &t : tokens) {
+    if (t.size() != 64 || this->sessions_.size() >= 4) continue;
+    bool hex = true;
+    for (char ch : t) hex = hex && ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'));
+    if (hex) this->sessions_.push_back({t, this->now_() + uint32_t(12UL * 3600 * 1000)});
+  }
 }
 
 }  // namespace pinauth
