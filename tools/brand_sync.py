@@ -5,7 +5,8 @@
     python3 tools/brand_sync.py --check  # CI: fail if a page is out of date
 
 Targets: the Home Assistant dashboard (custom_components/smoker/frontend/page.html), the controller's own page
-(firmware/device-ui/ui.js) and the web installer (web/index.html).
+(firmware/device-ui/ui.js), the web installer (web/index.html), and the integration's own icon
+(custom_components/smoker/brand/icon.png, icon@2x.png: what Home Assistant shows for the integration).
 """
 
 import re
@@ -72,9 +73,20 @@ TARGETS = [
 ]
 
 
+# Copied as they are: the integration's icon (Home Assistant reads custom_components/<domain>/brand/).
+COPIES = [(B / "icon.png", ROOT / "custom_components/smoker/brand/icon.png"),
+          (B / "icon@2x.png", ROOT / "custom_components/smoker/brand/icon@2x.png")]
+
+
 def main():
     check = "--check" in sys.argv
     stale = []
+    for src, dst in COPIES:
+        if not dst.exists() or dst.read_bytes() != src.read_bytes():
+            stale.append(dst.relative_to(ROOT))
+            if not check:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(src.read_bytes())
     for path, fn in TARGETS:
         old = path.read_text(encoding="utf-8")
         new = fn(old)

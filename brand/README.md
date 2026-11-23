@@ -18,3 +18,6 @@ The pages inline these files (the dashboard in `custom_components/smoker/fronten
 in `firmware/device-ui/ui.js`, the installer in `web/index.html`): after changing anything here run
 `python3 tools/brand_sync.py` (CI fails if a page is out of date). Every icon is centred on its 24 × 24 box, and the
 mark's smoker is centred on its tile with the flame centred in the barrel; keep them that way.
+
+`icon.png` / `icon@2x.png` are also copied into `custom_components/smoker/brand/`, where Home Assistant looks for a
+custom integration's icon. `tools/brand_sync.py` keeps the copies identical; CI checks it.

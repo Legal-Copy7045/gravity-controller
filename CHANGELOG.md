@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.28] - 2026-11-23
+
+- The integration has its own icon in Home Assistant (Settings → Devices & services, and wherever the integration is
+  listed): the Smoker mark, shipped in `custom_components/smoker/brand/`.
+- The favicon is redrawn: a balanced flame centred on the tile (the old one leaned and sat off-centre). It's the same
+  on the dashboard, the controller's page and the web installer.
+
 ## [0.2.27] - 2026-11-23
 
 Running without Home Assistant, part 1 (docs/standalone.md):
