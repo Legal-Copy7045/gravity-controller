@@ -41,6 +41,8 @@ DEFAULTS = {
     "notify": "notify.mobile_app_your_phone",
     "ai_task": "ai_task.google_ai_task",
     "weather": "weather.forecast_home",
+    "calendar": "calendar.your_calendar",  # optional: a "BBQ"/"brisket"... event sets the serve-by time
+    "todo": "todo.shopping_list",          # optional: charcoal to buy, maintenance jobs
 }
 MARK = "# Installed by the Smoker integration"
 # The package's top-level keys, each reloadable without a restart.
@@ -63,6 +65,8 @@ SCHEMA = vol.Schema(
         vol.Optional("notify"): _entity("notify"),
         vol.Optional("ai_task"): _entity("ai_task"),
         vol.Optional("weather"): _entity("weather"),
+        vol.Optional("calendar"): _entity("calendar"),
+        vol.Optional("todo"): _entity("todo"),
     }
 )
 
@@ -71,7 +75,7 @@ def _previous_choices(text: str) -> dict:
     first = text.split("\n", 1)[0]
     if not first.startswith(MARK):
         return {}
-    return {k: v for k, v in re.findall(r"\b(notify|ai_task|weather)=([a-z_]+\.[a-z0-9_]+)", first)}
+    return {k: v for k, v in re.findall(r"\b(notify|ai_task|weather|calendar|todo)=([a-z_]+\.[a-z0-9_]+)", first)}
 
 
 def fingerprint(body: str) -> str:

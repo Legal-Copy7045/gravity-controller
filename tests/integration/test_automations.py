@@ -109,3 +109,74 @@ async def test_ai_advisor_only_for_a_cook(hass: HomeAssistant):
     finally:
         await hass.services.async_call("script", "turn_off", {"entity_id": "script.smoker_ai_advise"}, blocking=True)
     assert [c for c in calls if c[0] == "esphome"], calls
+
+
+async def _helpers(hass):
+    pkg = yaml.load(PKG.read_text(), Loader=_Loader)
+    for dom in ("input_number", "input_text", "input_datetime"):
+        assert await async_setup_component(hass, dom, {dom: pkg[dom]})
+    await hass.async_block_till_done()
+
+
+async def test_charcoal_burned_stock_and_reorder(hass: HomeAssistant):
+    """Drops in 'Charcoal left' count as burned and come off the stock; below a bag it goes on the to-do list."""
+    calls = await _setup(hass, ["smoker_charcoal_burn", "smoker_charcoal_reorder"],
+                         [("todo", "add_item"), ("script", "smoker_notify")])
+    await _helpers(hass)
+    for eid, v in (("input_number.smoker_charcoal_bag_kg", 9), ("input_number.smoker_charcoal_stock_kg", 9.3)):
+        await hass.services.async_call("input_number", "set_value", {"entity_id": eid, "value": v}, blocking=True)
+    hass.states.async_set("sensor.smoker_charcoal_left", "5.0")
+    await hass.async_block_till_done()
+    hass.states.async_set("sensor.smoker_charcoal_left", "4.5")  # burned 0.5 kg
+    await hass.async_block_till_done()
+    hass.states.async_set("sensor.smoker_charcoal_left", "7.0")  # a top-up: not a burn
+    await hass.async_block_till_done()
+    assert float(hass.states.get("input_number.smoker_charcoal_burned_kg").state) == 0.5
+    assert float(hass.states.get("input_number.smoker_charcoal_stock_kg").state) == 8.8
+    assert [c for c in calls if c[:2] == ("todo", "add_item") and "Charcoal" in c[2]["item"]], calls
+
+
+async def test_maintenance_due_adds_a_job(hass: HomeAssistant):
+    calls = await _setup(hass, ["smoker_maintenance_due"], [("todo", "add_item"), ("script", "smoker_notify")])
+    await _helpers(hass)
+    await hass.services.async_call("input_number", "set_value",
+                                   {"entity_id": "input_number.smoker_hours_ash", "value": 12.1}, blocking=True)
+    await hass.async_block_till_done()
+    assert [c for c in calls if c[:2] == ("todo", "add_item") and "ash" in c[2]["item"]], calls
+
+
+async def test_calendar_sets_the_serve_time_unless_set_by_hand(hass: HomeAssistant):
+    import datetime as dt
+
+    from homeassistant.core import SupportsResponse
+    from homeassistant.util import dt as dt_util
+
+    when = (dt_util.now() + dt.timedelta(hours=20)).replace(second=0, microsecond=0)
+
+    async def events(call: ServiceCall):
+        return {"calendar.your_calendar": {"events": [
+            {"start": (when - dt.timedelta(hours=3)).isoformat(), "end": when.isoformat(), "summary": "Dentist"},
+            {"start": when.isoformat(), "end": (when + dt.timedelta(hours=2)).isoformat(), "summary": "Brisket dinner"}]}}
+
+    hass.services.async_register("calendar", "get_events", events, supports_response=SupportsResponse.ONLY)
+    calls = await _setup(hass, ["smoker_calendar_serve_time"], [("script", "smoker_notify")])
+    await _helpers(hass)
+    hass.states.async_set("calendar.your_calendar", "off")
+    await hass.services.async_call("automation", "trigger",
+                                   {"entity_id": "automation.smoker_serve_time_from_the_calendar"}, blocking=True)
+    await hass.async_block_till_done()
+    got = dt_util.as_local(dt_util.parse_datetime(hass.states.get("input_datetime.smoker_serve_time").state))
+    assert got.replace(tzinfo=None) == when.replace(tzinfo=None), got
+    assert hass.states.get("input_text.smoker_serve_source").state == "calendar"
+    assert [c for c in calls if c[1] == "smoker_notify" and "Brisket dinner" in c[2]["message"]]
+    # Set by hand (in the future): the calendar leaves it alone.
+    await hass.services.async_call("input_text", "set_value",
+                                   {"entity_id": "input_text.smoker_serve_source", "value": "manual"}, blocking=True)
+    later = when + dt.timedelta(hours=1)
+    await hass.services.async_call("input_datetime", "set_datetime", {"entity_id": "input_datetime.smoker_serve_time",
+                                   "datetime": later.strftime("%Y-%m-%d %H:%M:%S")}, blocking=True)
+    await hass.services.async_call("automation", "trigger",
+                                   {"entity_id": "automation.smoker_serve_time_from_the_calendar"}, blocking=True)
+    await hass.async_block_till_done()
+    got = dt_util.as_local(dt_util.parse_datetime(hass.states.get("input_datetime.smoker_serve_time").state))
+    assert got.replace(tzinfo=None) == later.replace(tzinfo=None)

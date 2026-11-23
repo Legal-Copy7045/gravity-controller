@@ -36,7 +36,78 @@ input_number:
     unit_of_measurement: min
     icon: mdi:timer-sand
 
+  # Charcoal stock and cost (features: Setup > Supplies). Set the bag size and price once; "Bought a bag" adds one.
+  smoker_charcoal_stock_kg:
+    name: Smoker charcoal in stock
+    min: 0
+    max: 500
+    step: 0.1
+    mode: box
+    unit_of_measurement: kg
+    icon: mdi:sack
+  smoker_charcoal_bag_kg:
+    name: Smoker charcoal bag size
+    min: 0
+    max: 50
+    step: 0.1
+    mode: box
+    unit_of_measurement: kg
+    icon: mdi:weight-kilogram
+  smoker_charcoal_bag_price:
+    name: Smoker charcoal bag price
+    min: 0
+    max: 500
+    step: 0.01
+    mode: box
+    icon: mdi:cash
+  smoker_charcoal_burned_kg:
+    name: Smoker charcoal burned (total)
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kg
+    icon: mdi:fire
+  smoker_charcoal_cook_start_kg:
+    name: Smoker charcoal burned at the cook's start
+    min: 0
+    max: 1000000
+    step: 0.01
+    mode: box
+    unit_of_measurement: kg
+  # Maintenance: burn hours since each job was last done (they count while a cook is on).
+  smoker_hours_ash:
+    name: Smoker hours since the ash was emptied
+    min: 0
+    max: 10000
+    step: 0.1
+    mode: box
+    unit_of_measurement: h
+    icon: mdi:delete-empty
+  smoker_hours_grease:
+    name: Smoker hours since the grease tray was cleaned
+    min: 0
+    max: 10000
+    step: 0.1
+    mode: box
+    unit_of_measurement: h
+    icon: mdi:water-opacity
+  smoker_hours_gasket:
+    name: Smoker hours since the gasket and fan were checked
+    min: 0
+    max: 10000
+    step: 0.1
+    mode: box
+    unit_of_measurement: h
+    icon: mdi:fan
+
 input_text:
+  smoker_charcoal_last_cook:
+    name: Smoker charcoal, last cook
+    max: 255
+  smoker_serve_source:
+    name: Smoker serve-by came from
+    max: 32
   # Any thermometer already in Home Assistant (a Wi-Fi/Bluetooth probe, another grill...): put its temperature
   # entity here, then pick "Home Assistant" as the source on that food slot (select.smoker_food_N_probe).
   # Left empty, slots 3-6 use the Govee H5198 ("Meat Thermometer") probes 1-4. EDIT the defaults in the
@@ -605,9 +676,12 @@ automation:
             {% elif tag == 'program' and ('paused' in (trigger.event.data.title | lower) or 'restarted' in (trigger.event.data.title | lower)) %}
               [{"action": "SMOKER_RESUME_PROGRAM", "title": "Resume program"}]
             {% elif tag.startswith('pull_') %}
-              [{"action": "SMOKER_PULLED_{{ tag[5:] | upper }}", "title": "Pulled it (start rest)"}]
+              [{"action": "SMOKER_PULLED_{{ tag[5:] | upper }}", "title": "Pulled it (start rest)"},
+               {"action": "SMOKER_PIT_HOLD", "title": "Not yet: hold it warm (pit 200°F)"}]
             {% elif tag == 'fuel' %}
-              [{"action": "URI", "title": "Log a top-up", "uri": "/smoker-dashboard"}]
+              [{"action": "SMOKER_FUEL_FULL", "title": "I topped it up (full)"}, {"action": "URI", "title": "Log something else", "uri": "/smoker-dashboard"}]
+            {% elif tag == 'fire_dying' %}
+              [{"action": "SMOKER_FUEL_FULL", "title": "I topped it up (full)"}, {"action": "URI", "title": "Open the Smoker page", "uri": "/smoker-dashboard"}]
             {% elif tag.startswith('stall_') and 'stall' == trigger.event.data.title.split(' ')[-1] %}
               [{"action": "SMOKER_WRAPPED_{{ tag[6:] | upper }}", "title": "I wrapped it"}]
             {% else %}[]{% endif %}
@@ -666,6 +740,10 @@ automation:
                   value: >
                     {% set c = (state_attr(n, 'unit_of_measurement') or '°F') == '°C' %}
                     {{ [states(n) | float(95 if c else 203) + (3 if c else 5), state_attr(n, 'max') | float(105 if c else 220)] | min }}
+          - conditions: "{{ a == 'SMOKER_FUEL_FULL' }}"
+            sequence:
+              - action: esphome.gravity980_fuel_refilled
+                data: {percent: 100}
           - conditions: "{{ a.startswith('SMOKER_PULLED_') }}"
             sequence:
               - action: switch.turn_on
@@ -952,6 +1030,282 @@ automation:
           - delay: 2
           - action: esphome.gravity980_start_program
           - set_conversation_response: "Starting the {{ match }} program. Make sure the grill is lit and cooking on its panel."
+
+  - id: smoker_voice_wrapped
+    alias: Smoker voice - wrapped
+    triggers:
+      - trigger: conversation
+        command:
+          - "[the] {food} is wrapped"
+          - "[the] {food}'s wrapped"
+          - "I wrapped the {food}"
+          - "I've wrapped the {food}"
+    actions:
+      - variables:
+          want: "{{ trigger.slots.food | lower }}"
+          key: >
+            {% set ns = namespace(k='') %}
+            {% for p in ['food_1', 'food_2', 'food_3', 'food_4', 'food_5', 'food_6'] %}
+              {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
+              {% if not ns.k and is_number(states('sensor.smoker_' ~ p ~ '_temperature')) and
+                    (want in prot or want in p | replace('_', ' ') or want in ['meat', 'it', 'food']) %}{% set ns.k = p %}{% endif %}
+            {% endfor %}{{ ns.k }}
+      - if: "{{ key != '' }}"
+        then:
+          - action: switch.turn_on
+            target: {entity_id: "switch.smoker_{{ key }}_wrapped"}
+          - set_conversation_response: "Got it: {{ key | replace('_', ' ') }} is wrapped. The finish time takes that into account."
+        else:
+          - set_conversation_response: "I can't tell which food that is. Try: food 1 is wrapped."
+
+  - id: smoker_voice_push_dinner
+    alias: Smoker voice - move the serve time
+    triggers:
+      - trigger: conversation
+        command:
+          - "push (dinner|lunch|the cook|serving) back [by] {hours} hour[s]"
+          - "push (dinner|lunch|the cook|serving) back [by] an hour"
+          - "(add|give me) [another] {hours} hour[s] [to dinner|to the cook]"
+          - "(add|give me) [another] an hour [to dinner|to the cook]"
+          - "bring (dinner|lunch|serving) forward [by] {hours} hour[s]"
+    actions:
+      - variables:
+          h: >
+            {% set n = (trigger.slots.hours | default('1')) | regex_replace('[^0-9.]', '') %}
+            {% set n = n | float(1) if n else 1 %}{{ -n if 'forward' in trigger.sentence else n }}
+          cur: "{{ states('input_datetime.smoker_serve_time') }}"
+      - if: "{{ cur not in ['unknown', 'unavailable', ''] and as_datetime(cur) is not none }}"
+        then:
+          - action: input_datetime.set_datetime
+            target: {entity_id: input_datetime.smoker_serve_time}
+            data:
+              datetime: "{{ (as_datetime(cur) + timedelta(hours=h | float)).strftime('%Y-%m-%d %H:%M:%S') }}"
+          - set_conversation_response: >
+              Serving at {{ (as_datetime(cur) + timedelta(hours=h | float)).strftime('%-I:%M %p') }} now.
+        else:
+          - set_conversation_response: "There's no serve time yet. Set one on the Smoker page, under Plan."
+
+  - id: smoker_voice_when_light
+    alias: Smoker voice - when to light the grill
+    triggers:
+      - trigger: conversation
+        command:
+          - "when (should|do) I (light|start) the (smoker|grill)"
+          - "when do I need to (light|start) the (smoker|grill)"
+    actions:
+      - set_conversation_response: >
+          {% set s = states('sensor.smoker_start_cooking_by') %}
+          {% if s not in ['unknown', 'unavailable', 'None', ''] %}Light it around {{ (as_datetime(s) | as_local).strftime('%-I:%M %p') }}
+          to serve at {{ (as_datetime(states('input_datetime.smoker_serve_time')) | as_local).strftime('%-I:%M %p') }}.{% else %}Set a serve time and the cut and weight on a food card, and I'll work it out.{% endif %}
+
+  # ---------------- Charcoal stock, cost per cook, reorder ----------------
+  - id: smoker_charcoal_burn
+    alias: Smoker - count the charcoal burned
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: sensor.smoker_charcoal_left
+    conditions:
+      - condition: template
+        # A drop is charcoal burned; a rise is a top-up (logged separately); a big jump is a reset, not a burn.
+        value_template: >
+          {{ trigger.from_state is not none and is_number(trigger.from_state.state) and is_number(trigger.to_state.state)
+             and 0 < (trigger.from_state.state | float - trigger.to_state.state | float) < 2 }}
+    actions:
+      - variables:
+          d: "{{ trigger.from_state.state | float - trigger.to_state.state | float }}"
+      - action: input_number.set_value
+        target: {entity_id: input_number.smoker_charcoal_burned_kg}
+        data: {value: "{{ (states('input_number.smoker_charcoal_burned_kg') | float(0) + d) | round(2) }}"}
+      - action: input_number.set_value
+        target: {entity_id: input_number.smoker_charcoal_stock_kg}
+        data: {value: "{{ [states('input_number.smoker_charcoal_stock_kg') | float(0) - d, 0] | max | round(2) }}"}
+
+  - id: smoker_charcoal_cook
+    alias: Smoker - charcoal used by each cook
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.smoker_cook_active
+        to: "on"
+        id: start
+      - trigger: state
+        entity_id: binary_sensor.smoker_cook_active
+        from: "on"
+        to: "off"
+        id: end
+    actions:
+      - choose:
+          - conditions: "{{ trigger.id == 'start' }}"
+            sequence:
+              - action: input_number.set_value
+                target: {entity_id: input_number.smoker_charcoal_cook_start_kg}
+                data: {value: "{{ states('input_number.smoker_charcoal_burned_kg') | float(0) }}"}
+          - conditions: "{{ trigger.id == 'end' }}"
+            sequence:
+              - variables:
+                  kg: "{{ (states('input_number.smoker_charcoal_burned_kg') | float(0) - states('input_number.smoker_charcoal_cook_start_kg') | float(0)) | round(1) }}"
+                  bag_kg: "{{ states('input_number.smoker_charcoal_bag_kg') | float(0) }}"
+                  price: "{{ states('input_number.smoker_charcoal_bag_price') | float(0) }}"
+                  cost: "{{ (kg | float * price | float / bag_kg | float) | round(2) if bag_kg | float > 0 and price | float > 0 else none }}"
+                  hours: "{{ ((states('sensor.smoker_cook_elapsed') | float(0)) / 60) | round(1) }}"
+                  line: >
+                    {{ kg }} kg of charcoal{{ ' (' ~ '%.2f' % cost ~ ')' if cost is not none else '' }}{{ ', ' ~ (kg | float / hours | float) | round(2) ~ ' kg/h' if hours | float > 0.5 else '' }}{{ ' at ' ~ state_attr('weather.forecast_home', 'temperature') ~ '°' if state_attr('weather.forecast_home', 'temperature') is not none else '' }} on {{ now().strftime('%a %-d %b') }}
+              - if: "{{ kg | float > 0.05 }}"
+                then:
+                  - action: input_text.set_value
+                    target: {entity_id: input_text.smoker_charcoal_last_cook}
+                    data: {value: "{{ line[:250] }}"}
+                  - action: logbook.log
+                    data: {name: Smoker, message: "This cook used {{ line }}", entity_id: input_text.smoker_charcoal_last_cook}
+
+  - id: smoker_charcoal_reorder
+    alias: Smoker - charcoal running low (to-do list)
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_number.smoker_charcoal_stock_kg
+    conditions:
+      - condition: template
+        # Below one bag (once a bag size is set), and only on the way down.
+        value_template: >
+          {% set bag = states('input_number.smoker_charcoal_bag_kg') | float(0) %}
+          {{ bag > 0 and trigger.from_state is not none and is_number(trigger.from_state.state)
+             and trigger.from_state.state | float >= bag > trigger.to_state.state | float }}
+    actions:
+      - action: todo.add_item
+        continue_on_error: true
+        target: {entity_id: todo.shopping_list}   # EDIT: your to-do list
+        data: {item: "Charcoal for the smoker"}
+      - action: script.smoker_notify
+        data:
+          title: Charcoal running low
+          message: >
+            About {{ states('input_number.smoker_charcoal_stock_kg') | float(0) | round(1) }} kg left in stock, less than a
+            bag. Added to your to-do list.
+          priority: 0
+          tag: charcoal_stock
+
+  # ---------------- Maintenance: ash, grease tray, gasket and fan ----------------
+  - id: smoker_maintenance_hours
+    alias: Smoker - count burn hours for maintenance
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/6"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.smoker_cook_active
+        state: "on"
+    actions:
+      - repeat:
+          for_each: [input_number.smoker_hours_ash, input_number.smoker_hours_grease, input_number.smoker_hours_gasket]
+          sequence:
+            - action: input_number.set_value
+              target: {entity_id: "{{ repeat.item }}"}
+              data: {value: "{{ (states(repeat.item) | float(0) + 0.1) | round(1) }}"}
+
+  - id: smoker_maintenance_due
+    alias: Smoker - maintenance due
+    mode: queued
+    triggers:
+      - trigger: numeric_state
+        entity_id: input_number.smoker_hours_ash
+        above: 12
+        id: ash
+      - trigger: numeric_state
+        entity_id: input_number.smoker_hours_grease
+        above: 30
+        id: grease
+      - trigger: numeric_state
+        entity_id: input_number.smoker_hours_gasket
+        above: 100
+        id: gasket
+    actions:
+      - variables:
+          job: >
+            {{ {'ash': 'Empty the smoker\'s ash pan', 'grease': 'Clean the smoker\'s grease tray and drip bucket',
+                'gasket': 'Check the smoker\'s door gasket and fan (and clear the fan intake)'}[trigger.id] }}
+      - action: todo.add_item
+        continue_on_error: true
+        target: {entity_id: todo.shopping_list}   # EDIT: your to-do list
+        data: {item: "{{ job }}"}
+      - action: script.smoker_notify
+        data:
+          title: Smoker maintenance
+          message: "{{ job }}: {{ states(trigger.entity_id) | float(0) | round(0) }} burn hours since it was last done. Mark it done on the Smoker page (Setup > Supplies and maintenance)."
+          priority: 0
+          tag: "maint_{{ trigger.id }}"
+
+  # ---------------- Serve time from your calendar ----------------
+  - id: smoker_calendar_serve_time
+    alias: Smoker - serve time from the calendar
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      # Only with a calendar chosen (smoker.install_package calendar: calendar.yours).
+      - condition: template
+        value_template: "{{ states('calendar.your_calendar') not in ['unknown', 'unavailable'] }}"
+    actions:
+      - action: calendar.get_events
+        continue_on_error: true
+        target: {entity_id: calendar.your_calendar}   # EDIT: your calendar
+        data: {duration: {hours: 48}}
+        response_variable: cal
+      - variables:
+          words: [smoker, smoke, bbq, barbecue, brisket, pulled pork, pork shoulder, pork butt, ribs, smoked]
+          ev: >
+            {% set evs = (cal['calendar.your_calendar'].events if cal and 'calendar.your_calendar' in cal else []) %}
+            {% set ns = namespace(e=none) %}
+            {% for e in evs | sort(attribute='start') %}
+              {% if ns.e is none and 'T' in e.start and as_datetime(e.start) > now() %}
+                {% set t = ((e.summary | default('')) ~ ' ' ~ (e.description | default(''))) | lower %}
+                {% for w in words %}{% if ns.e is none and w in t %}{% set ns.e = e %}{% endif %}{% endfor %}
+              {% endif %}
+            {% endfor %}{{ ns.e }}
+          cur: "{{ states('input_datetime.smoker_serve_time') }}"
+          manual: >
+            {{ states('input_text.smoker_serve_source') == 'manual' and cur not in ['unknown', ''] and
+               as_datetime(cur) is not none and as_local(as_datetime(cur)) > now() }}
+      - if: "{{ ev is not none and ev != '' and not manual }}"
+        then:
+          - variables:
+              # (variables come back as text: parse the time again wherever it's used)
+              when: "{{ as_local(as_datetime(ev.start)).strftime('%Y-%m-%d %H:%M:%S') }}"
+          - if: >
+              {{ cur in ['unknown', ''] or as_datetime(cur) is none or
+                 ((as_datetime(cur) | as_local) - (as_datetime(when) | as_local)) | abs > timedelta(minutes=1) }}
+            then:
+              - action: input_datetime.set_datetime
+                target: {entity_id: input_datetime.smoker_serve_time}
+                data: {datetime: "{{ when }}"}
+              - action: input_text.set_value
+                target: {entity_id: input_text.smoker_serve_source}
+                data: {value: calendar}
+              - action: script.smoker_notify
+                data:
+                  title: Smoker plan from your calendar
+                  message: "\"{{ ev.summary }}\" at {{ (as_datetime(when) | as_local).strftime('%a %-I:%M %p') }}: set as the serve-by time. Set the cut and weight on a food card for the light-up time."
+                  priority: 0
+                  tag: plan
+
+  - id: smoker_serve_time_manual
+    alias: Smoker - serve time set by hand
+    triggers:
+      - trigger: state
+        entity_id: input_datetime.smoker_serve_time
+    conditions:
+      # Changed by a person (the page, a dashboard), not by the calendar automation.
+      - condition: template
+        value_template: "{{ trigger.to_state.context.user_id is not none }}"
+    actions:
+      - action: input_text.set_value
+        target: {entity_id: input_text.smoker_serve_source}
+        data: {value: manual}
 
   - id: smoker_cook_complete_summary
     alias: Smoker - learn and summarise finished cooks

@@ -23,3 +23,17 @@ install_package:
       selector:
         entity:
           domain: weather
+    calendar:
+      name: Calendar (optional)
+      description: An event with "BBQ", "brisket", "smoker", "ribs"... in its title sets the serve-by time.
+      example: calendar.family
+      selector:
+        entity:
+          domain: calendar
+    todo:
+      name: To-do list (optional)
+      description: Charcoal to buy and maintenance jobs are added here.
+      example: todo.shopping_list
+      selector:
+        entity:
+          domain: todo

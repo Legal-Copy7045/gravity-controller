@@ -111,6 +111,13 @@ STATES = dict([
     st("input_text.smoker_ai_summary", "Stall began 70 min ago at 157°F; typical for an 8 lb butt at 250°F.", "Smoker AI summary"),
     st("input_text.smoker_ai_suggestion", "Wrap in butcher paper now to finish by 6:30 pm.", "Smoker AI suggestion"),
     st("input_boolean.smoker_ai_advisor", "on", "Smoker AI advisor"),
+    st("input_number.smoker_charcoal_stock_kg", 12.5, "Smoker charcoal in stock", unit_of_measurement="kg"),
+    st("input_number.smoker_charcoal_bag_kg", 9, "Smoker charcoal bag size", unit_of_measurement="kg"),
+    st("input_number.smoker_charcoal_bag_price", 21.99, "Smoker charcoal bag price"),
+    st("input_number.smoker_hours_ash", 13.2, "Smoker hours since the ash was emptied", unit_of_measurement="h"),
+    st("input_number.smoker_hours_grease", 4, "Smoker hours since the grease tray was cleaned", unit_of_measurement="h"),
+    st("input_number.smoker_hours_gasket", 40, "Smoker hours since the gasket and fan were checked", unit_of_measurement="h"),
+    st("input_text.smoker_charcoal_last_cook", "3.1 kg of charcoal (7.57), 0.28 kg/h at 41° on Sun 22 Nov", "Smoker charcoal, last cook"),
     st("input_datetime.smoker_serve_time", "2026-11-22 18:30:00", "Smoker serve by"),
     st("sensor.smoker_start_cooking_by", "2026-11-22T04:15:00+00:00", "Smoker start cooking by"),
     st("timer.smoker_rest", "idle", "Smoker rest timer"),
@@ -629,6 +636,16 @@ def main():
                         failures.append(f"section bar marks Setup on the main page: {lit}")
                     if fr.evaluate("document.getElementById('setup').offsetParent !== null"):
                         failures.append("setup page: Back to the cook didn't leave it")
+                    # Supplies: the Charcoal card shows the stock and the last cook; Bought a bag adds one bag.
+                    if "Bought a bag" not in fr.inner_text("#fuelcard") or "3.1 kg" not in fr.inner_text("#fuelcard"):
+                        failures.append(f"charcoal stock rows: {fr.inner_text('#fuelcard')[-200:]!r}")
+                    fr.click("#fuelcard button:has-text('Bought a bag')"); time.sleep(0.3)
+                    if not any(c[0] == "input_number" and c[2].get("entity_id") == "input_number.smoker_charcoal_stock_kg"
+                               and abs(c[2].get("value", 0) - 21.5) < 0.01 for c in pg.evaluate("window.calls")):
+                        failures.append(f"bought a bag: {[c for c in pg.evaluate('window.calls') if c[0] == 'input_number'][-2:]}")
+                    sc = fr.evaluate("document.getElementById('supplycard').textContent")
+                    if "due" not in sc or "Door gasket" not in sc:
+                        failures.append(f"maintenance card: {sc[:200]!r}")
                     # Fuel: 'Topped up to' then '1/2' calls the refill action with 50 %.
                     fr.click("#fuelcard .seg button:nth-child(3)")
                     time.sleep(0.3)

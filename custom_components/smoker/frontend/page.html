@@ -324,6 +324,7 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
       <section class="tc"><h3>Controller</h3><div id="diag"></div></section>
       <section class="tc" id="photocard"></section>
       <section class="tc" id="sharecard"></section>
+      <section class="tc" id="supplycard"></section>
     </div>
   </div>
   <footer id="foot"></footer>
@@ -797,6 +798,8 @@ window.act = {
   fuelType(v) { const e = E('Charcoal type', ['select']); e && H().call('select', 'select_option', e, { option: v }).catch(fail); },
   pulled(key) { const p = PROBES.find(x => x.key === key); const e = E(p.label + ' pulled', ['switch']); e && H().call('switch', 'toggle', e).catch(fail); },
   slice(v) { setNum(E('Slice at', ['number']), parseFloat(v)); },
+  inum(eid, v) { const x = parseFloat(v); if (!eid || !isFinite(x)) return; H().call('input_number', 'set_value', eid, { value: x }).then(() => toast('Saved')).catch(fail); },
+  boughtBag() { const s = SUP('charcoal in stock'); act.inum(s, (SUPV('charcoal in stock') || 0) + (SUPV('charcoal bag size') || 0)); },
   shareSet(o) { api('POST', '/api/smoker/sharing', o).then(d => { share = d; renderShare(); renderJournal(true);
     toast(o.enabled === true ? 'Sharing on: the journal asks after each cook' : o.enabled === false ? 'Sharing off: nothing more is sent' : o.auto ? 'Cooks are shared when they end' : 'The journal asks after each cook'); }).catch(fail); },
   shareOne(id) { toast('Sharing…'); api('POST', '/api/smoker/sharing/share/' + id).then(d => { share = d; renderShare(); renderJournal(true); toast('Shared, anonymously. Thank you!'); }).catch(fail); },
@@ -1345,7 +1348,34 @@ function renderFuel() {
       ${basis ? `<div class="small muted" style="margin-top:4px">${esc(basis)}</div>` : ''}`
       : '<p class="small muted" style="margin:4px 0">Tell it how full the hopper is when you light it; it estimates the burn from there and learns your grill.</p>'}
     <div class="seg" style="margin-top:8px;flex-wrap:wrap">${modes.map(([k, l]) => `<button aria-pressed="${fuelMode === k}" onclick="act.fuelMode('${k}')">${l}</button>`).join('')}</div>
-    <div class="fracs">${fr.map(([v, l]) => `<button class="btn" onclick="act.fuel(${v})">${l}</button>`).join('')}</div>`);
+    <div class="fracs">${fr.map(([v, l]) => `<button class="btn" onclick="act.fuel(${v})">${l}</button>`).join('')}</div>
+    ${supplyRows()}`);
+}
+
+// ---------------------------------------------------------------- supplies and maintenance (package helpers)
+const SUP = n => byName('Smoker ' + n, ['input_number']), SUPV = n => num(SUP(n));
+const MAINT = [['hours since the ash was emptied', 'Empty the ash pan', 12], ['hours since the grease tray was cleaned', 'Grease tray and drip bucket', 30],
+  ['hours since the gasket and fan were checked', 'Door gasket and fan', 100]];
+function supplyRows() {  // on the Charcoal card: stock and what the last cook used
+  const stock = SUPV('charcoal in stock'), bag = SUPV('charcoal bag size'), last = val(byName('Smoker charcoal, last cook', ['input_text']));
+  if (stock == null && !last) return '';
+  return `<div class="row" style="margin-top:8px"><span>In stock</span><span class="r">${stock != null ? fmt(stock, 1) + ' kg' + (bag ? ` <span class="muted small">(${fmt(stock / bag, 1)} bags)</span>` : '') : '--'}
+      ${bag ? `<button class="btn" onclick="act.boughtBag()">Bought a bag</button>` : ''}</span></div>
+    ${last && last !== 'unknown' ? `<div class="row"><span>Last cook</span><span class="r small">${esc(last)}</span></div>` : ''}`;
+}
+function renderSupplies() {
+  if (!SUP('charcoal in stock')) return put('supplycard', `<h3>Supplies and maintenance</h3>${pkgNote('Charcoal stock and maintenance reminders')}`);
+  const box = (n, label, unit, step) => { const e = SUP(n), v = num(e);
+    return `<div class="row"><span>${label}</span><span class="entry"><input type="number" inputmode="decimal" min="0" step="${step}" value="${v != null ? v : ''}" style="width:90px"
+      aria-label="${esc(label)}" onchange="act.inum('${esc(e)}', this.value)"> <span class="muted small">${unit}</span></span></div>`; };
+  put('supplycard', `<h3>Supplies and maintenance</h3>
+    <p class="small muted" style="margin:0 0 6px">Charcoal burned comes off the stock; below one bag it goes on your to-do list. The cost per cook appears on the Charcoal card.</p>
+    ${box('charcoal bag size', 'Bag size', 'kg', 0.1)}${box('charcoal bag price', 'Bag price', '', 0.01)}${box('charcoal in stock', 'In stock', 'kg', 0.1)}
+    <h3 style="margin-top:14px">Maintenance <small>burn hours</small></h3>
+    ${MAINT.map(([n, label, due]) => { const e = SUP(n), v = num(e) || 0;
+      return `<div class="row"><span>${esc(label)}<br><span class="muted small">every ~${due} h</span></span><span class="r">
+        <span class="chip ${v >= due ? 'warn' : ''}">${fmt(v, 1)} h${v >= due ? ' · due' : ''}</span>
+        <button class="btn" onclick="act.inum('${esc(e)}', 0)" aria-label="${esc(label)}: done">Done</button></span></div>`; }).join('')}`);
 }
 
 // ---------------------------------------------------------------- what's cooking (package photos -> AI)
@@ -1739,7 +1769,7 @@ function placeSections() {
 function render() {
   placeSections();
   findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderPit(); renderFuel();
-  loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange(); renderShare();
+  loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderLearn(); renderDiag(); renderRange(); renderShare(); renderSupplies();
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }
 }
 window.addEventListener('resize', () => drawChart());
