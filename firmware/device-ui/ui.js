@@ -42,7 +42,8 @@ function start() {
   <section class="sect" id="s-setup" data-sect="setup"><h2 class="sec">${ic('setup')}Setup</h2><h3 class="sub">Grill connection</h3><div class="grid g-pair"><div class="card" id="conn"></div><div class="card" id="sources"></div></div>
     <h3 class="sub">Phone and weather</h3><div class="grid g-pair"><div class="card" id="notif"></div><div class="card" id="place"></div></div>
     <h3 class="sub">AI</h3><div class="card" id="aisetup"></div>
-    <h3 class="sub">This controller</h3><div class="grid g-pair"><div class="card" id="lock"></div><div class="card" id="dev"></div></div></section>
+    <h3 class="sub">This controller</h3><div class="card" id="dev"></div>
+    <h3 class="sub">This page's PIN</h3><div class="card" id="lock"></div></section>
   <footer id="foot"></footer></div><div id="toast" role="status" aria-live="polite"></div>`);
   SECT.init();
   wire();
@@ -112,15 +113,15 @@ const row = (l, r) => `<div class="row"><span>${l}</span><span class="r">${r}</s
 
 // ---------------------------------------------------------------- REST actions
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
-// The device page's PIN (components/standalone): once one is set, every change needs this browser's session token.
+// The device page's PIN (components/standalone) is optional: without one nothing is locked; once one is set, every
+// change needs this browser's session token.
 const TOK = {
   get() { try { return localStorage.getItem('smokerToken') || ''; } catch (e) { return ''; } },
   set(t) { try { t ? localStorage.setItem('smokerToken', t) : localStorage.removeItem('smokerToken'); } catch (e) { /* private mode */ } },
 };
 let pinReturn = null;  // what had focus before the PIN panel opened (it gets it back)
-// A change needs the PIN: ask for it right here (a small panel), not on the Setup page. With no PIN set yet, Setup.
+// A change needs the PIN: ask for it right here (a small panel), not on the Setup page.
 function needPin() {
-  if (!LOCAL || !LOCAL.pin) { toast('Set a PIN for this page first (Setup → This page\'s PIN)'); openCard('lock'); return; }
   let d = $('pinsheet');
   if (!d) {
     doc.body.insertAdjacentHTML('beforeend', `<div id="pinsheet" class="pinsheet" role="dialog" aria-modal="true" aria-labelledby="pinsheet-t">
@@ -146,7 +147,7 @@ async function post(dom, name, action, params) {
   try {
     // X-Smoker: every change carries it (components/standalone refuses one without: other websites can't send it).
     const r = await fetch(`/${dom}/${encodeURIComponent(name)}/${action}${q}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Smoker': '1', 'X-Smoker-Token': TOK.get() } });
-    if (r.status === 401) { if (LOCAL) LOCAL.authed = false; renderLocal(); needPin(); return false; }
+    if (r.status === 401) { if (LOCAL) { LOCAL.pin = true; LOCAL.authed = false; } renderLocal(); needPin(); return false; }
     if (!r.ok) throw new Error(r.status === 404 ? 'not found' : 'HTTP ' + r.status);
     return true;
   } catch (e) { toast('Couldn\'t change ' + name + ': ' + e.message); return false; }
@@ -486,9 +487,9 @@ function placeSections() {
   const cooking = on(E('binary_sensor', 'Cook active')) || /Running|Paused/.test(T('Program state') || '');
   SECT.order(cooking);
   const conn = on(E('binary_sensor', 'Grill connected')), L = LOCAL;
-  // Decided before the controller has answered, so the page doesn't jump once it does: Setup starts folded (it opens
-  // on a controller without a PIN), the chart open (it folds only once its history is known to be empty).
-  SECT.want('setup', !L || !!L.pin, `${conn ? 'grill connected' : 'grill not connected'}${L ? ' · PIN ' + (L.pin ? 'set' : 'not set') : ''}${T('Release') ? ' · ' + T('Release') : ''}`);
+  // Decided before the controller has answered, so the page doesn't jump once it does: Setup starts folded, the chart
+  // open (it folds only once its history is known to be empty).
+  SECT.want('setup', true, `${conn ? 'grill connected' : 'grill not connected'}${L && L.pin ? ' · PIN set' : ''}${T('Release') ? ' · ' + T('Release') : ''}`);
   SECT.want('chart', !!HIST && !(HIST.series && HIST.series[0] && HIST.series[0].length > 1), 'fills in as the controller records');
   SECT.want('journal', cooking, (JOURNAL.entries || []).length + ' cooks');
 }
@@ -1130,9 +1131,9 @@ function renderLocal() {
   // The first PIN can only be set within 15 minutes of the controller being powered on (first_pin: seconds left; older
   // firmware doesn't say), so whoever is on the Wi-Fi later can't claim the page.
   const closed = L.first_pin === 0, left = L.first_pin > 0 ? Math.ceil(L.first_pin / 60) : 0;
-  if (!L.pin) put('lock', `<h3><span>This page's PIN</span><span class="chip warn">not set</span></h3>
-    <p class="note" style="margin-top:0">Anyone on your Wi-Fi can open this page. A PIN stops them changing anything, and it's needed before
-      notification or AI keys can be stored. 6+ characters; not 123456 or 111111.</p>
+  if (!L.pin) put('lock', `<h3><span>Optional: lock changes on this page with a PIN</span><span class="chip">not set</span></h3>
+    <p class="note" style="margin-top:0">Without a PIN everything on this page works for anyone on your Wi-Fi. A PIN stops them changing
+      anything (readings stay open). 6+ characters; not 123456 or 111111.</p>
     ${closed ? `<p class="note" role="status"><b>To set it:</b> power the controller off and on (or hold its BOOT button for 10 seconds),
       then set the PIN here within 15 minutes. (A restart from this page doesn't count: anyone on your Wi-Fi could do that.)</p>`
     : `${left ? `<p class="note">Set it within ${fmt(left)} min: after that, setting one needs the controller powered off and on first.</p>` : ''}
@@ -1169,7 +1170,7 @@ function renderLocal() {
         ${L.set.telegram ? '<div class="btns"><button class="btn" data-a="secret" data-k="telegram_token" data-clear="1">Remove Telegram</button></div>' : ''}</details>
       <p class="note">Keys are stored on the controller and can be replaced or removed, never read back.</p>
       <div class="btns"><button class="btn" data-a="testnotify"${L.set.ntfy || L.set.pushover || L.set.telegram ? '' : ' disabled'}>Send a test</button></div>`
-    : `<p class="note">${L.pin ? 'Unlock this page (This page\'s PIN, below) to set up ntfy, Pushover or Telegram.' : 'Set a PIN for this page (This page\'s PIN, below) to set up ntfy, Pushover or Telegram.'}</p>`}`);
+    : '<p class="note">Unlock this page to set up ntfy, Pushover or Telegram. <button class="btn" data-a="unlock">Unlock</button></p>'}`);
 
   put('place', `<h3><span>Weather and time</span>${L.location ? '<span class="chip ok">weather here</span>' : ''}</h3>
     <div class="row"><span>Weather from</span><span class="r">${L.location ? 'Open-Meteo, for your area' + (L.weather_age_min >= 0 ? ' · ' + mins(L.weather_age_min) + ' ago' : '') : L.ha ? 'Home Assistant' : 'nowhere yet'}</span></div>
@@ -1178,7 +1179,7 @@ function renderLocal() {
       ${geoHits.map(h => `<div class="row"><span class="small">${esc(h.n)}</span><button class="btn" data-a="place" data-lat="${h.lat}" data-lon="${h.lon}" data-n="${esc(h.n)}">Use</button></div>`).join('')}
       <p class="note">Stored on the controller, rounded to about 1 km, and only sent to Open-Meteo for the forecast. Searching asks Open-Meteo from this phone.</p>
       <div class="row"><span>Time zone<br><span class="muted small">${L.tz ? 'set' : L.ha ? 'from Home Assistant' : 'not set: clock times are UTC'}</span></span><button class="btn" data-a="tz">Use this phone's (${esc((Intl.DateTimeFormat().resolvedOptions().timeZone || '').replace(/_/g, ' '))})</button></div>`
-    : `<p class="note">${L.pin ? 'Unlock' : 'Set a PIN for'} this page to set your area (for the weather) and time zone.</p>`}`);
+    : '<p class="note">Unlock this page to set your area (for the weather) and time zone. <button class="btn" data-a="unlock">Unlock</button></p>'}`);
 }
 
 // ---------------------------------------------------------------- chart, plan, journal, Open Pitmaster (stage 2)
@@ -1303,7 +1304,7 @@ function renderShare() {
     <p class="note" style="margin-top:0">Add finished cooks to an open, anonymous dataset that improves everyone's predictions. Only rounded numbers
       and how it turned out: never dates, place, notes or names. If you share from Home Assistant's Smoker page, leave this off (or you'd share each cook twice).</p>
     ${L.authed ? tg('enabled', sh.enabled, 'Share my cooks') + (sh.enabled ? tg('auto', sh.auto, 'Share automatically', 'Once rated (or 12 h after the cook); only cooks from now on') : '')
-      : `<p class="note">${L.pin ? 'Unlock this page to turn sharing on or off. <button class="btn" data-a="unlock">Unlock</button>' : 'Set a PIN for this page to turn sharing on or off.'}</p>`}
+      : '<p class="note">Unlock this page to turn sharing on or off. <button class="btn" data-a="unlock">Unlock</button></p>'}
     ${row('Shared from here', fmt(shared))}${COMMUNITY ? row('Open Pitmaster', fmt(COMMUNITY.cooks) + ' shared cooks') : ''}
     <div class="btns"><button class="btn" data-a="sharedl">Download my cooks (anonymised)</button>${shared && L.authed ? `<button class="btn${armed.wd ? ' arm' : ''}" data-a="sharewithdraw">${armed.wd ? 'Tap again to remove them' : 'Remove my shared cooks'}</button>` : ''}</div>`);
 }
@@ -1370,17 +1371,17 @@ function renderStart() {
   const L = LOCAL, box = $('s-start'); if (!box) return;
   const grill = on(E('binary_sensor', 'Grill connected'));
   const items = L ? [
-    ['pin', 'Protect this page with a PIN', !!L.pin, 'Anyone on your Wi-Fi can open this page; a PIN stops them changing anything.', 'lock'],
+    ['pin', 'Protect this page with a PIN (optional)', !!L.pin, 'Anyone on your Wi-Fi can open this page; a PIN stops them changing anything.', 'lock'],
     ['grill', 'Find the grill', grill, grill ? '' : 'Turn the grill on: the controller finds it over Bluetooth by itself. On Wi-Fi? Enter its IP address under Grill link.', 'conn'],
     ['notify', 'Alerts on your phone', !!(L.set && (L.set.ntfy || L.set.pushover || L.set.telegram)), 'Fire out, too hot, food done: straight to your phone with ntfy (free), Pushover or Telegram.', 'notif'],
     ['time', 'Your time zone and weather', !!(L.tz && L.location), 'Clock times in your zone, and the weather for finish-time estimates.', 'place'],
     ['ai', 'AI pitmaster (optional)', !!(L.set && L.set.ai), 'Advice during a cook, Plan with AI and label reading, with your own Gemini, Claude or OpenAI key.', 'aisetup'],
   ] : [];
-  const need = items.filter(i => i[0] !== 'ai'), done = need.filter(i => i[2]).length;
+  const need = items.filter(i => i[0] !== 'ai' && i[0] !== 'pin'), done = need.filter(i => i[2]).length;
   // ?start shows it anyway (with Home Assistant too, or after "Hide this").
   box.hidden = !L || (!Q.has('start') && (L.ha || wizHidden() || (done === need.length && !newTopic)));  // a new ntfy topic stays on screen
   if (box.hidden) return;
-  const ntfy = L.authed && !L.set.ntfy && L.pin
+  const ntfy = L.authed && !L.set.ntfy
     ? `<div class="btns"><button class="btn pri" data-a="quickntfy">Set up ntfy in one tap</button></div>`
     : '';
   put('start', `<h3><span>Get started</span><span class="chip">${done} of ${need.length} done</span></h3>
@@ -1428,8 +1429,7 @@ function renderAI() {
   if (!ready) put('aiplan', '');
   if (!A || !L) { put('aisetup', L ? '<h3>AI pitmaster</h3><p class="note">The AI on the controller needs firmware 0.2.31 or later.</p>' : ''); return; }
   const busy = A.busy || {}, au = L.authed;
-  const lockNote = what => L.pin ? `<p class="note">Unlock this page to ${what}. <button class="btn" data-a="unlock">Unlock</button></p>`
-    : `<p class="note">Set a PIN for this page (Setup → This page's PIN) to ${what}.</p>`;
+  const lockNote = what => `<p class="note">Unlock this page to ${what}. <button class="btn" data-a="unlock">Unlock</button></p>`;
   put('aisetup', `<h3><span>AI pitmaster</span>${ready ? '<span class="chip ok">on</span>' : '<span class="chip">off</span>'}</h3>
     <p class="note" style="margin-top:0">Advice during a cook, Plan with AI and reading package labels, with your own key: the provider charges per question
       (pennies a cook). The controller sends the cook's numbers and your journal notes; never your area, Wi-Fi or other keys.</p>
