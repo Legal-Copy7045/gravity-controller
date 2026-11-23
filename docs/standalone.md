@@ -17,16 +17,16 @@ This page covers what replaces Home Assistant for the rest. Everything here also
 2. **Open `http://gravity980.local`** on your phone (same Wi-Fi). On Android, or if the name doesn't open, use the
    controller's IP address (from your router's list of devices). A **Get started** list walks you through the rest;
    each item opens the card that does it:
-   - **Protect this page with a PIN**;
+   - **Protect this page with a PIN** (optional);
    - **Find the grill**: turn the grill on and the controller finds it over Bluetooth (on Wi-Fi, enter its IP);
    - **Alerts on your phone**: **Set up ntfy in one tap** makes a long random topic and shows it once; install the
      ntfy app, tap **+** and subscribe to it, then **Send a test**. Pushover and Telegram are under Setup;
    - **Your time zone and weather**;
    - **AI pitmaster** (optional): your own Gemini, Claude or OpenAI key.
-3. The list goes away once the first four are done, or with **Hide this**. Open `http://gravity980.local/?start` to
+3. The list goes away once the grill, alerts and time zone are done, or with **Hide this**. Open `http://gravity980.local/?start` to
    see it again.
 
-**Set the PIN soon after plugging it in:** the first PIN can only be set within 15 minutes of power-on (see below).
+**Want a PIN? Set it soon after plugging it in:** the first PIN can only be set within 15 minutes of power-on (see below).
 Mount the controller so you can still reach its **BOOT** button: it clears a forgotten PIN and allows Bluetooth Wi-Fi
 setup.
 
@@ -43,9 +43,12 @@ over USB.
 
 ## The device page's PIN
 
-Anyone on your Wi-Fi can open the controller's page. **Set a PIN** (Setup → This page's PIN) and every change made
-through the page needs it. That covers pit targets, programs, switches, settings and keys. Readings stay open on
-your network. A PIN is also required before notification or AI keys can be stored.
+The PIN is optional. Without one, the page works fully for anyone on your Wi-Fi: grill control, settings and keys
+(which stay write-only). **Set a PIN** (Setup → This page's PIN, the last card) and every change made through the page
+needs it: pit targets, Turbo, power, the timer, programs (loading one included), switches, settings, keys, sharing
+and journal edits. Readings stay open on your network, and so does using the AI: asking for advice, Plan with AI,
+reading a label and seeing what it said. Setting the AI up (provider, key, model) and loading its plan as the program
+are changes, so they need the PIN.
 
 How it's protected:
 - **Hashed, never stored:** the PIN is hashed with PBKDF2-HMAC-SHA256 (20,000 rounds, random salt). Only the salt
@@ -137,8 +140,8 @@ Pick one or more services:
 
 ## The AI pitmaster on the controller
 
-Setup → AI: pick **Google Gemini**, **Anthropic Claude** or **OpenAI**, paste your API key (it needs the PIN, and is
-write-only like the notification keys), and press **Test the key**. You pay the provider per question: a few cents a
+Setup → AI: pick **Google Gemini**, **Anthropic Claude** or **OpenAI**, paste your API key (it needs the PIN when one
+is set, and is write-only like the notification keys), and press **Test the key**. You pay the provider per question: a few cents a
 cook. The model can be changed; the defaults are `gemini-flash-lite-latest`, `claude-opus-5-5` and `gpt-4.1-mini`. With Claude
 the controller asks for Anthropic's server-side fallback, so a question the main model declines can be answered by a
 fallback model in the same call.

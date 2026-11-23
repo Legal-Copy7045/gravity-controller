@@ -102,11 +102,10 @@ class Handler : public AsyncWebHandler {
     if (index == 0) {
       this->body_.clear();
       this->too_big_ = false;
-      // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body, and only a
-      // browser that may make changes sends one (once a PIN is set, no one else gets the controller to buffer 400 KB).
+      // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body. Reading labels is
+      // using the AI, not changing anything, so it needs no PIN (handleRequest still wants the page's own origin).
       char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
-      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && this->p_->write_allowed(token_(req))
-                       ? 400000u : 4096u;
+      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 ? 400000u : 4096u;
       if (total > 0 && total <= this->cap_) this->body_.reserve(total);  // one allocation, not doubling up to 512 KB
     }
     if (this->too_big_ || this->body_.size() + len > this->cap_) {
@@ -962,13 +961,11 @@ std::string Standalone::status_json_(bool authed) {
       uint32_t t = ::time(nullptr) > 1700000000 ? uint32_t(::time(nullptr)) : 0;
       int light = this->light_by_(t, &est);
       JsonObject plan = o["plan"].to<JsonObject>();
-      // When you're eating (and so when the house is busy) is for an unlocked page once a PIN is set.
-      const bool show = authed;
-      plan["serve_by"] = show ? this->s2_.serve_by : 0;
+      plan["serve_by"] = this->s2_.serve_by;
       plan["rest_min"] = this->s2_.rest_min;
       plan["now"] = t;
-      if (show && light > 0) plan["light_by"] = light;
-      if (show && !std::isnan(est)) plan["est_min"] = std::round(est);
+      if (light > 0) plan["light_by"] = light;
+      if (!std::isnan(est)) plan["est_min"] = std::round(est);
     }
     o["weather_age_min"] = this->wx_at_ ? int((millis() - this->wx_at_) / 60000) : -1;
     JsonObject last = o["last"].to<JsonObject>();
@@ -1049,14 +1046,17 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   if (method == "GET" && path == "community")
     return this->community_json_();
   if (method == "GET" && path == "ai")
-    return this->ai_json_(authed);
+    return this->ai_json_();
   if (method != "POST") {
     status = 404;
     return err_json("not found");
   }
-  // Everything below changes settings or keys: once a PIN is set, this request must carry a live session. Checked
-  // before the body is even parsed. Keys stay write-only either way.
-  if (!authed) { status = 401; return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str(); }
+  // Everything below changes something (the grill, settings, keys, the journal): once a PIN is set, this request
+  // must carry a live session, checked before the body is even parsed. Using the AI (advice, Plan with AI, reading a
+  // label) changes nothing, so it's open like reading; its set-up and loading a plan as the program are not. Keys
+  // stay write-only either way.
+  const bool ai_use = path == "ai/advise" || path == "ai/plan" || path == "ai/label";
+  if (!authed && !ai_use) { status = 401; return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str(); }
   JsonDocument in = json::parse_json(body);
   auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
 

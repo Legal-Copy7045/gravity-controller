@@ -263,7 +263,7 @@ class Standalone : public Component {
   static bool community_group_ok_(JsonObject g);
   void ai_done_(const std::string &what, int code, const std::string &body);
   std::string ai_advise_();
-  std::string ai_json_(bool full = true);  // full: with the answers and errors (an unlocked page, or no PIN)
+  std::string ai_json_();  // settings (never the key), what the AI said and its errors
   std::string api_ai_(const std::string &path, JsonDocument &in, int &status);
   AiSettings ai_{};
   ESPPreferenceObject aipref_;

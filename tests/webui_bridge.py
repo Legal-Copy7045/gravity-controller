@@ -293,8 +293,11 @@ class Local:
              "stall_h": 3.1, "total_h": 11.6, "ambient_c": 2.0, "wrapped": True, "notes": "", "share": "pending",
              "tags": [], "record": rec}]}
 
-    def authed(self, request):
-        return self.pin is not None and request.headers.get("X-Smoker-Token", "") in self.tokens
+    def authed(self, request):  # like the controller: no PIN set, nothing is locked
+        return self.pin is None or request.headers.get("X-Smoker-Token", "") in self.tokens
+
+    def gate(self, request):  # REST changes (switches, numbers...): the PIN once one is set
+        return self.authed(request)
 
     def status(self, request):
         a = self.authed(request)
@@ -340,9 +343,8 @@ class Local:
         if path == "logout":
             self.tokens.discard(request.headers.get("X-Smoker-Token", ""))
             return web.json_response({})
-        if self.pin is None:
-            return err("Set a PIN for the device page first", 409)
-        if not self.authed(request):
+        # Using the AI (advice, Plan with AI, reading a label) changes nothing: open like reading, PIN or not.
+        if not self.authed(request) and path not in ("ai/advise", "ai/plan", "ai/label"):
             return err("Enter the PIN", 401)
         if path.startswith("ai/"):
             return self.ai_post(path, body, err)

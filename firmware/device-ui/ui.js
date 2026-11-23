@@ -1447,13 +1447,13 @@ function renderAI() {
       ${typeof adv.finish_estimate_min === 'number' ? row('AI\'s finish estimate', '~' + mins(adv.finish_estimate_min)) : ''}${aiRecs(adv.recommendations)}`
     : '<p class="note" style="margin-top:0">Ask during a cook: it reads the pit, the probes, the weather, this grill\'s past cooks and your journal.</p>'}
     ${err}
-    ${au && A.cook_on === false ? '<p class="note">The AI only works on a cook: it waits until one is underway, or planned (Serve by, under Plan a cook), so it never spends your credits on an idle grill.</p>' : ''}
-    ${au ? `<div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise || A.cook_on === false ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>
-      <div class="row"><span>Every ${fmt(A.interval)} min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg${A.auto ? ' on' : ''}" data-a="aiauto" data-v="${A.auto ? 0 : 1}" role="switch" aria-checked="${!!A.auto}" aria-label="Ask the AI every ${fmt(A.interval)} minutes during a cook"></button></div>` : lockNote('ask the AI')}`);
+    ${A.cook_on === false ? '<p class="note">The AI only works on a cook: it waits until one is underway, or planned (Serve by, under Plan a cook), so it never spends your credits on an idle grill.</p>' : ''}
+    <div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise || A.cook_on === false ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>
+    ${au ? `<div class="row"><span>Every ${fmt(A.interval)} min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg${A.auto ? ' on' : ''}" data-a="aiauto" data-v="${A.auto ? 0 : 1}" role="switch" aria-checked="${!!A.auto}" aria-label="Ask the AI every ${fmt(A.interval)} minutes during a cook"></button></div>` : ''}`);
   const pl = A.plan;
   put('aiplan', `<h3 class="split"><span>Plan with AI</span>${pl ? aiWhen(pl.at) : ''}</h3>
-    ${au ? `<textarea id="aiplanin" rows="2" maxlength="600" style="width:100%;box-sizing:border-box" placeholder="e.g. 9 lb pork shoulder, eating at 6 pm Saturday, 8 people" aria-label="Describe the cook"></textarea>
-      <div class="btns"><button class="btn pri" data-a="aiplan"${busy.plan ? ' disabled' : ''}>${busy.plan ? 'Planning…' : 'Plan it'}</button></div>` : lockNote('plan with the AI')}
+    <textarea id="aiplanin" rows="2" maxlength="600" style="width:100%;box-sizing:border-box" placeholder="e.g. 9 lb pork shoulder, eating at 6 pm Saturday, 8 people" aria-label="Describe the cook"></textarea>
+    <div class="btns"><button class="btn pri" data-a="aiplan"${busy.plan ? ' disabled' : ''}>${busy.plan ? 'Planning…' : 'Plan it'}</button></div>
     ${pl ? `<p style="margin:8px 0 6px">${esc(pl.summary || '')}</p>${pl.light_at ? row('Light the grill', esc(pl.light_at)) : ''}${aiRecs(pl.steps)}
       ${pl.program_note ? `<p class="note">Adjusted for the grill: ${esc(pl.program_note)}.</p>` : ''}${pl.program_error ? `<p class="err">${esc(pl.program_error)}</p>` : ''}
       ${pl.program ? `<details class="more" data-k="aiprog"><summary>Its cook program</summary><pre class="small" style="white-space:pre-wrap;margin:6px 0">${esc(pl.program)}</pre></details>
@@ -1462,7 +1462,7 @@ function renderAI() {
   const slots = [1, 2, 3, 4, 5, 6].filter(i => E('select', 'Food ' + i + ' protein'));
   put('ailabel', `<h3><span>What's cooking</span>${A.labels ? aiWhen(A.labels.at) : ''}</h3>
     <p class="note" style="margin-top:0">A photo of the package label: the AI reads the cut and weight, and you set them on a Food slot in one tap.</p>
-    ${au ? `<div class="btns"><button class="btn pri" data-a="aipick" data-k="cam"${busy.label ? ' disabled' : ''}>${busy.label ? 'Reading…' : 'Take a photo'}</button><button class="btn" data-a="aipick" data-k="file"${busy.label ? ' disabled' : ''}>Choose a photo</button></div>` : lockNote('read a label')}
+    <div class="btns"><button class="btn pri" data-a="aipick" data-k="cam"${busy.label ? ' disabled' : ''}>${busy.label ? 'Reading…' : 'Take a photo'}</button><button class="btn" data-a="aipick" data-k="file"${busy.label ? ' disabled' : ''}>Choose a photo</button></div>
     ${items.map((it, i) => `<div class="row"><span><b>${esc(it.name || it.profile || 'Item')}</b><br><span class="muted small">${esc(it.profile || '')}${typeof it.weight_lb === 'number' ? ' · ' + fmt(it.weight_lb, 1) + ' lb' : ''}</span></span>
       ${au && slots.length ? `<span class="entry"><select id="aip-${i}" aria-label="Food slot for ${esc(it.name || 'this item')}">${slots.map(n => `<option value="${n}"${n === Math.min(i + 1, slots[slots.length - 1]) ? ' selected' : ''}>Food ${n}</option>`).join('')}</select><button class="btn" data-a="aiassign" data-i="${i}">Set</button></span>` : ''}</div>`).join('')}`);
 }

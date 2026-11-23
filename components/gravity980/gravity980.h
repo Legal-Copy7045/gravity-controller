@@ -171,7 +171,7 @@ class Gravity980Component : public Component {
   void set_wifi_networks_text_sensor(text_sensor::TextSensor *s) { this->wifi_networks_ts_ = s; }
 
   // Grill Wi-Fi setup over Bluetooth (the Char-Griller app's provisioning commands, as documented by cg980app).
-  // Only these raw 4/6-byte commands and the credentials message are sent; never control ids 0x01/0x04/0x05.
+  // Only these raw 4/6-byte commands and the credentials message are sent (no grill control commands).
   bool wifi_rejoin();                                                   // join the network the grill has stored
   bool wifi_scan();                                                     // grill reports the networks it can see
   bool wifi_join(const std::string &ssid, const std::string &password);  // store credentials, then join

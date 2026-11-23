@@ -341,11 +341,14 @@ def pin_flow(browser):
     pg.goto(BASE + "/?start")
     pg.wait_for_selector("#lock h3", state="attached", timeout=15000)
     check(pg.locator("#s-start").is_visible() and "Protect this page" in pg.inner_text("#start"), "Get started shows without Home Assistant")
-    check(pg.locator("#start [data-a=quickntfy]").count() == 0, "no one-tap ntfy before a PIN")
+    check(pg.locator("#start [data-a=quickntfy]").count() == 1, "one-tap ntfy works without a PIN (the PIN is optional)")
     pg.click("#start [data-a=opencard][data-c=lock]")
     pg.wait_for_timeout(300)
     check(pg.locator("#lock").is_visible(), "Get started's 'Set it' opens Setup at the PIN")
-    check("Set a PIN" in pg.inner_text("#notif"), "keys can't be stored before a PIN")
+    check(pg.locator("#notif details[data-k=ntfy]").count() == 1 and "Set a PIN" not in pg.inner_text("#s-setup"),
+          "without a PIN nothing is locked: keys can be stored")
+    check("Optional" in pg.inner_text("#lock"), "the PIN card says it's optional")
+    check(pg.evaluate("[...document.querySelectorAll('#s-setup .card')].pop().id") == "lock", "the PIN card is last in Setup")
     pg.fill("#pin1", "123456")
     pg.fill("#pin2", "123456")
     pg.click("#lock [data-a=pinset]")
@@ -357,7 +360,7 @@ def pin_flow(browser):
     pg.wait_for_function("document.querySelector('#lock').innerText.includes('unlocked')", timeout=5000)
     check(True, "PIN set: this browser is unlocked")
     setup(False)
-    check("2 of 4" in pg.inner_text("#start"), f"Get started counts the PIN and the grill: {pg.inner_text('#start')[:60]!r}")
+    check("1 of 3" in pg.inner_text("#start"), f"Get started counts the grill, not the optional PIN: {pg.inner_text('#start')[:60]!r}")
     pg.click("#start [data-a=quickntfy]")
     pg.wait_for_function("document.querySelector('#start code')", timeout=5000)
     topic = pg.inner_text("#start code")
@@ -472,6 +475,19 @@ def pin_flow(browser):
         pg.click("#ailabel [data-a=aiassign]")
         pg.wait_for_timeout(400)
         check("Set on Food" in pg.inner_text("#toast"), "the label's cut and weight set on a Food slot")
+    # With a PIN set, using the AI needs no unlocking; its set-up and loading a plan as the program do.
+    def local_post(path, body):
+        req = urllib.request.Request(BASE + path, method="POST", data=json.dumps(body).encode(),
+                                     headers={"X-Smoker": "1", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+    check(local_post("/local/ai/advise", {}) == 200, "locked: asking the AI still works")
+    check(local_post("/local/ai/plan", {"request": "ribs for 5 pm"}) == 200, "locked: Plan with AI still works")
+    check(local_post("/local/ai/load-program", {}) == 401, "locked: loading the AI's plan as the program needs the PIN")
+    check(local_post("/local/ai/settings", {"auto": True}) == 401, "locked: AI set-up needs the PIN")
     # The firmware update (no Home Assistant): shown under This controller, installed after a second tap.
     setup()
     pg.wait_for_function("document.querySelector('#dev').innerText.includes('0.2.99')", timeout=5000)

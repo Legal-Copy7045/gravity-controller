@@ -362,7 +362,7 @@ void Standalone::loop_ai_(uint32_t now) {
   }
 }
 
-std::string Standalone::ai_json_(bool full) {
+std::string Standalone::ai_json_() {
   std::string out = json::build_json([&](JsonObject o) {
     o["provider"] = this->s_.ai_provider;
     o["model"] = this->s_.ai_provider[0] ? this->ai_model_() : "";
@@ -378,12 +378,10 @@ std::string Standalone::ai_json_(bool full) {
     o["cook_on"] = this->ai_cook_on_();
     o["calls_today"] = this->ai_calls_today_;
     o["daily_limit"] = 40;
-    if (!full) return;  // a locked page: what the AI said (and the provider's errors) is for an unlocked one
     o["error"] = this->ai_error_;
     o["load"] = this->ai_load_;  // "" (not yet), "loaded", or why it wasn't
     o["test"] = this->ai_test_;
   }).c_str();
-  if (!full) return out;
   out.pop_back();
   auto add = [&](const char *k, const std::string &v) { if (!v.empty()) out += std::string(",\"") + k + "\":" + v; };
   add("advice", this->ai_advice_);
