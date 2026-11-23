@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Install guide
+    url: https://github.com/Legal-Copy7045/gravity-controller/blob/main/docs/install.md
+    about: Flashing, adding it to Home Assistant, the package and the dashboard.
+  - name: First run with the grill
+    url: https://github.com/Legal-Copy7045/gravity-controller/blob/main/docs/first-run.md
+    about: Checks for the first session, and the grill's Wi-Fi.
+  - name: Running without Home Assistant
+    url: https://github.com/Legal-Copy7045/gravity-controller/blob/main/docs/standalone.md
+    about: The controller's own page, PIN, notifications and updates.

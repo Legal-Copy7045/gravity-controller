@@ -11,8 +11,11 @@ This page covers what replaces Home Assistant for the rest. Everything here also
 ## Getting started without Home Assistant
 
 1. **Flash it** from the [web installer](https://legal-copy7045.github.io/gravity-controller/) and give it your Wi-Fi
-   (docs/install.md, step 1).
-2. **Open `http://gravity980.local`** on your phone (same Wi-Fi). A **Get started** list walks you through the rest;
+   ([install, step 1](install.md#1-flash-the-esp32-s3)). No Wi-Fi prompt? Within 15 minutes of plugging it in, join
+   its **Smoker setup** hotspot (it appears after 90 s without Wi-Fi), or use Bluetooth setup after a short press of
+   its **BOOT** button.
+2. **Open `http://gravity980.local`** on your phone (same Wi-Fi). On Android, or if the name doesn't open, use the
+   controller's IP address (from your router's list of devices). A **Get started** list walks you through the rest;
    each item opens the card that does it:
    - **Protect this page with a PIN**;
    - **Find the grill**: turn the grill on and the controller finds it over Bluetooth (on Wi-Fi, enter its IP);
@@ -22,6 +25,15 @@ This page covers what replaces Home Assistant for the rest. Everything here also
    - **AI pitmaster** (optional): your own Gemini, Claude or OpenAI key.
 3. The list goes away once the first four are done, or with **Hide this**. Open `http://gravity980.local/?start` to
    see it again.
+
+**Set the PIN soon after plugging it in:** the first PIN can only be set within 15 minutes of power-on (see below).
+Mount the controller so you can still reach its **BOOT** button: it clears a forgotten PIN and allows Bluetooth Wi-Fi
+setup.
+
+**Updating without Home Assistant:** if your controller's page shows an update, install it there. Otherwise open the
+web installer again, plug the controller in over USB, click **Install** and don't tick *Erase device*. Settings are
+normally kept, but note them first (Wi-Fi, notification topic, keys). Logs: the web installer's **Logs & console**
+over USB.
 
 **Building your own firmware without Home Assistant?** Use `firmware/base.yaml` instead of `firmware/core.yaml`:
 - `core.yaml` is `base.yaml` plus `home-assistant.yaml`: the API, Home Assistant's clock, weather and thermometers,
@@ -68,7 +80,7 @@ Pick one or more services:
 
 | Service | Cost | Set up |
 |---|---|---|
-| **ntfy** | Free, open source | Install the ntfy app and subscribe to a long, random topic (e.g. `smoker-k3v9x2q7`): anyone who knows the topic can read it. Enter the same topic on the controller. Self-hosting? Change the server (https only). |
+| **ntfy** | Free, open source | Install the ntfy app and subscribe to a long, random topic (e.g. `smoker-k3v9x2q7`): anyone who knows the topic can read it. Enter the same topic on the controller. Self-hosting? Change the server: it must be a public `https://` name (a LAN-only name doesn't work), and changing it clears the topic. |
 | **Pushover** | One-off app purchase | Your user key from pushover.net, plus an app token (create an application there). |
 | **Telegram** | Free | Create a bot with @BotFather (gives the bot token), send your bot a message, then look up your chat ID (e.g. with @userinfobot). |
 
@@ -89,6 +101,25 @@ Pick one or more services:
 
 ## On the device page (no Home Assistant needed)
 
+- **Basic and Advanced:** the switch sits just above the section bar. **Basic** is what the Char-Griller app does:
+  pit and food temperatures and targets, the timer, Turbo, turning the grill on or off, the fan/lid/turbo state, the
+  chart and Setup. **Advanced** adds everything else: Plan, AI, the journal, Charcoal, programs and estimates. A
+  browser that hasn't used the page before starts in **Basic**, so switch to **Advanced** to see Plan, AI, Journal and
+  Charcoal. Each browser remembers its choice, and the mode only changes the page: alerts, programs and Boost run
+  either way.
+- **Pit target:** − / type it / + and **Set**, first thing on the page. The grill only takes targets while it's
+  cooking (start the cook on its panel).
+- **Turbo:** the grill's own Turbo (the fan runs flat out), the same as the panel's button. The button shows the
+  grill's turbo state.
+- **Turn on / Turn off:** two taps within 10 s. The first tap arms it (the button turns red: *Tap again to turn
+  off*), the second does it. The controller enforces this, so one press from anywhere does nothing. Turning on works
+  while the grill is in standby with its Bluetooth awake.
+- **Boost** (Advanced): raises the pit target by 100 °F until the pit reaches yours, for up to 15 minutes, without
+  disturbing a running program. *Stop boost* ends it.
+- **Timer:** type the minutes and press **Start**; you get a notification when it's done. The controller keeps it,
+  so it works without Home Assistant (a restart clears it).
+- **Chips:** *Fan on* while the fan runs, *Turbo (panel)* when turbo is on at the grill, *Lid open*. The on/off
+  button follows the grill's own on flag (*Grill on*).
 - **Temperatures:** a chart of the pit, the pit target and every food probe for the last 3, 6, 12 or 24 hours. The
   controller keeps one point a minute for 24 hours in memory, so a restart clears it.
 - **Charcoal:** log it as on the dashboard: *Started at*, *It's at*, *Topped up to*, *Added*, *Finished with*.

@@ -1,14 +1,16 @@
 # Hardware shortlist (draft BOM)
 
-These are prototype-friendly breakout modules first; a custom PCB can replace them in phase 4.
+Parts for the **phase 2 replacement controller** (planned). The phase 1 bridge needs only the ESP32-S3 board: see the
+[README](../README.md#what-you-need). These are prototype-friendly breakout modules first; a custom PCB can replace
+them in phase 4.
 Prices are rough US street prices (Amazon/AliExpress/Adafruit/DigiKey) (generic vs branded) for budgeting only. ⚠ marks a choice that
-depends on the measurement session (docs/design.md §9).
+depends on the measurement session ([design.md §9](../docs/design.md#9-measurement-session-grill-out)).
 
 ## Core
 
 | Item | Recommended | Why / alternatives | ~$ |
 |---|---|---|---|
-| MCU | **Lonely Binary ESP32-S3 N16R8** (yours) for prototype and likely the final build | 16 MB flash / 8 MB octal PSRAM. **GPIO 35–37 are taken by the PSRAM**; avoid the strapping pins 0, 3, 45 and 46 and the USB pins 19/20. It has a PCB antenna, so test Wi-Fi with the board in its enclosure on the grill; if it's weak, switch to an ESP32-S3-WROOM-1**U** board (U.FL) plus an external antenna | 0 (owned) |
+| MCU | **ESP32-S3 N16R8** (DevKitC-1 style) for the prototype and likely the final build | 16 MB flash / 8 MB octal PSRAM. **GPIO 35–37 are taken by the PSRAM**; avoid the strapping pins 0, 3, 45 and 46 and the USB pins 19/20. It has a PCB antenna, so test Wi-Fi with the board in its enclosure on the grill; if it's weak, switch to an ESP32-S3-WROOM-1**U** board (U.FL) plus an external antenna | 8–20 |
 | 12 V → 5 V | **Pololu D24V10F5** (or a generic MP1584EN) | The Pololu is cleaner, with real current limits; the MP1584 is fine for a prototype | 4–16 |
 | Input protection | ATO/mini blade fuse holder + **3 A fuse**, SS34 Schottky (reverse polarity), SMBJ15A TVS | Grill PSUs and long leads are a noisy, wet environment | 4 |
 | PSU | **Stock 12 V adapter** ⚠ check rating ≥ 2 A | Replace with a Mean Well GST36A12 if it's marginal | 0 / 20 |
@@ -67,7 +69,7 @@ depends on the measurement session (docs/design.md §9).
 
 | Tool | Why |
 |---|---|
-| Multimeter | Probe resistances, switch type, fan voltage (needed tomorrow) |
+| Multimeter | Probe resistances, switch type, fan voltage (needed for the measurement session) |
 | Cheap USB logic analyser (Saleae clone, ~$12) or a pocket scope | Characterise the stock fan drive (PWM vs voltage) and debug I²C/SPI |
 | Bench PSU (optional) | Test the fan's minimum running voltage and duty safely |
 | Reference thermometer (e.g. Thermapen) | Probe calibration |

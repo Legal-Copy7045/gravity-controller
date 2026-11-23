@@ -1,7 +1,8 @@
 # Stock controller protocol (Gravity 980)
 
 Summary of what the bridge implements. Credit: [grzbiet/cg980app](https://github.com/grzbiet/cg980app) (MIT), from
-analysis of the official app and live testing. Items marked ⚠ are unverified on a real grill yet (see first-run.md).
+analysis of the official app and live testing. Items marked ⚠ are unverified on a real grill yet (see first-run.md). Seen something new? Open an issue with the
+*Grill data* template.
 
 ## Transports
 
@@ -23,7 +24,7 @@ Big-endian uint16, °F.
 | 5 | reserved | always `0` (used to find frame boundaries) |
 | 6–7 / 8–9 | Food 1 temperature / target | |
 | 10–11 / 12–13 | Food 2 temperature / target | |
-| 14 | bit 4 (`0x10`) fan on | |
+| 14 | bit 4 (`0x10`) on flag | first read as "fan on"; it clears when the grill is turned off and sets when it's turned on. The *Fan* and *Grill on* entities both show it |
 | 15 | bit 0 door/lid open, bit 4 fan turbo | |
 | 16–19 | fan mode / speed (Akorn) | not used on the 980 |
 
@@ -35,36 +36,53 @@ boundaries and resyncs on errors (see `components/gravity980/protocol.cpp`, unit
 
 ## Commands
 
-`FF <id> <hi> <lo>` over TCP (BLE: prefixed `00 19 04 00` ⚠ not enabled by default).
+`FF <id> <hi> <lo>` over TCP; over BLE the same four bytes prefixed with `00 19 04 00` (*Control over Bluetooth*, on
+by default, confirmed on a 980).
 
 | id | Meaning | Range | Status |
 |---|---|---|---|
-| `0x00` | Pit target | 200–700 °F | works over TCP **only while the grill is cooking** (idle: silently ignored) |
+| `0x00` | Pit target | 200–700 °F | works (TCP or BLE) **only while the grill is cooking** (idle: silently ignored) |
 | `0x02` | Food 1 target | 50–350 °F | same |
 | `0x03` | Food 2 target | 50–350 °F | same |
-| `0x01` timer, `0x04` power | — | — | **never sent**: the simple form crashed the controller's Wi-Fi (panel `0040`, re-provisioning needed) |
-| `0x05` silence | — | — | **never sent**: flashes `0000`, acts like stop |
+| `0x04` flags | four hex digits: `F` = leave alone, `0`/`1` = set | one flag at a time | **confirmed on a 980** (November 2026), see below |
+| `0x05` pairing code | hex digits | — | shows a pairing code on the grill's display (`FF 05 46 55` shows 4655), as the app does when pairing. It does **not** silence the alarm. Not used by the bridge |
+| `0x01` timer | — | — | **never sent** |
 | `0x06` fan speed | — | — | ignored by the 980 |
 
-**Turbo** (the panel's fan button) shows as byte 15 bit 4 in the status frame. That was confirmed on a real 980 in
-November 2026: four presses, and nothing else in the frame changed. No remote command for it is known yet. The
-`test_command` action and the *Command tests* switch exist to look for one, one command at a time (never ids
-`0x01`/`0x04`/`0x05`, and never the setpoint ids `0x00`/`0x02`/`0x03`: use the target entities, which check the range).
-Tested on 23 Nov 2026 over Bluetooth, with a cook started on the panel (pit target writes were accepted): `0x06`
-with values 0, 1, 2, 0x10, 100, 255, 0x0100 and 0x1000, and ids `0x07`-`0x1F` with value 1. None changed turbo, the
-fan or any other byte of the status frame, and none upset the grill. The bridge's **Boost** raises the pit target
-instead (see the changelog for 0.2.46).
+### 0x04: Turbo and power
 
-### Capturing the app's commands
+The value of command `0x04` holds four flags, one hex digit each: `F` leaves a flag alone, `0` or `1` sets it. Found
+in the Char-Griller app's code (v2.0.8) and confirmed on a 980:
 
-To find the bytes the official Char-Griller app sends for **Power** (switch the grill off) and **Turbo**, the
-controller can pose as the grill for the app and record what it writes. It is off unless you turn it on (the
-controller never advertises as a grill otherwise), turns itself off after 10 minutes, and never sends anything it
-captures to the real grill: its own Bluetooth link to the grill is paused while it runs.
+| Bytes | Does | Notes |
+|---|---|---|
+| `FF 04 FF 1F` | Turbo on | the grill's turbo flag (status byte 15 bit 4) follows within 3 s |
+| `FF 04 FF 0F` | Turbo off | |
+| `FF 04 0F FF` | Power off | as the app sends |
+| `FF 04 1F FF` | Power on | the app never sends it; works while the grill is in standby with its Bluetooth awake |
+
+The bridge sends only one flag at a time, as the app does. A value that sets several flags at once (like `00 00`)
+crashed the grill's Wi-Fi side in early tests (panel `0040`, re-provisioning needed), so the `test_command` action
+refuses it. Power needs two presses within 10 s, enforced by the controller (*Turn the grill on/off* buttons; *Grill
+power* shows what's armed).
+
+**Superseded:** earlier versions of this page said no remote turbo command was known and that `0x04`/`0x05` are never
+sent. Before the app's code was read, a search over Bluetooth (23 Nov 2026: `0x06` with eight values, ids
+`0x07`-`0x1F` with value 1) found nothing, and the bridge's **Boost** (raise the pit target by 100 °F for up to 15
+minutes) was added to stand in for turbo. Boost is still there, in Advanced. The `test_command` action and the
+*Command tests* switch remain for research: one command at a time, never the setpoint ids `0x00`/`0x02`/`0x03` (use the
+target entities, which check the range), and `0x04` only with a single flag.
+
+### Capturing the app's commands (developer build)
+
+Capture mode is **not in the released firmware**: it's the developer config `firmware/dev-capture.yaml` (CI still
+builds it), which you build yourself in the ESPHome dashboard. The controller poses as the grill for the app and records
+what it writes, for checking commands like Power and Turbo (now known, above). It is off unless you turn it on (the controller never advertises as a grill otherwise), turns itself off after
+10 minutes, and never sends anything it captures to the real grill: its own Bluetooth link to the grill is paused while it runs.
 
 1. Switch the real grill **off**, so the app finds the controller instead.
-2. Turn on **Capture the app's commands** (device page: Setup → *Find the app's commands*; or the config switch in
-   Home Assistant). It needs the device page's PIN when one is set, like every other switch.
+2. Turn on **Capture the app's commands** (on a controller running the developer build: device page Setup → *Find the
+   app's commands*, or the config switch in Home Assistant). It needs the device page's PIN when one is set, like every other switch.
 3. Open the Char-Griller app and add or connect the grill it finds: **Gravity980-XXXX** (the last 4 hex digits of the
    controller's Bluetooth address). The app sees a grill that is switched on and running: pit 65 °F, target 200 °F,
    fan on (a real frame from a 980 that was on; the bridge's last status instead if its grill was on), sent every 2 s

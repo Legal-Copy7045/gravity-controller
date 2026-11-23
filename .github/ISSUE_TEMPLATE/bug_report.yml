@@ -1,0 +1,74 @@
+name: Bug report
+description: Something doesn't work as the docs say.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please leave out anything personal: Wi-Fi names and passwords, IP addresses you'd rather
+        not share, ntfy topics, API keys, PINs, your name or address. Logs can contain these, so check before pasting.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      description: The controller's page, Setup → This controller → Release (or the Firmware entity in Home Assistant).
+      placeholder: "0.2.50"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is it installed?
+      options:
+        - Web installer (prebuilt firmware)
+        - Built in the ESPHome dashboard
+        - Developer build
+    validations:
+      required: true
+  - type: dropdown
+    id: ha
+    attributes:
+      label: Home Assistant
+      options:
+        - With Home Assistant
+        - Without Home Assistant (controller only)
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Home Assistant and Smoker integration versions
+      description: If you use Home Assistant (Settings → About; HACS → Smoker).
+      placeholder: "Home Assistant 2026.11.2, Smoker 0.2.50"
+  - type: dropdown
+    id: link
+    attributes:
+      label: Grill link
+      options:
+        - Bluetooth
+        - Wi-Fi
+        - Both
+        - Not connected
+  - type: input
+    id: grill
+    attributes:
+      label: Grill model
+      placeholder: Char-Griller Gravity 980
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: ESP32-S3 N16R8 DevKitC-1
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: From the web installer's Logs & console (USB), the ESPHome dashboard or Home Assistant. Remove anything personal.
+      render: text

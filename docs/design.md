@@ -90,7 +90,7 @@ Plan: prototype with (1). Move to (3) only if noise or minimum-speed behaviour i
 
 ### 4.3 The rubber flap / airflow leakage
 The 980's fan has a rubber anti-backdraft flap that is a known failure point. A leaky flap means the fire runs hot
-even with the fan off, which the PID can't fix. Inspect it tomorrow ⚠. A servo-driven damper could come later.
+even with the fan off, which the PID can't fix. Inspect it during the measurement session ⚠. A servo-driven damper could come later.
 
 ### 4.4 Safety
 - MOSFET gate pull-down: **the fan is off whenever the ESP is resetting, booting or crashed.**
@@ -194,7 +194,7 @@ Bring a multimeter, a phone camera, and an IR thermometer if you have one.
 7. **PSU label:** V, A, barrel jack size and polarity.
 8. **Controller mounting:** enclosure dimensions, cable entry points, and how far it is from the firebox.
 9. If you light it: IR temperatures of the hopper lid underside, the hopper wall at the top/middle/bottom, and the controller's mounting area.
-10. Your **ESP32-S3 board:** exact model or a photo of both sides.
+10. The **ESP32-S3 board:** exact model or a photo of both sides.
 
 ## 10. Build phases
 
@@ -207,10 +207,10 @@ Bring a multimeter, a phone camera, and an IR thermometer if you have one.
 | 4 | Perfboard or PCB, weatherproof enclosure with panel connectors, optional OLED/encoder | Mounted in place of the stock controller |
 
 ## 11. Decisions so far
-- **Board:** Lonely Binary ESP32-S3 N16R8 (GPIO 35–37 reserved for the PSRAM).
+- **Board:** an ESP32-S3 N16R8 DevKitC-1-style board (GPIO 35–37 reserved for the PSRAM; BOOT on GPIO0).
 - **Phase 1 first:** a bridge to the stock controller (Wi-Fi + Bluetooth) carries all the software features — prediction, programs, alerts, dashboard — and collects real cook data before the hardware is replaced. The cook assistant reads ordinary sensors, so it moves to the replacement controller unchanged.
 - **Bluetooth proxy** on the controller, for the Govee H5198 and other thermometers at the grill.
-- **Alarm and status light:** reuse the MAX98357A + speaker and a WS2812B ring from the Magic-bHAnds parts.
+- **Alarm and status light:** a MAX98357A amplifier + speaker and a WS2812B ring.
 - **Remote access:** Nabu Casa → the Companion app works away from home with no extra setup.
 - **ntfy:** yes, as a direct ESP→phone path for critical alarms.
 - **Local UI:** a "current temp" display is enough; a knob or buttons are a nice-to-have.
@@ -227,3 +227,15 @@ homeassistant/dashboards/smoker.yaml
 hardware/                           # schematic (KiCad), BOM, wiring diagrams, photos
 docs/                               # research, design, calibration logs
 ```
+
+## 13. First-run measurements for phase 2
+
+For developers helping with the replacement controller (owners using the bridge don't need this). With the grill
+unplugged, follow the list in [§9](#9-measurement-session-grill-out). The most useful numbers:
+
+- pit-probe resistance;
+- meat-probe resistance at room temperature and in ice water;
+- the fan: wire count, label, and the third wire's voltage while it runs;
+- the lid switch: normally closed (NC) or normally open (NO).
+
+Share them in an issue (template: *Grill data*).

@@ -5,9 +5,13 @@ target, and it never sends the commands known to upset the stock controller.
 
 ## 0. Before going outside
 
-- Flash the board ([install.md](install.md)) and add it to Home Assistant.
-- On the device page turn on **Log raw grill data** (useful for the next steps), and open the device's logs
-  (ESPHome dashboard → *Logs*, or `http://gravity980.local` → logs; on a phone use the board's IP instead, `.local` names often don't resolve there).
+- Flash the board ([install.md](install.md)) and add it to Home Assistant within 15 minutes of plugging it in (or
+  [use it without Home Assistant](standalone.md)).
+- On the device page turn on **Log raw grill data** (useful for the next steps), and open the controller's log: the
+  [web installer](https://legal-copy7045.github.io/gravity-controller/)'s **Logs & console** with a laptop on USB, or
+  the ESPHome dashboard's *Logs* if you build it yourself (the controller's page doesn't show the log).
+- Open the controller's page, `http://gravity980.local` (on a phone, Android especially, use the board's IP instead:
+  `.local` names often don't resolve there). It starts in **Basic**; switch to **Advanced** for everything else.
 
 ## 1. Power on the grill, check Bluetooth
 
@@ -18,8 +22,9 @@ The bridge looks for a device advertising `Gravity980-…` and connects automati
 - If nothing is found: run `pip install bleak` then `python3 tools/ble_probe.py scan` on a laptop next to the grill
   and note the name and address; set `name_prefix` or `mac_address` under `gravity980: bluetooth:` if it differs
   (ESPHome dashboard build).
-- Unrecognised notifications are logged as `Unrecognised BLE notification: …` — save those lines: they are what
-  the protocol work needs next.
+- Unrecognised notifications are logged as `Unrecognised BLE notification: …`. Please
+  [open an issue](https://github.com/Legal-Copy7045/gravity-controller/issues/new/choose) (template: *Grill data*)
+  with those lines: they are what the protocol work needs next.
 
 ## 2. Wi-Fi
 
@@ -44,17 +49,21 @@ on the device page, and **Grill link** switches to `wifi`.
 | Open the lid | **Lid** = open (and the fan stops) |
 | Start a cook on the panel at 225 °F | **Pit target (reported)** = 225 |
 | Dashboard → Pit target **+** | grill display changes to 230 within a few seconds |
-| Raw status frame | changes as values change; send me a few lines if anything looks wrong |
+| Turbo (dashboard or page) | the grill's turbo indicator comes on within a few seconds |
+| Raw status frame | changes as values change; if anything looks wrong, [open an issue](https://github.com/Legal-Copy7045/gravity-controller/issues/new/choose) (template: *Grill data*) with a few lines |
 
-If the target change is ignored, the grill is probably idle: it only accepts targets while cooking. Over Bluetooth
-the bridge doesn't send targets at all yet (`bluetooth: writes: false`); that's the next thing to try once reading
-works — note whether the Char-Griller app can change the target over Bluetooth with Wi-Fi off.
+If the target change is ignored, the grill is probably idle: it only accepts targets while cooking (start the cook
+on its panel). Targets go over Wi-Fi or Bluetooth (see [Control over Bluetooth](#control-over-bluetooth)).
 
-## 4. Fan's third wire and other measurements (for phase 2)
+**Turning the grill on or off** from the page or the dashboard takes two taps within 10 s: the first arms it (the
+button turns red and says *Tap again*), the second does it. The controller enforces this, so a single press from
+Home Assistant or an automation does nothing. Turning on works while the grill is in standby with its Bluetooth
+awake.
 
-With the grill unplugged: see [design.md §9](design.md#9-measurement-session-grill-out). Most useful: pit-probe
-resistance, meat-probe resistance at room temperature and in ice water, fan wire count / label / third-wire voltage
-while running, lid switch NC or NO.
+## 4. Measurements for phase 2 (developers)
+
+Only if you want to help with the replacement controller: see
+[design.md §13](design.md#13-first-run-measurements-for-phase-2).
 
 ## 5. A first cook
 
@@ -69,8 +78,9 @@ starts from it.
 The app (dashboards, programs, voice, notification buttons) changes the grill's pit and food targets through the
 controller: over Wi-Fi when the grill is on Wi-Fi, otherwise over Bluetooth. **Control over Bluetooth** is on by
 default and has been confirmed working on a Gravity 980. Remember the grill only takes new targets while it's cooking
-(start the cook on its panel). Only pit and food targets are ever sent (the same three commands as over Wi-Fi, within
-the grill's 200–700 °F range), and each write is checked against what the grill reports back. Turn the switch off
+(start the cook on its panel). What's sent: pit and food targets (within the grill's 200–700 °F range), Turbo, and turning the grill on or off
+(two presses within 10 s), the same commands as over Wi-Fi; each target write is checked against what the grill
+reports back. Turn the switch off
 (device page → Configuration) to make the Bluetooth link read-only.
 
 ## Set up the grill's Wi-Fi from Home Assistant

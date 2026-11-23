@@ -40,9 +40,10 @@
   <header class="hero">
     <div class="eyebrow">Smoker · installer</div>
     <h1 class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" class="mark" aria-hidden="true"><defs><linearGradient id="in-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f97316"/><stop offset="1" stop-color="#b4330a"/></linearGradient><linearGradient id="in-flame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#fff7ed"/></linearGradient></defs><rect width="256" height="256" rx="58" fill="url(#in-tile)"/><g fill="#1c1917"><rect x="167" y="54" width="40" height="138" rx="7"/><rect x="161" y="44" width="52" height="16" rx="6"/><rect x="43" y="100" width="134" height="66" rx="33"/><rect x="66" y="160" width="11" height="52" rx="4"/><rect x="143" y="160" width="11" height="52" rx="4"/><rect x="56" y="190" width="108" height="9" rx="4.5"/></g><path transform="translate(110 133) scale(.74) translate(-108.5 -126.5)" fill="url(#in-flame)" d="M106 158c-15 0-24-10-24-22 0-11 8-17 12-27 1 7 5 11 9 13 0-11 7-21 15-27-2 10 3 17 9 24 5 6 8 11 8 17 0 13-11 22-29 22z"/></svg><span>Gravity 980 Smoker Bridge</span></h1>
-    <p class="ver">Version {{VERSION}} · ESP32-S3 (16 MB flash, 8 MB PSRAM) · Home Assistant</p>
+    <p class="ver">Version {{VERSION}} · ESP32-S3 (16 MB flash, 8 MB PSRAM) · Home Assistant optional</p>
     <p style="margin:8px 0 0">Connects to the Char-Griller Gravity 980's stock controller over Wi-Fi or Bluetooth and adds
-      learning cook-time predictions, stall detection, cook programs, alerts and a Bluetooth proxy for wireless thermometers.</p>
+      learning cook-time predictions, stall detection, cook programs, alerts and a Bluetooth proxy for wireless thermometers.
+      Works with Home Assistant or on its own: the controller serves its own page at <code>http://gravity980.local</code>.</p>
   </header>
 
   <section class="card">
@@ -55,7 +56,9 @@
     <ul style="margin-top:12px">
       <li>Plug the ESP32-S3 into this computer with a USB-C <em>data</em> cable. If the board has two USB-C ports, use the chip's own port, labelled <code>USB</code> or <code>OTG</code> (not <code>COM</code>/<code>UART</code>): the Wi-Fi step after flashing only works there.</li>
       <li><strong>IPEX-antenna boards:</strong> click the antenna on before powering the board.</li>
-      <li>After flashing, enter your Wi-Fi details when asked. If you aren't asked, join the <code>Smoker setup</code> Wi-Fi hotspot from your phone and pick your network there.</li>
+      <li>After flashing, enter your Wi-Fi details when asked (2.4 GHz). If you aren't asked: within 15 minutes of powering it on, join the <code>Smoker setup</code> Wi-Fi hotspot from your phone (it appears after 90 s without Wi-Fi) and pick your network there. Bluetooth Wi-Fi setup needs a short press of the board's <code>BOOT</code> button.</li>
+      <li><strong>Updating without Home Assistant:</strong> if your controller's page shows an update, install it there. Otherwise come back here, plug it in and install again <em>without</em> ticking “Erase device”: settings are normally kept, but note your settings first.</li>
+      <li><strong>Logs:</strong> connect over USB here and choose <em>Logs &amp; console</em> (the controller's page doesn't show them).</li>
     </ul>
     <p class="muted">Board not detected? Hold <code>BOOT</code>, tap <code>RST</code>, release <code>BOOT</code>, then try again.</p>
   </section>
@@ -63,15 +66,20 @@
   <section class="card">
     <h2>Then, in Home Assistant</h2>
     <ol>
-      <li><strong>Add the device:</strong> a <em>Discovered</em> notification appears for “Smoker”. Click <strong>Add</strong>.</li>
+      <li><strong>Add the device:</strong> a <em>Discovered</em> notification appears for “Smoker”. Click <strong>Add</strong>. Add it within 15 minutes of plugging it in; otherwise unplug and replug.</li>
       <li>On the device page, set <strong>Grill IP address</strong> to your grill's address (give it a DHCP reservation). Bluetooth works without it.</li>
       <li>Leave <em>Allow the device to perform Home Assistant actions</em> <strong>off</strong>: notifications and cook summaries reach Home Assistant as events, which don't need it.</li>
-      <li>Add <code>homeassistant/packages/smoker.yaml</code> and the <strong>Smoker</strong> dashboard integration (HACS custom repository) — see the <a href="https://github.com/Legal-Copy7045/gravity-controller/blob/HEAD/docs/install.md">install guide</a>.</li>
+      <li>Install <strong>Smoker</strong> from HACS (custom repository), then run the action “Smoker: Install the Smoker package” — see the <a href="https://github.com/Legal-Copy7045/gravity-controller/blob/HEAD/docs/install.md">install guide</a>.</li>
     </ol>
   </section>
 
+  <section class="card">
+    <h2>No Home Assistant?</h2>
+    <p style="margin:0">Open <code>http://gravity980.local</code> (or the controller's IP address; on Android use the IP) on your phone, on the same Wi-Fi. A <em>Get started</em> list sets up a PIN, the grill, phone alerts and the weather. See <a href="https://github.com/Legal-Copy7045/gravity-controller/blob/HEAD/docs/standalone.md">running without Home Assistant</a>.</p>
+  </section>
+
   <p class="muted">Firmware updates appear in Home Assistant as an update on the device. <a href="https://github.com/Legal-Copy7045/gravity-controller/releases">Release notes</a> ·
-    <a href="https://github.com/Legal-Copy7045/gravity-controller">Source and docs</a>. Unofficial hobby project, not affiliated with Char-Griller.</p>
+    <a href="https://github.com/Legal-Copy7045/gravity-controller">Source and docs</a>. <a href="https://github.com/Legal-Copy7045/gravity-controller/blob/HEAD/THIRD_PARTY.md">Licences</a> (the firmware is distributed under the GPLv3; source in the repository). Unofficial hobby project, not affiliated with Char-Griller.</p>
 </main>
 </body>
 </html>

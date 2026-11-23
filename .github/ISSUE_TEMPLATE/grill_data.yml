@@ -1,0 +1,60 @@
+name: Grill data
+description: Raw frames, Bluetooth notifications or measurements from a grill, for the protocol work.
+labels: [grill data]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Raw data helps support more grills and firmware versions. Turn on **Log raw grill data** on the device page and
+        copy the lines from the controller's log (the web installer's Logs & console over USB, or the ESPHome dashboard).
+        Leave out Wi-Fi names, passwords and anything personal: `0x07` Wi-Fi info lines contain your network's name and
+        addresses.
+  - type: input
+    id: model
+    attributes:
+      label: Grill model
+      placeholder: Char-Griller Gravity 980
+    validations:
+      required: true
+  - type: input
+    id: grill_fw
+    attributes:
+      label: Grill firmware or panel version (if known)
+      description: From the Char-Griller app or the grill's panel.
+  - type: input
+    id: firmware
+    attributes:
+      label: Controller firmware version
+      placeholder: "0.2.50"
+    validations:
+      required: true
+  - type: dropdown
+    id: link
+    attributes:
+      label: Where the data came from
+      multiple: true
+      options:
+        - Wi-Fi (TCP port 3333)
+        - Bluetooth notifications
+        - Measurements (multimeter, design.md §9)
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What the grill was doing
+      description: E.g. idle, cooking at 225 °F, lid open, turbo pressed on the panel, probe 1 unplugged. What did its display show?
+    validations:
+      required: true
+  - type: textarea
+    id: frames
+    attributes:
+      label: Raw frames or notifications
+      description: Status frames, `Unrecognised BLE notification` lines, or `nc <grill-ip> 3333 | xxd` output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

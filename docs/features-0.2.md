@@ -1,4 +1,27 @@
-# Fuel gauge, forecast, rest coach, cook journal and voice
+# Everyday controls, fuel gauge, forecast, rest coach, cook journal and voice
+
+## Basic and Advanced, timer, Turbo, on/off
+
+The same on the Home Assistant dashboard and the controller's own page
+([more on the device page](standalone.md#on-the-device-page-no-home-assistant-needed)):
+
+- **Basic / Advanced** (the switch above the section bar; each browser remembers its choice). **Basic** is what the
+  Char-Griller app does: pit and food temperatures and targets, a timer, Turbo, turning the grill on or off, the fan,
+  lid and turbo state, the chart and Setup. **Advanced** is everything: programs, AI, charcoal, planning, the journal,
+  estimates and Boost. **A browser new to the page starts in Basic, where Plan, AI, Journal and Charcoal are hidden:
+  switch to Advanced to use them.** The mode only changes the page; alerts, programs and Boost run either way.
+- **Timer:** type the minutes and press **Start**; a notification when it's done. Kept by the controller, so it works
+  without Home Assistant (a restart clears it). Entities: *Timer*, *Timer remaining*.
+- **Turbo:** the grill's own Turbo (the panel's fan button), confirmed on a 980. The *Turbo* switch shows the grill's
+  own turbo flag.
+- **Turn the grill on or off:** two taps within 10 s (the first arms it and the button turns red, the second does
+  it). The controller enforces the two presses, so a single press from Home Assistant, an automation or the page does
+  nothing. Turning on works while the grill is in standby with its Bluetooth awake. Entities: *Turn the grill on*,
+  *Turn the grill off* (buttons), *Grill on* (the grill's on flag), *Grill power* (what's armed).
+- **Boost** (Advanced): raises the pit target by 100 °F (at most 700 °F) until the pit reaches yours, for up to 15
+  minutes, then puts it back. A running program isn't disturbed; changing the target ends it.
+- **Chips:** *Fan on*, *Turbo (panel)* and *Lid open* show the grill's state at a glance.
+
 
 ## Charcoal fuel gauge (no hopper sensor) · Experimental until learned
 
@@ -45,6 +68,8 @@ so an overnight brisket's finish time accounts for the 3 a.m. low.
   Home Assistant's AI reads the cut and the net weight; pick a probe for each item and its protein and weight are set
   on the controller. Store barcodes on weighed meat (starting with 2) only encode the price/weight, so the AI reads the
   printed label text.
+- AI plans are checked before they're loaded: a pit or hold above *Smoker AI plan max pit* (400 °F by default; back to
+  400 at each restart unless you edit the package's `initial`) is refused, and so is anything that isn't a program.
 - The AI advisor and planner see your recent notes and ratings (e.g. a 2★ "dry" brisket at 275 °F) and the scanned
   packages, and adjust their advice.
 - Needs: the Smoker integration (HACS), an AI Task entity that supports attachments (Google Gemini does), and Home
@@ -61,7 +86,7 @@ so an overnight brisket's finish time accounts for the 3 a.m. low.
 | "The hopper is three quarters full" / "I topped up the hopper to half" / "I added a quarter of a hopper" | Fuel gauge entries |
 | "Is the stall over?" | Stall status and expected remaining |
 | "I pulled the brisket" | Starts the rest coach for that probe |
-| "Start the pork shoulder program" / "Smoke a brisket" | Picks the preset and starts it |
+| "Start the pork shoulder program" / "Smoke a brisket" | Loads the preset; say "confirm smoker start" within a minute to start it |
 
 The sentences are automations in `homeassistant/packages/smoker.yaml` (conversation triggers), so they work with
 any Assist device or the Companion app.
