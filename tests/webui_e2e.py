@@ -415,6 +415,10 @@ def program_editor(pg, width, shots):
     pg.wait_for_selector("#progfold", timeout=10000)
     if not pg.evaluate("document.getElementById('progfold').open"):  # a loaded program folds the editor away
         pg.click("#progfold > summary")
+    pg.wait_for_selector("#progedit #ps-cut", timeout=10000)
+    pg.select_option("#ps-cut", "chicken")
+    check("name: Whole chicken; pit 325 until food1 >= 165" in pg.evaluate("document.querySelector('#progedit .pe-pre').textContent"), "the simple form fills in a whole chicken")
+    pg.click("#pe-advanced")
     pg.wait_for_selector("#progedit #pe-addstep", timeout=10000)
     while pg.locator("#progedit .pe-step").count():  # start from an empty program
         pg.locator("#progedit [data-pe-act=del-step]").first.click()

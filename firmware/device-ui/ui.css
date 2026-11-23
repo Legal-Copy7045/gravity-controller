@@ -152,6 +152,10 @@ html{background:#f2f4f6}
 .gx .pe .btn.pe-x{min-width:40px;padding:4px 8px;font-size:16px;line-height:1}
 .gx .pe .btn.pe-add{min-height:36px;padding:4px 10px;font-size:13px}
 .gx .pe-unit{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2);font-size:13.5px}
+.gx .ps-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 0;border-top:1px solid var(--line)}
+.gx .ps-line:first-child{border-top:0}
+.gx .ps-l{font-weight:600;min-width:120px}
+.gx .ps-v{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;color:var(--ink-2)}
 .gx .pe input[type=number]{width:80px}
 .gx .pe select{max-width:100%;min-width:0}
 .gx .pe-cond{padding-left:30px}

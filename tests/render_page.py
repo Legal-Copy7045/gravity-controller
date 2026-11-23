@@ -230,6 +230,8 @@ def program_editor(pg, fr):
         fr.click("#progfold > summary")
     else:
         fails.append("program editor: expected it folded while the program runs")
+    fails += simple_form(pg, fr)
+    fr.click("#pe-advanced")
     # The fixture's program as steps.
     steps = fr.evaluate("""() => [...document.querySelectorAll('#progedit .pe-step')].map(li => ({
         kind: li.querySelector('[data-pe=kind]').value, temp: (li.querySelector('[data-pe=temp]') || {}).value,
@@ -337,10 +339,56 @@ def program_editor(pg, fr):
     return fails
 
 
+def simple_form(pg, fr):
+    """The simple form (the editor's default): a cut fills in a typical cook and writes an ordinary program."""
+    fails = []
+    if fr.locator("#ps-cut").count() != 1:
+        return ["simple form: not shown first"]
+    want = {
+        "pork": 'name: Pork shoulder / butt; pit 250 until food1 >= 165; pit 275 notify "Wrap it in butcher paper now" until food1 >= 203; hold 200 notify "Pork shoulder / butt is done: rest it"',
+        "chicken": 'name: Whole chicken; pit 325 until food1 >= 165; notify "Whole chicken is done" shutdown',
+        "steak": 'name: Steak, reverse sear; pit 225 until food1 >= 115; pit 700 notify "Time to sear: the pit is heading up to 700°F" until food1 >= 130; notify "Steak, reverse sear is done" shutdown',
+        "ribs321": 'name: Ribs, 3-2-1; pit 225 until after 3h; pit 225 notify "Wrap the ribs in foil now" until after 2h; pit 225 notify "Unwrap the ribs (and sauce them)" until after 1h; hold 200 notify "Ribs, 3-2-1 is done: rest it"',
+    }
+    for cut, prog in want.items():
+        fr.select_option("#ps-cut", cut)
+        if editor_text(fr) != prog:
+            fails.append(f"simple form {cut}: {editor_text(fr)!r}")
+    # brisket, no wrap at the same temperature: one smoke step to the end
+    fr.select_option("#ps-cut", "brisket")
+    fr.select_option("#ps-wrap", "none")
+    fr.fill("#ps-t2", "250")
+    fr.select_option("#ps-probe", "2")
+    fr.select_option("#ps-after", "off")
+    if editor_text(fr) != 'name: Brisket; pit 250 until food2 >= 203; notify "Brisket is done" shutdown':
+        fails.append(f"simple form, no wrap: {editor_text(fr)!r}")
+    fr.fill("#ps-t1", "900")
+    if not fr.is_disabled("#pe-load"):
+        fails.append("simple form: a pit outside the range should block Load")
+    fr.fill("#ps-t1", "250")
+    n0 = len(pg.evaluate("window.calls"))
+    fr.click("#pe-load")
+    time.sleep(0.4)
+    sent = [c for c in pg.evaluate("window.calls")[n0:] if c[0] == "ws" and c[2].get("service") == "gravity980_load_program"]
+    if not sent or "food2 >= 203" not in sent[0][2].get("service_data", {}).get("program", ""):
+        fails.append(f"simple form: Load didn't send the program: {pg.evaluate('window.calls')[n0:]}")
+    # Advanced starts from what the form built
+    fr.click("#pe-advanced")
+    if fr.locator("#progedit .pe-step").count() != 2 or fr.input_value("#pe-name") != "Brisket":
+        fails.append(f"simple form: Advanced didn't show the form's steps: {editor_text(fr)!r}")
+    fr.click("#pe-simple")
+    fr.evaluate("progEd.state.touched = false; progEd.state.sent = null; document.activeElement.blur()")
+    set_program(pg, fr, "")
+    set_program(pg, fr, FIXTURE_PROGRAM)
+    return fails
+
+
 def editor_on_phone(pg, fr):
     """At 390 px: the editor with a few conditions fits the screen."""
     fails = []
     fr.evaluate("document.getElementById('progfold') && (document.getElementById('progfold').open = true)")
+    if fr.locator("#pe-advanced").count():
+        fr.click("#pe-advanced")
     fr.click("#pe-addstep")
     fr.select_option("#pe-s2-c0-type", "after")
     fr.fill("#pe-s2-c0-v", "90")

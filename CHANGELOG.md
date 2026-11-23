@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.41] - 2026-11-23
+
+- **A simple way to set up a cook** (both dashboards, in *Edit the program*):
+  - Pick what's cooking and the form fills in a typical cook: smoke at one temperature until the meat reaches a
+    temperature, wrap (butcher paper, foil or not at all), then finish at another temperature until it's done, then
+    keep it warm or turn the grill off.
+  - Built in: pork shoulder, brisket, ribs (3-2-1 by time, or to temperature), whole chicken, chicken pieces, turkey,
+    reverse-sear steak and roast (smoke low, then sear hot), salmon, sausages and pork loin. Change any number.
+  - You get a notification when it's time to wrap (or unwrap the ribs, or sear).
+  - *Load this cook* writes an ordinary program; *Advanced: edit the steps* opens the step editor on it.
+  - Choosing one of the controller's presets still shows its steps.
+
 ## [0.2.40] - 2026-11-23
 
 - **The temperature graph shows the plan beside the actual:**

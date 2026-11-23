@@ -357,7 +357,7 @@ function wire() {
     if (t.dataset && t.dataset.c === 'aiprov') { ACT.aiprov(t); return; }
     if (t.dataset && t.dataset.c === 'route') { local('settings', { route: t.value }).then(d => { LOCAL = d; renderLocal(); toast('Notifications: ' + t.selectedOptions[0].text); }).catch(err => { if (/PIN/.test(err.message)) needPin(); else toast(err.message); }); return; }
     if (!n) return;
-    if (n === 'Program preset') { progEd.state.touched = false; progEd.state.sent = null; }  // the editor follows the preset
+    if (n === 'Program preset') { progEd.state.touched = false; progEd.state.mode = 'steps'; progEd.state.sent = null; }  // the editor follows the preset
     if (t.dataset.c === 'select') post('select', n, 'set', { option: t.value }).then(ok => ok && toast(n + ': ' + t.value));
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
@@ -791,17 +791,65 @@ const PG = (() => {
     ['after', 'Time in step'], ['at', 'Clock time'], ['stall_start', 'Stall starts'], ['stall_end', 'Stall ends']];
   const h = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const opt = (list, cur) => list.map(([v, l]) => `<option value="${h(v)}"${String(v) === String(cur) ? ' selected' : ''}>${h(l)}</option>`).join('');
+  // ---- the simple form (the default): most smoker cooks are "smoke at A until the meat reaches B, maybe wrap, then
+  // cook at C until D, then keep it warm or turn off". Reverse sear is the same with a hot second stage; 3-2-1 ribs
+  // go by time. Presets in °F (converted for a °C controller); the form writes an ordinary program.
+  const COOKS = [
+    ['pork', 'Pork shoulder / butt', 'two', { t1: 250, d1: 165, wrap: 'paper', t2: 275, d2: 203, after: 'hold' }, 'Smoke low through the stall (~160-170°F), wrap if you like, finish hotter to ~203°F (probe tender).'],
+    ['brisket', 'Brisket', 'two', { t1: 250, d1: 165, wrap: 'paper', t2: 275, d2: 203, after: 'hold' }, 'Smoke to ~165°F for the bark, wrap in butcher paper, finish to ~203°F, rest at least an hour.'],
+    ['ribs321', 'Ribs, 3-2-1', '321', { t1: 225, h1: 3, h2: 2, h3: 1, after: 'hold' }, 'Spare ribs: 3 h smoke, 2 h wrapped in foil, 1 h unwrapped to firm up and sauce (2-2-1 for baby backs).'],
+    ['ribs', 'Ribs, to temperature', 'one', { t1: 275, d1: 198, after: 'hold' }, 'Done at ~195-203°F, when they bend and crack; no wrap needed at 275°F.'],
+    ['chicken', 'Whole chicken', 'one', { t1: 325, d1: 165, after: 'off' }, 'Hot and fast for crisp skin; 165°F in the breast (thighs run hotter).'],
+    ['pieces', 'Chicken pieces', 'one', { t1: 350, d1: 175, after: 'off' }, 'Thighs and drums are best at 175-185°F.'],
+    ['turkey', 'Turkey', 'one', { t1: 300, d1: 162, after: 'hold' }, '160-165°F in the breast; it coasts a few degrees while it rests.'],
+    ['steak', 'Steak, reverse sear', 'sear', { t1: 225, d1: 115, t2: 700, d2: 130, after: 'off' }, 'Smoke to 10-15°F under your doneness, then sear as hot as the grill goes (130°F = medium rare).'],
+    ['roast', 'Beef roast / prime rib, reverse sear', 'sear', { t1: 225, d1: 120, t2: 500, d2: 130, after: 'hold' }, 'Smoke low to ~120°F, then a hot finish for the crust; 130°F = medium rare.'],
+    ['salmon', 'Salmon', 'one', { t1: 225, d1: 140, after: 'off' }, '140-145°F; a dry brine first keeps it moist.'],
+    ['sausage', 'Sausages', 'one', { t1: 250, d1: 160, after: 'off' }, 'Pork 160°F, chicken 165°F.'],
+    ['loin', 'Pork loin', 'one', { t1: 250, d1: 145, after: 'off' }, '145°F and rest: it is lean, so take it off on time.'],
+  ];
+  const WRAPS = [['none', "Don't wrap"], ['paper', 'Wrap in butcher paper'], ['foil', 'Wrap in foil']];
   function editor(env) {
-    const S = { prog: { name: '', steps: [] }, mode: 'steps', raw: '', note: '', src: null, touched: false, sent: null, userText: false };
-    const text = () => S.mode === 'text' ? S.raw : format(S.prog);
+    const S = { prog: { name: '', steps: [] }, mode: 'simple', raw: '', note: '', src: null, touched: false, sent: null, userText: false, simple: null };
+    // The simple form's values, in the page's unit (°F presets converted for °C).
+    function preset(key) {
+      const c = COOKS.find(x => x[0] === key) || COOKS[0], f = env.isF(), v = Object.assign({ wrap: 'none' }, c[3]);
+      const T = x => x == null ? '' : String(f ? x : Math.round((x - 32) * 5 / 9));
+      return { cut: c[0], probe: (S.simple && S.simple.probe) || 1, t1: T(v.t1), d1: T(v.d1), t2: T(v.t2), d2: T(v.d2), wrap: v.wrap,
+        h1: v.h1 != null ? String(v.h1) : '', h2: v.h2 != null ? String(v.h2) : '', h3: v.h3 != null ? String(v.h3) : '', after: v.after };
+    }
+    function simpleProg() {
+      const v = S.simple || (S.simple = preset('pork')), c = COOKS.find(x => x[0] === v.cut) || COOKS[0], kind = c[2];
+      const until = (val) => [{ type: 'gte', probe: +v.probe || 1, value: String(val), unit: 'h', held: '' }];
+      const after = val => [{ type: 'after', probe: 1, value: String(val), unit: 'h', held: '' }];
+      const steps = [], name = c[1].replace(/[;"]/g, '').slice(0, 30);
+      if (kind === '321') {
+        steps.push({ kind: 'pit', temp: v.t1, notify: '', until: after(v.h1) });
+        steps.push({ kind: 'pit', temp: v.t1, notify: 'Wrap the ribs in foil now', until: after(v.h2) });
+        steps.push({ kind: 'pit', temp: v.t1, notify: 'Unwrap the ribs (and sauce them)', until: after(v.h3) });
+      } else {
+        steps.push({ kind: 'pit', temp: v.t1, notify: '', until: until(v.d1) });
+        if (kind === 'two' && !(v.wrap === 'none' && String(v.t2) === String(v.t1)))
+          steps.push({ kind: 'pit', temp: v.t2, notify: v.wrap === 'paper' ? 'Wrap it in butcher paper now' : v.wrap === 'foil' ? 'Wrap it in foil now' : '', until: until(v.d2) });
+        else if (kind === 'two') steps[0].until = until(v.d2);
+        if (kind === 'sear') steps.push({ kind: 'pit', temp: v.t2, notify: 'Time to sear: the pit is heading up to ' + v.t2 + env.unit(), until: until(v.d2) });
+      }
+      const done = name + ' is done' + (v.after === 'hold' ? ': rest it' : '');
+      steps.push(v.after === 'hold' ? { kind: 'hold', temp: env.isF() ? '200' : '93', notify: done, until: [] } : { kind: 'shutdown', temp: '', notify: done, until: [] });
+      return { name, steps };
+    }
+    const text = () => S.mode === 'text' ? S.raw : S.mode === 'simple' ? format(simpleProg()) : format(S.prog);
     const same = (srv, t) => srv.trim() === t.trim() || (srv.length >= 250 && srv.endsWith('...') && t.trim().startsWith(srv.slice(0, -3).trim()));
     function adopt(t) {
+      // (the simple form stays put: it sets up a new cook; Advanced shows the controller's program)
+      const keep = S.mode === 'simple';
       S.note = ''; S.raw = t;
-      if (!t.trim()) { S.prog = { name: '', steps: [] }; S.mode = S.userText ? 'text' : 'steps'; return; }
-      if (t.length >= 250 && t.endsWith('...')) { S.mode = 'text'; S.note = 'The controller shows only the start of programs longer than 255 characters.'; return; }
+      if (!t.trim()) { S.prog = { name: '', steps: [] }; S.mode = keep ? 'simple' : S.userText ? 'text' : 'steps'; return; }
+      if (t.length >= 250 && t.endsWith('...')) { if (!keep) S.mode = 'text'; S.note = 'The controller shows only the start of programs longer than 255 characters.'; return; }
       const r = parse(t, env.isF());
-      if (r.prog) { S.prog = r.prog; S.mode = S.userText ? 'text' : 'steps'; return; }
-      S.mode = 'text'; S.note = "The step editor can't show this program (" + (r.unsupported || r.error) + '), so it is shown as text.';
+      if (r.prog) { S.prog = r.prog; if (!keep) S.mode = S.userText ? 'text' : 'steps'; return; }
+      if (!keep) S.mode = 'text';
+      S.note = "The step editor can't show this program (" + (r.unsupported || r.error) + '), so it is shown as text.';
     }
     // Follow the controller's program (a preset picked, a load from elsewhere) unless there are edits not loaded yet.
     function sync() {
@@ -840,7 +888,28 @@ const PG = (() => {
         ${hint ? `<p class="pe-hint">${h(hint)}</p>` : ''}
         <input id="${id}-note" class="pe-note" type="text" data-pe="notify" data-i="${i}" value="${h(s.notify)}" maxlength="120" placeholder="${s.kind === 'notify' ? 'Notification text' : 'Notify when this step starts (optional)'}" aria-label="${N} notification"></li>`;
     }
+    function simpleHTML() {
+      const v = S.simple || (S.simple = preset('pork')), f = env.isF(), u = env.unit(), [lo, hi] = range(f), labels = env.labels();
+      const c = COOKS.find(x => x[0] === v.cut) || COOKS[0], kind = c[2];
+      const T = (k, label, pit) => `<span class="pe-unit"><input id="ps-${k}" type="number" inputmode="decimal" data-ps="${k}" value="${h(v[k])}" aria-label="${h(label)}"${pit ? ` min="${lo}" max="${hi}" step="${f ? 5 : 1}"` : ''}><span>${h(u)}</span></span>`;
+      const H = (k, label) => `<span class="pe-unit"><input id="ps-${k}" type="number" inputmode="decimal" min="0.5" step="0.5" data-ps="${k}" value="${h(v[k])}" aria-label="${h(label)}"><span>h</span></span>`;
+      const line = (lab, body) => `<div class="ps-line"><span class="ps-l">${lab}</span><span class="ps-v">${body}</span></div>`;
+      let stages = '';
+      if (kind === '321') stages = line('Smoke at', T('t1', 'Smoke at', 1) + ' for ' + H('h1', 'Hours unwrapped first')) + line('Then', 'wrapped in foil for ' + H('h2', 'Hours wrapped')) + line('Then', 'unwrapped (sauce it) for ' + H('h3', 'Hours unwrapped at the end'));
+      else if (kind === 'one') stages = line('Cook at', T('t1', 'Cook at', 1) + ' until it reaches ' + T('d1', 'Until the meat reaches'));
+      else if (kind === 'sear') stages = line('Smoke at', T('t1', 'Smoke at', 1) + ' until it reaches ' + T('d1', 'Smoke until the meat reaches')) + line('Then sear at', T('t2', 'Sear at', 1) + ' until it reaches ' + T('d2', 'Done at'));
+      else stages = line('Smoke at', T('t1', 'Smoke at', 1) + ' until it reaches ' + T('d1', 'Smoke until the meat reaches')) +
+        line('Then', `<select id="ps-wrap" data-ps="wrap" aria-label="Wrap">${opt(WRAPS, v.wrap)}</select>`) + line('And finish at', T('t2', 'Finish at', 1) + ' until it reaches ' + T('d2', 'Done at'));
+      return `<div class="ps">
+        ${line('What\'s cooking', `<select id="ps-cut" data-ps="cut" aria-label="What's cooking">${opt(COOKS.map(x => [x[0], x[1]]), v.cut)}</select>`)}
+        ${kind === '321' ? '' : line('Probe', `<select id="ps-probe" data-ps="probe" aria-label="Probe">${opt(labels.map((l, j) => [j + 1, l]), v.probe)}</select>`)}
+        ${stages}
+        ${line('When it\'s done', `<select id="ps-after" data-ps="after" aria-label="When it's done">${opt([['hold', 'Keep it warm at ' + (f ? '200' : '93') + u], ['off', 'Turn the grill off']], v.after)}</select>`)}
+        <p class="pe-hint">${h(c[4])}${v.wrap !== 'none' && kind === 'two' ? ' You get a notification when it\'s time to wrap.' : ''}</p>
+        <div class="btns"><button type="button" class="btn" id="pe-advanced" data-pe-act="advanced">Advanced: edit the steps</button></div></div>`;
+    }
     function mainHTML() {
+      if (S.mode === 'simple') return simpleHTML();
       if (S.mode === 'text') {
         return `${S.note ? `<p class="pe-msg">${h(S.note)}</p>` : ''}
           <textarea id="progtext" data-pe="raw" spellcheck="false" aria-label="Program text" placeholder='name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Done"'>${h(S.raw)}</textarea>
@@ -849,21 +918,28 @@ const PG = (() => {
       const f = env.isF(), u = env.unit(), labels = env.labels(), P = S.prog.steps;
       return `<div class="pe-name"><label for="pe-name">Name</label><input id="pe-name" type="text" data-pe="name" value="${h(S.prog.name)}" maxlength="40" placeholder="e.g. Pork butt" autocomplete="off"></div>
         ${P.length ? `<ol class="pe-steps">${P.map((s, i) => stepHTML(s, i, P.length, f, u, labels)).join('')}</ol>` : '<p class="pe-hint">No steps yet.</p>'}
-        <div class="btns"><button type="button" class="btn" id="pe-addstep" data-pe-act="add-step">+ Add step</button><button type="button" class="btn" id="pe-totext" data-pe-act="to-text">Edit as text</button></div>`;
+        <div class="btns"><button type="button" class="btn" id="pe-addstep" data-pe-act="add-step">+ Add step</button><button type="button" class="btn" id="pe-totext" data-pe-act="to-text">Edit as text</button><button type="button" class="btn" id="pe-simple" data-pe-act="simple">Simple form</button></div>`;
     }
     function footHTML() {
-      const t = text(), max = env.max(), errs = S.mode === 'steps' ? check(S.prog, env.isF()) : [], long = max && t.length > max;
-      const ok = t.trim() && !errs.length && !long;
-      return `${S.mode === 'steps' && S.prog.steps.length ? `<details class="more pe-prev" data-k="pe-prev"><summary>Program text · ${t.length}${max ? '/' + max : ''} characters</summary><pre class="pe-pre">${h(t)}</pre></details>` : ''}
+      const t = text(), max = env.max(), errs = S.mode === 'steps' ? check(S.prog, env.isF()) : S.mode === 'simple' ? check(simpleProg(), env.isF()) : [], long = max && t.length > max;
+      const ok = t.trim() && !errs.length && !long, simple = S.mode === 'simple';
+      return `${(S.mode === 'steps' && S.prog.steps.length) || simple ? `<details class="more pe-prev" data-k="pe-prev"><summary>Program text · ${t.length}${max ? '/' + max : ''} characters</summary><pre class="pe-pre">${h(t)}</pre></details>` : ''}
         ${long ? `<p class="err">Too long for the controller's program field (${t.length}/${max} characters): load long programs from Home Assistant.</p>` : ''}
         ${errs.length ? `<ul class="err pe-errs" role="alert">${errs.map(e => `<li>${h(e)}</li>`).join('')}</ul>` : ''}
-        <div class="btns pe-load"><button type="button" class="btn${S.touched && ok ? ' pri' : ''}" id="pe-load" data-pe-act="load"${ok ? '' : ' disabled'}>Load program</button>
-          <span class="pe-state">${S.sent != null ? 'Sent to the controller' : S.touched ? 'Edited: load it, then Start' : 'This is the controller\'s program'}</span></div>`;
+        <div class="btns pe-load"><button type="button" class="btn${(S.touched || simple) && ok ? ' pri' : ''}" id="pe-load" data-pe-act="load"${ok ? '' : ' disabled'}>${simple ? 'Load this cook' : 'Load program'}</button>
+          <span class="pe-state">${S.sent != null ? 'Sent to the controller' : simple ? 'Load it, then Start' : S.touched ? 'Edited: load it, then Start' : 'This is the controller\'s program'}</span></div>`;
     }
     function bind(el) {
       el._pe = 1;
       el.addEventListener('click', e => { const b = e.target.closest('[data-pe-act]'); if (b && el.contains(b) && !b.disabled) act(b.dataset.peAct, +b.dataset.i, +b.dataset.k); });
-      el.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.pe && t.tagName !== 'SELECT') { set(t); soft(); } });
+      el.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.pe && t.tagName !== 'SELECT') { set(t); soft(); }
+        if (t.dataset && t.dataset.ps && t.tagName !== 'SELECT') { S.simple[t.dataset.ps] = t.value; S.touched = true; S.sent = null; soft(); } });
+      el.addEventListener('change', e => {  // the simple form: a new cut fills in its numbers
+        const t = e.target; if (!t.dataset || !t.dataset.ps) return;
+        S.touched = true; S.sent = null;
+        if (t.dataset.ps === 'cut') S.simple = preset(t.value); else S.simple[t.dataset.ps] = t.value;
+        if (t.tagName === 'SELECT') draw(true, t.id); else soft();
+      });
       el.addEventListener('focusout', () => setTimeout(() => draw(false), 0));  // what was held back while a field had focus
       el.addEventListener('change', e => {
         const t = e.target; if (!t.dataset || !t.dataset.pe) return;
@@ -887,6 +963,8 @@ const PG = (() => {
     function act(a, i, k) {
       const P = S.prog.steps;
       if (a === 'load') return load();
+      if (a === 'advanced') { if (S.touched) S.prog = simpleProg(); S.mode = 'steps'; S.note = ''; return draw(true, 'pe-addstep'); }
+      if (a === 'simple') { S.mode = 'simple'; return draw(true, 'ps-cut'); }
       if (a === 'to-text') { S.raw = format(S.prog); S.mode = 'text'; S.userText = true; S.note = ''; return draw(true, 'progtext'); }
       if (a === 'to-steps') {
         const r = S.raw.trim() ? parse(S.raw, env.isF()) : { prog: { name: '', steps: [] } };
