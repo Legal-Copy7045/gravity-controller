@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.37] - 2026-11-23
+
+**Setup has a page of its own** on both dashboards: the section bar's Setup button opens it, with *Back to the cook*
+(the phone's back gesture works too). The main page is just the cook. On the controller's page, a change while it's
+locked asks for the PIN right there instead of sending you to Setup.
+
+Fixes from two independent reviews of the whole project:
+- **Security:**
+  - The controller no longer accepts firmware uploads from the local network (anyone on the Wi-Fi could have
+    flashed it and skipped the PIN). Updates come from the signed release only. Building it yourself in the ESPHome
+    dashboard: add a password-protected OTA (docs/install.md).
+  - Other websites can't send changes to the controller (cross-site requests are refused).
+  - Big uploads only from an unlocked page; journal notes are only shown to an unlocked page; keys are never in the
+    HTTP client's logs.
+- **PIN:** a controller up for more than 25 days would have refused every PIN ("too many wrong PINs"). Changing the
+  PIN hashes it once less, and the hashing pauses regularly so it never holds anything else up.
+- **Reliability:** the AI questions read the cook's state on the right task; a request that can't start still
+  reports back (the page used to wait forever); no Wi-Fi reconnect during a cook; the last two timer wrap-rounds
+  fixed; an idle controller no longer writes to flash every 5 minutes.
+- **Home Assistant:**
+  - The automatic package update never overwrites a package you've edited (you get a notification instead).
+  - The AI advisor stays off after a restart if you turned it off (it used to switch itself back on).
+  - Open Pitmaster: one upload per cook (a star then a tag could upload two, one of them impossible to remove);
+    turning sharing back on doesn't share the cooks from while it was off; automatic sharing waits 10 minutes
+    after your last change so your feedback goes together.
+  - The grill photo is stored without its location data. A switched-off controller isn't reloaded every half hour.
+- **Releases:** the privacy check now has to pass before anything is published.
+
 ## [0.2.36] - 2026-11-23
 
 - **Plan with AI on the controller makes programs the grill can run.** The AI is told the pit's range again (it
