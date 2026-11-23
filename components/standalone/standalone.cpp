@@ -102,11 +102,10 @@ class Handler : public AsyncWebHandler {
     if (index == 0) {
       this->body_.clear();
       this->too_big_ = false;
-      // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body, and only an
-      // unlocked browser may send one (no one else gets the controller to buffer 400 KB).
+      // JSON settings are small; a label photo (base64, shrunk by the page) is the one large body, and only a
+      // browser that may make changes sends one (once a PIN is set, no one else gets the controller to buffer 400 KB).
       char ubuf[AsyncWebServerRequest::URL_BUF_SIZE];
-      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && this->p_->pin_set() &&
-                           this->p_->write_allowed(token_(req))
+      this->cap_ = std::strcmp(req->url_to(ubuf).c_str(), "/local/ai/label") == 0 && this->p_->write_allowed(token_(req))
                        ? 400000u : 4096u;
       if (total > 0 && total <= this->cap_) this->body_.reserve(total);  // one allocation, not doubling up to 512 KB
     }
@@ -152,7 +151,7 @@ class Handler : public AsyncWebHandler {
       return;
     }
     if (too_big) {
-      req->send(413, "application/json", "{\"error\":\"Too big (a photo needs the PIN; keep it under 300 KB)\"}");
+      req->send(413, "application/json", "{\"error\":\"Too big (keep a photo under 300 KB)\"}");
       return;
     }
     const char *m = req->method() == HTTP_GET ? "GET" : req->method() == HTTP_POST ? "POST" : "OTHER";
@@ -964,7 +963,7 @@ std::string Standalone::status_json_(bool authed) {
       int light = this->light_by_(t, &est);
       JsonObject plan = o["plan"].to<JsonObject>();
       // When you're eating (and so when the house is busy) is for an unlocked page once a PIN is set.
-      const bool show = authed || !this->req_pin_;
+      const bool show = authed;
       plan["serve_by"] = show ? this->s2_.serve_by : 0;
       plan["rest_min"] = this->s2_.rest_min;
       plan["now"] = t;
@@ -1028,7 +1027,8 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   bool authed;
   {
     std::lock_guard<std::mutex> gl(this->guard_lock_);
-    authed = this->guard_->pin_set() && this->guard_->check(token);
+    // No PIN set: nothing is locked. Once one is set, a request needs a live session.
+    authed = !this->guard_->pin_set() || this->guard_->check(token);
     this->req_pin_ = this->guard_->pin_set();  // for this request's answer (read below without guard_lock_)
     this->req_locked_ = this->guard_->locked_for(client);
     this->req_first_pin_ = this->guard_->first_pin_for();
@@ -1049,14 +1049,13 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   if (method == "GET" && path == "community")
     return this->community_json_();
   if (method == "GET" && path == "ai")
-    return this->ai_json_(authed || !this->req_pin_);
+    return this->ai_json_(authed);
   if (method != "POST") {
     status = 404;
     return err_json("not found");
   }
-  // Everything below changes settings or keys: a PIN must be set (so keys are never stored on an open page) and
-  // this request must carry a live session. Checked before the body is even parsed.
-  if (!this->req_pin_) { status = 409; return err_json("Set a PIN for the device page first"); }
+  // Everything below changes settings or keys: once a PIN is set, this request must carry a live session. Checked
+  // before the body is even parsed. Keys stay write-only either way.
   if (!authed) { status = 401; return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str(); }
   JsonDocument in = json::parse_json(body);
   auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };

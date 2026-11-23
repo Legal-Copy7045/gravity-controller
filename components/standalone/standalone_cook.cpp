@@ -495,7 +495,7 @@ std::string Standalone::journal_json_(bool authed) {
       num("stall_h", e->stall_h); num("total_h", e->total_h); num("ambient_c", e->ambient_c);
       if (e->wrapped < 2) o["wrapped"] = e->wrapped == 1;
       if (e->rating) o["rating"] = e->rating;
-      if (authed || !this->req_pin_) o["notes"] = e->notes;  // private: only for an unlocked page
+      if (authed) o["notes"] = e->notes;  // private: only for an unlocked page
       static const char *const ST[] = {"pending", "shared", "declined", "sending"};
       bool ready = e->rating || e->tags || (e->ended && t && t - e->ended >= READY_AFTER_S);
       o["share"] = e->share == 0 && !ready ? "waiting" : ST[e->share & 3];
