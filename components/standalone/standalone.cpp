@@ -19,6 +19,12 @@
 #ifdef USE_CAPTIVE_PORTAL
 #include "esphome/components/captive_portal/captive_portal.h"
 #endif
+#ifdef USE_PROVISIONING
+#include "esphome/components/provisioning/provisioning.h"
+#endif
+#ifdef USE_WIFI
+#include "esphome/components/wifi/wifi_component.h"
+#endif
 #include "esphome/components/network/util.h"
 #ifdef USE_TIME_TIMEZONE
 #include "esphome/components/time/posix_tz.h"
@@ -45,6 +51,10 @@ namespace standalone {
 
 static const char *const TAG = "standalone";
 static const char *const TOKEN_HEADER = "X-Smoker-Token";
+// Every change (POST, or one of ESPHome's REST actions by any method) must carry this header. A form or <img> on
+// another website can't send it, and a script on one can only with a CORS preflight, which is refused: browsers send
+// no Sec-Fetch-Site to an http:// address and ESPHome would answer the preflight for any origin.
+static const char *const MARK_HEADER = "X-Smoker";
 
 // ---------------------------------------------------------------- the web handler (runs in the httpd task)
 
@@ -55,25 +65,34 @@ class Handler : public AsyncWebHandler {
   bool canHandle(AsyncWebServerRequest *req) const override {
     char buf[AsyncWebServerRequest::URL_BUF_SIZE];
     StringRef url = req->url_to(buf);
-    if (url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0)
-      return this->take_();
+    const bool local = url.size() >= 7 && std::strncmp(url.c_str(), "/local/", 7) == 0;
     // DNS rebinding (a website posing as the controller) is refused for everything, reading included: such a page
     // could otherwise read the live states. Not while the setup hotspot's portal is up (phones ask it for any name).
-    if (bad_host_(req) && !portal_active_())
+    if (bad_host_(req) && (local || !portal_active_()))
       return this->take_();  // refused in handleRequest
+    // Another website's script: a CORS preflight is refused (ESPHome would allow any origin, private network
+    // included), and so is any request it can make without one, reading included (/local/status, the entities, the
+    // live event stream: Wi-Fi names and more). The device page itself sends no Origin when it reads (same-origin
+    // GET, EventSource) and its own when it posts; a plain visit (no Origin) still works.
+    if (req->method() == HTTP_OPTIONS)
+      return foreign_origin_(req) && this->take_();
+    if (foreign_origin_(req))
+      return this->take_();
+    if (local)
+      return this->take_();
     // Any change through the device page needs the PIN once one is set. ESPHome's web server also carries out
     // actions sent as GET (/button/<name>/press, /number/<name>/set?value=...), so those count as changes too: an
     // <img> on any website could otherwise press a button. Reading (the page, states, the live event stream) stays
     // open on the local network.
-    if (req->method() == HTTP_OPTIONS)
-      return false;
     const bool action = is_action_(url);
     if ((req->method() == HTTP_GET || req->method() == HTTP_HEAD) && !action)
       return false;
+    if (!action && portal_active_())
+      return false;  // the setup hotspot's portal (/wifisave): not ours to judge
     if (action && clears_pin_(url))
       return this->take_();  // never from the web page, PIN or not: it would reopen the first PIN's window
-    if (cross_site_(req))
-      return this->take_();  // refused in handleRequest: another website can't post a form here, PIN or not
+    if (!write_ok_(req))
+      return this->take_();  // refused in handleRequest: another website can't make changes here, PIN or not
     if (!this->p_->pin_set())
       return false;
     return !this->p_->write_allowed(token_(req)) && this->take_();
@@ -114,7 +133,12 @@ class Handler : public AsyncWebHandler {
                 ("Open the controller at its IP address or http://" + me + ".local/ (other names are refused)").c_str());
       return;
     }
-    if ((req->method() != HTTP_GET || !local) && cross_site_(req)) {
+    const bool read = (req->method() == HTTP_GET || req->method() == HTTP_HEAD) && (local || !is_action_(url));
+    if (req->method() == HTTP_OPTIONS || foreign_origin_(req)) {
+      req->send(403, "application/json", "{\"error\":\"Only the controller's own page can use it\"}");
+      return;
+    }
+    if (!read && !write_ok_(req)) {
       req->send(403, "application/json", "{\"error\":\"Changes come from the controller's own page only\"}");
       return;
     }
@@ -144,20 +168,35 @@ class Handler : public AsyncWebHandler {
   }
 
  protected:
-  // A request sent by another website (a form post, a fetch): the browser marks it. Missing headers (curl, old
-  // browsers, Home Assistant) are allowed: the PIN still applies.
-  static bool cross_site_(AsyncWebServerRequest *req) {
-    auto site = req->get_header("Sec-Fetch-Site");
-    if (site.has_value() && (site.value() == "cross-site" || site.value() == "same-site"))
+  // host[:port], lower case, without a default port (browsers leave :80 out of both Origin and Host, but be sure).
+  static std::string norm_host_(std::string h) {
+    for (auto &c : h) c = std::tolower(static_cast<unsigned char>(c));
+    if (h.size() > 3 && h.compare(h.size() - 3, 3, ":80") == 0) h.resize(h.size() - 3);
+    return h;
+  }
+  // The request names an origin other than the page's own (the Host it asked for): another website's script, or a
+  // sandboxed/file page ("null"). No Origin at all (a visit, the page's own reads, curl, Home Assistant): not foreign.
+  static bool foreign_origin_(AsyncWebServerRequest *req) {
+    auto origin = req->get_header("Origin");
+    if (!origin.has_value())
+      return false;
+    const std::string &o = origin.value();
+    auto host = req->get_header("Host");
+    size_t p = o.find("://");
+    if (o.empty() || o == "null" || p == std::string::npos || !host.has_value() || host.value().empty())
       return true;
-    auto origin = req->get_header("Origin"), host = req->get_header("Host");
-    if (origin.has_value() && host.has_value() && !origin.value().empty() && origin.value() != "null") {
-      const std::string &o = origin.value();
-      size_t p = o.find("://");
-      std::string oh = p == std::string::npos ? o : o.substr(p + 3);
-      return oh != host.value();
-    }
-    return false;
+    std::string oh = o.substr(p + 3);
+    if (!oh.empty() && oh.back() == '/') oh.pop_back();
+    return norm_host_(oh) != norm_host_(host.value());
+  }
+  // A change may go ahead (the PIN still applies): it carries X-Smoker: 1, names no other origin, and the browser
+  // (where it says so, over https) doesn't mark it as coming from another site.
+  static bool write_ok_(AsyncWebServerRequest *req) {
+    auto mark = req->get_header(MARK_HEADER);
+    if (!mark.has_value() || mark.value() != "1" || foreign_origin_(req))
+      return false;
+    auto site = req->get_header("Sec-Fetch-Site");
+    return !(site.has_value() && (site.value() == "cross-site" || site.value() == "same-site"));
   }
   // /<domain>/<name>/<action>: ESPHome's REST actions (press, turn_on, set, install...), whatever the method.
   static bool is_action_(const StringRef &url) {
@@ -305,14 +344,35 @@ void Standalone::setup() {
   pinauth::Stored pin{};
   if (this->pin_pref_.load(&pin) && pin.set == 1)
     this->guard_->load(pin);
-  this->sess_pref_ = global_preferences->make_preference<SavedSessions>(fnv1_hash("standalone_sessions_v1"), true);
-  SavedSessions ss{};
-  if (this->guard_->pin_set() && this->sess_pref_.load(&ss) && ss.n <= 4) {
-    std::vector<std::string> toks;
-    for (uint8_t i = 0; i < ss.n; i++) { ss.tok[i][64] = 0; toks.emplace_back(ss.tok[i]); }
-    this->guard_->restore(toks);
+  // Sessions also expire on the clock once it's set (so the time the controller was off counts).
+  this->guard_->set_epoch_clock([]() {
+    const time_t t = ::time(nullptr);
+    return t > 1700000000 ? uint32_t(t) : 0u;
+  });
+  this->sess_pref_ = global_preferences->make_preference<SavedSessions2>(fnv1_hash("standalone_sessions_v2"), true);
+  SavedSessions2 s2{};
+  bool resave = false;
+  if (this->guard_->pin_set() && this->sess_pref_.load(&s2) && s2.n <= 4) {
+    std::vector<pinauth::SavedSession> v;
+    for (uint8_t i = 0; i < s2.n; i++) {
+      s2.tok[i][64] = 0;
+      v.push_back({s2.tok[i], s2.left_s[i], s2.epoch_expires[i]});
+    }
+    this->guard_->restore(v);  // with the time each had left: a restart never extends a session
+  } else if (this->guard_->pin_set()) {
+    // Older firmware saved the tokens alone: keep them an hour (not a fresh 12 h), then they're saved the new way.
+    auto old = global_preferences->make_preference<SavedSessions>(fnv1_hash("standalone_sessions_v1"), true);
+    SavedSessions ss{};
+    if (old.load(&ss) && ss.n > 0 && ss.n <= 4) {
+      std::vector<std::string> toks;
+      for (uint8_t i = 0; i < ss.n; i++) { ss.tok[i][64] = 0; toks.emplace_back(ss.tok[i]); }
+      this->guard_->restore(toks, 3600);
+      SavedSessions none{};
+      old.save(&none);
+      resave = true;
+    }
   }
-  this->sess_gen_ = this->guard_->generation();
+  this->sess_gen_ = this->guard_->generation() - (resave ? 1 : 0);
 #ifdef USE_ESP32
   // The first PIN's window opens on power-up (or a reset by hand), not on a software restart: with no PIN set,
   // anyone on the Wi-Fi can press Restart, and that mustn't let them claim the page.
@@ -322,6 +382,7 @@ void Standalone::setup() {
       break;
     default:
       this->guard_->close_first_pin();
+      this->hw_reset_ = false;
   }
 #endif
   this->apply_tz_();
@@ -378,20 +439,32 @@ void Standalone::loop() {
   this->loop_cook_(now);
   this->loop_ha_watch_(now);
   if (this->clear_pin_pending_) this->clear_pin();
-  {  // keep the unlocked browsers across a restart (saved only when the list changes: login, logout, expiry)
+  {  // keep the unlocked browsers across a restart: saved when the list changes (login, logout, expiry), and every
+     // 30 min while any is live, so the time each has left is saved (a restart never gives a session more)
     std::unique_lock<std::mutex> g(this->guard_lock_, std::try_to_lock);  // never wait here: the PIN may be hashing
     if (g.owns_lock() && this->guard_ != nullptr)
-      this->guard_->tick();  // the first PIN's window and the lockouts end on time
-    if (g.owns_lock() && this->guard_ != nullptr && this->guard_->generation() != this->sess_gen_) {
+      this->guard_->tick();  // the first PIN's window, the lockouts and the sessions end on time
+    const bool due = this->sess_saved_at_ != 0 && now - this->sess_saved_at_ >= 30UL * 60 * 1000;
+    if (g.owns_lock() && this->guard_ != nullptr && (this->guard_->generation() != this->sess_gen_ || due)) {
       this->sess_gen_ = this->guard_->generation();
-      SavedSessions ss{};
-      for (auto &t : this->guard_->tokens()) {
+      SavedSessions2 ss{};
+      for (auto &v : this->guard_->saved()) {
         if (ss.n >= 4) break;
-        std::strncpy(ss.tok[ss.n++], t.c_str(), 64);
+        std::strncpy(ss.tok[ss.n], v.token.c_str(), 64);
+        ss.left_s[ss.n] = v.left_s;
+        ss.epoch_expires[ss.n++] = v.epoch_expires;
       }
       this->sess_pref_.save(&ss);
+      this->sess_saved_at_ = ss.n ? (now ? now : 1) : 0;  // nothing live: no more saves until the next login
     }
   }
+  // The setup window (provisioning): once setup is done, close it early after a software restart (anyone on the
+  // Wi-Fi can cause one: Restart, a crash), and when the first PIN has just been set.
+  if (!this->prov_checked_ && App.is_setup_complete()) {
+    this->prov_checked_ = true;
+    if (!this->hw_reset_) this->close_provisioning_("a software restart");
+  }
+  if (this->close_prov_.exchange(false)) this->close_provisioning_("the device page's PIN was set");
   if (this->save_pending_.exchange(false))
     this->save_();
   // Weather: every 30 min while a location is set (and straight away after it changes).
@@ -467,6 +540,45 @@ bool Standalone::pin_set() {
 bool Standalone::write_allowed(const std::string &token) {
   std::lock_guard<std::mutex> g(this->guard_lock_);
   return this->guard_ == nullptr || !this->guard_->pin_set() || this->guard_->check(token);
+}
+
+// Is the native API waiting to be adopted (no key yet)? While it is, anyone on the Wi-Fi can connect to it.
+static bool api_keyless() {
+#if defined(USE_API) && defined(USE_API_NOISE)
+  return api::global_api_server != nullptr && !api::global_api_server->get_noise_ctx().has_psk();
+#elif defined(USE_API)
+  return true;  // a plain-text API: anyone on the Wi-Fi, always
+#else
+  return false;
+#endif
+}
+
+// Close ESPHome's provisioning window now (it reopens only on a power cycle): only while the API is unadopted and
+// the controller already has Wi-Fi settings (a controller still being set up keeps its hotspot), and never once the
+// API has a key (closing would then refuse Home Assistant too).
+void Standalone::close_provisioning_(const char *why) {
+#if defined(USE_PROVISIONING) && defined(USE_API) && defined(USE_API_NOISE)
+  auto *pm = provisioning::global_provisioning_manager;
+  if (pm == nullptr || pm->closed() || !pm->window_pending() || !api_keyless())
+    return;
+#ifdef USE_WIFI
+  if (wifi::global_wifi_component == nullptr || !wifi::global_wifi_component->has_sta())
+    return;
+#endif
+  pm->set_timeout(1);  // the manager closes it on its next loop (its close is protected; this is its own timer)
+  ESP_LOGW(TAG, "Setup window closed (%s): to add the controller to Home Assistant, power it off and on first", why);
+#else
+  (void) why;
+#endif
+}
+
+void Standalone::clear_pin_from_ha() {
+  if (api_keyless()) {
+    ESP_LOGW(TAG, "Not clearing the device page PIN: Home Assistant hasn't adopted this controller yet, so anyone on "
+                  "the Wi-Fi could press this. Hold the controller's BOOT button for 10 s instead");
+    return;
+  }
+  this->clear_pin();
 }
 
 void Standalone::clear_pin() {
@@ -750,7 +862,8 @@ void Standalone::worker_lane_(int lane) {
     std::lock_guard<std::mutex> g(this->results_lock_);
     if (j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0 || j.what == "aggregates" ||
         j.what.rfind("ai:", 0) == 0) {
-      bool keep = (j.what == "aggregates" && code == 200) || j.what.rfind("ai:", 0) == 0;
+      bool keep = (j.what == "aggregates" && code == 200) || j.what.rfind("ai:", 0) == 0 ||
+                  (j.what.rfind("unshare:", 0) == 0 && code == 200);  // {"already":true}
       this->done_.push_back({j.what, code, keep ? std::move(resp) : std::string()});
       continue;
     }
@@ -862,10 +975,12 @@ std::string Standalone::api_pin_(const std::string &path, const std::string &bod
     return json::build_json([&](JsonObject o) { o["token"] = t; }).c_str();
   }
   if (path == "pin") {  // set (first use, within its window) or change (needs the current PIN)
+    const bool first = !this->guard_->pin_set();
     std::string why = this->guard_->set_pin(str("pin"), str("current"), client);
     if (why == pinauth::FIRST_PIN_CLOSED) { status = 403; return err_json(why); }
     if (!why.empty()) { status = 400; return err_json(why); }
     this->save_pending_ = true;
+    if (first) this->close_prov_ = true;  // the owner has the page: the setup window closes (main loop)
     std::string t = this->guard_->new_session();  // (not login(): that would hash the PIN a third time)
     return json::build_json([&](JsonObject o) { o["token"] = t; }).c_str();
   }

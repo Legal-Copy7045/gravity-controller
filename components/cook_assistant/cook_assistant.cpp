@@ -964,13 +964,18 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
   if (!cook::parse_program(text, this->probe_keys(), this->fahrenheit_, prog, why))
     return false;
   note.clear();
+  // An AI's program never goes above "AI max pit" (below the grill's own highest): an answer asking for a hotter fire
+  // is brought down, and the note says so.
+  const float hi = this->ai_max_c_();
+  const bool capped = hi < this->pit_max_c_ - 0.3f;
   for (size_t i = 0; i < prog.steps.size(); i++) {
     float pc = prog.steps[i].pit_c;
-    if (std::isnan(pc) || (pc >= this->pit_min_c_ - 0.3f && pc <= this->pit_max_c_ + 0.3f))
+    if (std::isnan(pc) || (pc >= this->pit_min_c_ - 0.3f && pc <= hi + 0.3f))
       continue;
-    float to = std::max(this->pit_min_c_, std::min(this->pit_max_c_, pc));
+    float to = std::max(this->pit_min_c_, std::min(hi, pc));
     note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": " + this->fmt_temp_(pc) +
-            " changed to " + this->fmt_temp_(to) + (pc < to ? " (the lowest the grill holds)" : " (the grill's highest)");
+            " changed to " + this->fmt_temp_(to) +
+            (pc < to ? " (the lowest the grill holds)" : capped ? " (the AI max pit)" : " (the grill's highest)");
     prog.steps[i].pit_c = to;
   }
   fixed = cook::format_program(prog, this->probe_keys(), this->fahrenheit_);

@@ -161,9 +161,12 @@ std::string credentials_refusal(const CredentialCheck &c) {
     if (c.peer != c.fixed)
       return "the device connected over Bluetooth isn't the grill set in the YAML (bluetooth: mac_address)";
   } else {
-    if (c.remembered == 0 || c.peer != c.remembered)
+    if (c.remembered == 0)
       return "the device connected over Bluetooth isn't a known grill yet: keep it connected for 12 minutes, or set "
              "its address in the YAML (bluetooth: mac_address)";
+    if (c.peer != c.remembered)  // taken over from the remembered grill: never trusted (see may_take_over)
+      return "the device connected over Bluetooth isn't the remembered grill: to use a different grill, press "
+             "\"Forget the grill\" first, or set its address in the YAML (bluetooth: mac_address)";
     if (!c.remembered_at_boot && c.now - c.remembered_at < GRILL_TRUST_MS) {
       unsigned left = unsigned((GRILL_TRUST_MS - (c.now - c.remembered_at) + 59999) / 60000);
       return "this grill was only found this session: try again in " + std::to_string(left) +
@@ -197,6 +200,8 @@ bool may_take_over(const TakeoverCheck &t) {
     return false;
   if (current == 0)
     return true;  // nothing chosen yet: the first grill heard
+  if (t.remembered != 0 && t.candidate == t.remembered)
+    return true;  // the remembered grill is back (we were on a stand-in): always back to it, connected or not
   if (!t.idle)
     return false;
   const uint32_t silent = t.now - t.current_seen_at;  // seen_at 0: millis() started at 0, so it counts from boot

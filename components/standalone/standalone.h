@@ -135,6 +135,10 @@ class Standalone : public Component {
 
   // --- recovery (BOOT button held, or Home Assistant) ---
   void clear_pin();
+  /// Home Assistant's "Clear the device page PIN" button: only once Home Assistant has adopted the controller (its
+  /// API has a key). Until then anyone on the Wi-Fi could connect to the API and press it, reopening the first
+  /// PIN's window for themselves; the BOOT button still works.
+  void clear_pin_from_ha();
 
   // --- one-time move of the old "ntfy topic" text entity into the secret store ---
   bool migrate_ntfy_topic(const std::string &topic);
@@ -199,9 +203,17 @@ class Standalone : public Component {
   void *jobs_sem_[2]{nullptr, nullptr};
   bool ai_task_{false};  // the AI lane's task, started on first use
   // Unlocked browsers survive a restart (pin_auth.h Guard::tokens/restore).
-  struct SavedSessions { uint8_t n; char tok[4][65]; };
+  struct SavedSessions { uint8_t n; char tok[4][65]; };  // before 0.2.51: tokens only (each got a fresh 12 h)
+  struct SavedSessions2 { uint8_t n; char tok[4][65]; uint32_t left_s[4]; uint32_t epoch_expires[4]; };
   ESPPreferenceObject sess_pref_;
   uint32_t sess_gen_{0};
+  uint32_t sess_saved_at_{0};  // last save while sessions were live (their time left is saved again every 30 min)
+  // Setup window (ESPHome's provisioning): closed early on a software restart and once the first PIN is set, while
+  // the native API has no key (an unadopted controller), see setup()/loop().
+  bool hw_reset_{true};
+  bool prov_checked_{false};
+  std::atomic<bool> close_prov_{false};
+  void close_provisioning_(const char *why);
   static void api_task_(void *arg);
   void *api_q_{nullptr}, *api_done_{nullptr}, *api_mutex_{nullptr};
   // results handed back to the main loop
@@ -232,6 +244,10 @@ class Standalone : public Component {
   uint32_t community_cooks_{0}, community_at_{0};
   std::string community_updated_;
   std::vector<std::pair<uint32_t, std::string>> share_results_;  // entry id, "shared"/"refused …"
+  // Uploads and withdrawals waiting for share_pump_ (bit per journal slot), and its pause (Open Pitmaster's limits).
+  uint32_t share_wait_{0}, unshare_wait_{0};
+  uint32_t share_sent_at_{0}, share_hold_ms_{0};
+  void share_pump_(uint32_t now);
   struct Done { std::string what; int code; std::string body; };
   std::vector<Done> done_;  // finished worker jobs for the main loop (under results_lock_)
   bool network_ready_();

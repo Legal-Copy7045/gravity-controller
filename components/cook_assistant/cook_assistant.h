@@ -5,6 +5,8 @@
 // target through an automation (`on_set_pit`), so it works with the stock
 // controller bridge today and the replacement controller later.
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <string>
 #include <vector>
@@ -228,6 +230,10 @@ class CookAssistant : public Component {
   bool fit_program(const std::string &text, std::string &fixed, std::string &note, std::string &why);
   /// The grill's pit range, in this controller's unit, for prompts: "200-700°F".
   std::string pit_range_text() const { return this->fmt_temp_(this->pit_min_c_) + " to " + this->fmt_temp_(this->pit_max_c_); }
+  /// The range an AI-written program may use: the grill's, capped at the "AI max pit" number.
+  std::string ai_pit_range_text() const { return this->fmt_temp_(this->pit_min_c_) + " to " + this->fmt_temp_(this->ai_max_c_()); }
+  /// The highest pit an AI-written program may ask for (fit_program brings hotter steps down to it, with a note).
+  void set_ai_max_pit_c(float c) { if (std::isfinite(c)) this->ai_max_pit_c_ = c; }
   /// Report the outcome of an on_set_pit write (call from the on_set_pit automation).
   void pit_write_result(bool ok);
   void set_pit_range(float min_c, float max_c) {
@@ -378,6 +384,8 @@ class CookAssistant : public Component {
   double pit_hist_last_min_{-1e9};
   float pit_min_c_{93.333f};   // 200 °F: the stock controller's minimum
   float pit_max_c_{371.111f};  // 700 °F
+  float ai_max_pit_c_{204.444f};  // 400 °F: AI-written programs (the "AI max pit" number)
+  float ai_max_c_() const { return std::max(this->pit_min_c_, std::min(this->pit_max_c_, this->ai_max_pit_c_)); }
   ESPPreferenceObject state_pref_;
 };
 

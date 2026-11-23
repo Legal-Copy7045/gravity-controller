@@ -188,6 +188,7 @@ void Guard::clear() {
   this->gen_++;
   this->clients_.clear();
   this->global_on_ = false;
+  this->overflow_ = false;
   this->open_first_pin_();
 }
 
@@ -196,7 +197,9 @@ uint32_t Guard::locked_for(const std::string &client) const {
   int64_t left = 0;
   const Client *c = this->find_(client);
   if (c != nullptr && c->locked) left = int32_t(c->locked_until - now);
-  if (this->global_on_) {  // everyone waits while GLOBAL_MAX or more wrong PINs are outstanding
+  // The backstop: while GLOBAL_MAX or more wrong PINs are outstanding, a client with wrong PINs of its own waits; one
+  // without any (the owner) doesn't, unless guessers have overflowed the client list (then nobody can be told apart).
+  if (this->global_on_ && (this->overflow_ || (c != nullptr && c->failures > 0))) {
     int64_t g = int64_t(int32_t(this->global_until_ - now)) - int64_t(GLOBAL_MAX - 1) * GLOBAL_LEAK_MS;
     if (g > left) left = g;
   }
@@ -206,11 +209,26 @@ uint32_t Guard::locked_for(const std::string &client) const {
 void Guard::tick() {
   const uint32_t now = this->now_();
   if (this->first_open_ && (this->pin_set() || now - this->first_from_ >= FIRST_PIN_MS)) this->first_open_ = false;
-  if (this->global_on_ && int32_t(this->global_until_ - now) <= 0) this->global_on_ = false;
+  if (this->global_on_ && int32_t(this->global_until_ - now) <= 0) this->global_on_ = this->overflow_ = false;
   for (auto it = this->clients_.begin(); it != this->clients_.end();) {
     if (it->locked && int32_t(it->locked_until - now) <= 0) it->locked = false;
     if (!it->locked && now - it->last >= FORGET_MS) it = this->clients_.erase(it);
     else ++it;
+  }
+  this->prune_();
+}
+
+void Guard::prune_() {
+  const uint32_t now = this->now_(), epoch = this->epoch_now_();
+  for (auto it = this->sessions_.begin(); it != this->sessions_.end();) {
+    if (this->expired_(*it, now, epoch)) {
+      it = this->sessions_.erase(it);
+      this->gen_++;
+      continue;
+    }
+    if (epoch != 0 && it->epoch_expires == 0)  // the clock is set now: the expiry on it, for after a restart
+      it->epoch_expires = epoch + (it->life - (now - it->from)) / 1000;
+    ++it;
   }
 }
 
@@ -231,6 +249,7 @@ Guard::Client &Guard::client_(const std::string &ip, uint32_t now) {
       if (better) worst = it;
     }
     this->clients_.erase(worst);
+    if (this->global_on_) this->overflow_ = true;  // a guesser forgotten: it could come back as a "new" client
   }
   this->clients_.push_back({ip, 0, false, 0, now});
   return this->clients_.back();
@@ -243,7 +262,10 @@ void Guard::forget_(const std::string &ip) {
 
 void Guard::fail_(const std::string &ip) {
   const uint32_t now = this->now_();
-  if (!this->global_on_ || int32_t(this->global_until_ - now) <= 0) this->global_until_ = now;
+  if (!this->global_on_ || int32_t(this->global_until_ - now) <= 0) {
+    this->global_until_ = now;
+    this->overflow_ = false;
+  }
   this->global_until_ += GLOBAL_LEAK_MS;
   this->global_on_ = true;
   Client &c = this->client_(ip, now);
@@ -264,7 +286,8 @@ std::string Guard::new_token_() {
   this->random_(r, sizeof(r));
   std::string t = to_hex(r, sizeof(r));
   if (this->sessions_.size() >= 4) this->sessions_.erase(this->sessions_.begin());
-  this->sessions_.push_back({t, this->now_() + uint32_t(12UL * 3600 * 1000)});
+  const uint32_t epoch = this->epoch_now_();
+  this->sessions_.push_back({t, this->now_(), SESSION_MS, epoch ? epoch + SESSION_MS / 1000 : 0});
   this->gen_++;
   return t;
 }
@@ -282,17 +305,15 @@ std::string Guard::login(const std::string &pin, const std::string &client) {
 
 bool Guard::check(const std::string &token) {
   if (token.size() != 64) return false;
-  const uint32_t now = this->now_();
-  for (auto it = this->sessions_.begin(); it != this->sessions_.end(); ++it) {
-    if (int32_t(it->expires - now) <= 0) {
-      this->sessions_.erase(it);
-      this->gen_++;
-      return this->check(token);
-    }
-    if (it->token.size() == token.size() &&
-        equal_ct(reinterpret_cast<const uint8_t *>(it->token.data()), reinterpret_cast<const uint8_t *>(token.data()),
+  this->prune_();
+  const uint32_t now = this->now_(), epoch = this->epoch_now_();
+  for (auto &s : this->sessions_) {
+    if (s.token.size() == token.size() &&
+        equal_ct(reinterpret_cast<const uint8_t *>(s.token.data()), reinterpret_cast<const uint8_t *>(token.data()),
                  token.size())) {
-      it->expires = now + uint32_t(12UL * 3600 * 1000);
+      s.from = now;  // renewed: 12 h from now
+      s.life = SESSION_MS;
+      s.epoch_expires = epoch ? epoch + SESSION_MS / 1000 : 0;
       return true;
     }
   }
@@ -310,14 +331,38 @@ std::vector<std::string> Guard::tokens() const {
   return out;
 }
 
-void Guard::restore(const std::vector<std::string> &tokens) {
-  this->sessions_.clear();
-  for (auto &t : tokens) {
-    if (t.size() != 64 || this->sessions_.size() >= 4) continue;
-    bool hex = true;
-    for (char ch : t) hex = hex && ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'));
-    if (hex) this->sessions_.push_back({t, this->now_() + uint32_t(12UL * 3600 * 1000)});
+std::vector<SavedSession> Guard::saved() const {
+  std::vector<SavedSession> out;
+  const uint32_t now = this->now_(), epoch = this->epoch_now_();
+  for (auto &s : this->sessions_) {
+    if (this->expired_(s, now, epoch)) continue;
+    const uint32_t left_s = (s.life - (now - s.from)) / 1000;
+    if (left_s == 0) continue;
+    out.push_back({s.token, left_s, epoch ? epoch + left_s : s.epoch_expires});
   }
+  return out;
+}
+
+void Guard::restore(const std::vector<SavedSession> &sessions) {
+  this->sessions_.clear();
+  const uint32_t now = this->now_();
+  for (auto &v : sessions) {
+    if (v.token.size() != 64 || v.left_s == 0 || this->sessions_.size() >= 4) continue;
+    bool hex = true;
+    for (char ch : v.token) hex = hex && ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'));
+    if (!hex) continue;
+    // Only the time it had left (never more than a session's life): a restart doesn't extend it.
+    const uint32_t life = v.left_s >= SESSION_MS / 1000 ? SESSION_MS : v.left_s * 1000;
+    this->sessions_.push_back({v.token, now, life, v.epoch_expires});
+  }
+  this->gen_++;
+  this->prune_();  // already past its expiry on the clock (the controller was off): gone
+}
+
+void Guard::restore(const std::vector<std::string> &tokens, uint32_t left_s) {
+  std::vector<SavedSession> v;
+  for (auto &t : tokens) v.push_back({t, left_s, 0});
+  this->restore(v);
 }
 
 }  // namespace pinauth

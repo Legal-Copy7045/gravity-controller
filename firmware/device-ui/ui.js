@@ -145,7 +145,8 @@ function needPin() {
 async function post(dom, name, action, params) {
   const q = params ? '?' + new URLSearchParams(params) : '';
   try {
-    const r = await fetch(`/${dom}/${encodeURIComponent(name)}/${action}${q}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Smoker-Token': TOK.get() } });
+    // X-Smoker: every change carries it (components/standalone refuses one without: other websites can't send it).
+    const r = await fetch(`/${dom}/${encodeURIComponent(name)}/${action}${q}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Smoker': '1', 'X-Smoker-Token': TOK.get() } });
     if (r.status === 401) { if (LOCAL) LOCAL.authed = false; renderLocal(); needPin(); return false; }
     if (!r.ok) throw new Error(r.status === 404 ? 'not found' : 'HTTP ' + r.status);
     return true;
@@ -154,8 +155,8 @@ async function post(dom, name, action, params) {
 // /local/...: the PIN, write-only keys, notifications, location and time zone.
 let LOCAL = null;
 async function local(path, body) {
-  const r = await fetch('/local/' + path, body === undefined ? { headers: { 'X-Smoker-Token': TOK.get() } }
-    : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Smoker-Token': TOK.get() }, body: JSON.stringify(body) });
+  const r = await fetch('/local/' + path, body === undefined ? { headers: { 'X-Smoker': '1', 'X-Smoker-Token': TOK.get() } }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Smoker': '1', 'X-Smoker-Token': TOK.get() }, body: JSON.stringify(body) });
   let d = {}; try { d = await r.json(); } catch (e) { /* empty */ }
   if (!r.ok) { if (r.status === 401 && LOCAL) { LOCAL.authed = false; renderLocal(); } throw new Error(d.error || 'HTTP ' + r.status); }
   return d;
@@ -215,6 +216,13 @@ const ACT = {
   toggle(el) { post('switch', el.dataset.n, 'toggle'); },
   async capclear() { try { CAP = await local('capture/clear', {}); renderCapture(); } catch (e) { if (/PIN/.test(e.message)) needPin(); else toast(e.message); } },
   capload() { loadCapture(); },
+  fwinstall() {  // the Firmware update entity (http_request: this project's GitHub release), after a second tap
+    const k = 'fw';
+    if (!armed[k]) { armed[k] = setTimeout(() => { delete armed[k]; render(); }, 4000); return render(); }
+    clearTimeout(armed[k]); delete armed[k];
+    post('update', 'Firmware', 'install').then(ok => ok && toast('Installing the update: the controller restarts when it\'s done (a minute or two)'));
+    render();
+  },
   press(el) {
     const n = el.dataset.n;
     if (el.dataset.confirm && !armed[n]) { armed[n] = setTimeout(() => { delete armed[n]; render(); }, 3000); return render(); }
@@ -493,6 +501,15 @@ function placeSections() {
 // The grill, drawn (ported from the HA panel's renderGrill(), page.html): controller (left shelf) · barrel
 // (pit, food) · hopper tower (charcoal) · ash box (fan). Tap a part to jump to its section.
 const photoBad = {};
+// The grill photo is loaded by the owner's browser, so only from this controller or the Smoker integration's own
+// photo URL (/api/smoker/grill_photo/image/..., any host): "Grill photo URL" can't send the browser anywhere else.
+const photoOk = u => {
+  try {
+    const x = new URL(u, location.href);
+    if (!/^https?:$/.test(x.protocol) || x.username || x.password) return false;
+    return x.origin === location.origin || x.pathname.startsWith('/api/smoker/grill_photo/image/');
+  } catch (e) { return false; }
+};
 window.__gxPhotoBad = url => { if (url && !photoBad[url]) { photoBad[url] = true; render(); } };  // unreachable: the drawing
 const FOODC = ['var(--food1)', 'var(--food2)', 'var(--g1)', 'var(--g2)', 'var(--g3)', 'var(--g4)'];
 function renderGrill(u0, pit, tgt) {
@@ -515,7 +532,7 @@ function renderGrill(u0, pit, tgt) {
   const ly = lvl == null ? 230 : Math.min(372, Math.max(118, 400 - fh / 2 + 10));
   // Your grill photo (text "Grill photo URL", filled in by the Smoker dashboard) with the readings pinned on it.
   const photo = str(E('text', 'Grill photo URL'));
-  if (photo && /^https?:\/\//i.test(photo) && !photoBad[photo]) {
+  if (photo && /^https?:\/\//i.test(photo) && photoOk(photo) && !photoBad[photo]) {
     const pin = (x, y, go, html, cls) => `<a class="pin ${cls || ''}" style="left:${x}%;top:${y}%" data-go="${go}" tabindex="0" role="link">${html}</a>`;
     put('grillpic', `<div class="gphoto"><img src="${esc(photo)}" alt="The grill" onerror="window.__gxPhotoBad(this.getAttribute('src'))">
       ${pin(50, 17, foods.length ? 's-food' : 's-pit', `<span class="m">${fmt(pit)}${deg}${esc(u)}</span>${tgt != null ? `<small>→ ${fmt(tgt)}${deg}</small>` : ''}`, 'big')}
@@ -1366,9 +1383,21 @@ function renderSetup(u) {
     return d ? `${d} d ${h % 24} h` : h ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`; };
   put('dev', `<h3>This controller</h3>${rel ? row('Release', esc(rel)) : ''}${ver ? row('Built with', 'ESPHome ' + esc(String(ver).split(' ')[0])) : ''}${sig != null ? row('Its Wi-Fi <span class="muted small">(to your router, not the grill)</span>', fmt(sig) + ' dBm') : ''}${up != null ? row('Running for', dur(up)) : ''}
     ${row('Cooks learned', fmt(S('Cooks learned')))}
+    ${fwRow()}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}`);
   put('foot', `<span>${esc(cfg.title || 'Smoker')}${T('Release') ? ' ' + esc(T('Release')) : ''} · served by the controller, works without Home Assistant</span><span>${Object.keys(ents).length} entities</span>`);
+}
+
+// The Firmware update entity (ESPHome's update, from this project's releases): what's available, and Install.
+function fwRow() {
+  const e = E('update', 'Firmware'); if (!e) return '';
+  const st = String(e.state || ''), latest = str(e) || e.latest_version || '', curv = e.current_version || '';
+  if (st === 'INSTALLING') return row('Firmware', 'installing… <span class="muted small">(the controller restarts by itself)</span>');
+  if (st !== 'UPDATE AVAILABLE') return row('Firmware', st === 'NO UPDATE' ? 'up to date' + (curv ? ' (' + esc(curv) + ')' : '') : 'not checked yet');
+  const L = LOCAL, locked = L && L.pin && !L.authed;
+  return `<div class="row"><span>Update available: ${esc(latest)}${curv ? ` <span class="muted small">(now ${esc(curv)})</span>` : ''}<br><span class="muted small">From this project's GitHub release; the controller restarts to finish.${locked ? ' Needs the PIN.' : ''}</span></span>
+      <button class="btn${armed.fw ? ' arm' : ' pri'}" data-a="fwinstall">${armed.fw ? 'Tap again to install' : 'Install'}</button></div>`;
 }
 
 // ---------------------------------------------------------------- first run (no Home Assistant)

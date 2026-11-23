@@ -1005,7 +1005,9 @@ static void test_pin_auth() {
     uint8_t sd = 11;
     Guard e([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
     CHECK(e.set_pin("482913", "") == "");
-    for (int k = 0; k < 49; k++) e.login("999999", "192.168.1." + std::to_string(k / 4));  // 4 each: none locked
+    // 3 each from more clients than are remembered (CLIENTS): none locked, and once one is dropped to make room, the
+    // backstop holds everyone (a guesser forgotten can't be told from a new client).
+    for (int k = 0; k < 49; k++) e.login("999999", "192.168.1." + std::to_string(k / 3));
     CHECK(e.locked_for("192.168.1.200") == 0 && e.locked_for("192.168.1.3") == 0);
     e.login("999999", "192.168.1.100");
     CHECK(e.locked_for("192.168.1.200") == 72 && e.locked_for("fe80::1") == 72);
@@ -1381,3 +1383,148 @@ static void test_capture() {
   std::printf("capture ok\n");
 }
 static const bool capture_ran = (test_capture(), true);
+
+// ---------------------------------------------------------------- security fixes (sessions, backstop, grill trust)
+static void test_security_fixes() {
+  using namespace pinauth;
+  // Sessions: expired ones are dropped by tick() (not only when a token is checked), so one idle for 24.8+ days (the
+  // int32 wrap) or 49.7 days (millis() itself) can't come back.
+  {
+    uint32_t c = 1000;
+    uint8_t sd = 21;
+    Guard g([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(g.set_pin("482913", "") == "");
+    std::string t = g.login("482913");
+    CHECK(t.size() == 64 && g.tokens().size() == 1);
+    uint32_t gen = g.generation();
+    c += SESSION_MS;  // exactly 12 h unused
+    g.tick();
+    CHECK(g.tokens().empty() && g.generation() != gen);
+    t = g.login("482913");
+    c += 0x80000000u + 5000;  // past the int32 wrap without a tick: still expired
+    CHECK(!g.check(t) && g.tokens().empty());
+    t = g.login("482913");
+    c += 0xFFFFFFFFu - 1000;  // nearly a full millis() wrap: elapsed is still huge, never "fresh"
+    g.tick();
+    CHECK(g.tokens().empty() && !g.check(t));
+  }
+  // Kept across a restart with the time it had left, never a fresh 12 h: restarting every few hours doesn't keep an
+  // unused session alive.
+  {
+    uint32_t c = 50000;
+    uint8_t sd = 31;
+    Guard g([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(g.set_pin("482913", "") == "");
+    std::string t = g.login("482913");
+    c += 5UL * 3600 * 1000;  // 5 h unused
+    auto sv = g.saved();
+    CHECK(sv.size() == 1 && sv[0].token == t && sv[0].left_s == 7 * 3600 && sv[0].epoch_expires == 0);
+    uint32_t c2 = 10;  // the restart
+    Guard r([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
+    r.load(g.stored());
+    r.restore(sv);
+    CHECK(r.tokens().size() == 1);
+    c2 += 6UL * 3600 * 1000;  // 6 more hours unused: 11 in all
+    sv = r.saved();
+    CHECK(sv.size() == 1 && sv[0].left_s == 3600);
+    uint32_t c3 = 10;  // and again
+    Guard r2([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c3; });
+    r2.load(g.stored());
+    r2.restore(sv);
+    c3 += 3600 * 1000;  // 12 h since it was last used: gone
+    r2.tick();
+    CHECK(r2.tokens().empty() && !r2.check(t));
+    // A saved time longer than a session (tampered, or a bug) is capped; nothing left = not restored.
+    Guard r3([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c3; });
+    r3.load(g.stored());
+    r3.restore(std::vector<SavedSession>{{t, 0xFFFFFFFFu, 0}, {std::string(64, 'a'), 0, 0}});
+    CHECK(r3.tokens().size() == 1);
+    c3 += SESSION_MS;
+    r3.tick();
+    CHECK(r3.tokens().empty());
+  }
+  // With the clock set: the expiry on it survives a restart (the time the controller was off counts too).
+  {
+    uint32_t c = 1000, epoch = 1800000000u;
+    uint8_t sd = 41;
+    Guard g([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    g.set_epoch_clock([&]() { return epoch; });
+    CHECK(g.set_pin("482913", "") == "");
+    std::string t = g.login("482913");
+    c += 2UL * 3600 * 1000;
+    epoch += 2 * 3600;
+    auto sv = g.saved();
+    CHECK(sv.size() == 1 && sv[0].left_s == 10 * 3600 && sv[0].epoch_expires == 1800000000u + 12 * 3600);
+    uint32_t c2 = 5, e2 = 0;  // restarted: the clock isn't set yet
+    Guard r([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
+    r.set_epoch_clock([&]() { return e2; });
+    r.load(g.stored());
+    r.restore(sv);
+    CHECK(r.tokens().size() == 1);
+    e2 = 1800000000u + 13 * 3600;  // the clock comes back: it was off for 11 h, so the session is over
+    r.tick();
+    CHECK(r.tokens().empty() && !r.check(t));
+    // A session renewed while the clock is set gets a new expiry on it (12 h from its last use).
+    epoch += 3600;
+    t = g.login("482913");
+    c += 1000;
+    CHECK(g.check(t));
+    sv = g.saved();
+    CHECK(!sv.empty() && sv.back().token == t);
+    CHECK(sv.back().left_s == 12 * 3600 && sv.back().epoch_expires == epoch + 12 * 3600);
+    // Older firmware's tokens (no time saved) get only what the caller gives them.
+    Guard r4([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
+    r4.load(g.stored());
+    r4.restore(std::vector<std::string>{t}, 3600);
+    c2 += 3600 * 1000;
+    r4.tick();
+    CHECK(r4.tokens().empty());
+  }
+  // The backstop: one client (or a few) guessing can't keep the owner out, but they are held.
+  {
+    uint32_t c = 1000;
+    uint8_t sd = 51;
+    Guard g([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(g.set_pin("482913", "") == "");
+    // Thirteen guessers (fewer than CLIENTS), 4 wrong each (under their own lockout): 52 outstanding.
+    for (int k = 0; k < 52; k++) g.login("999999", "10.9.9." + std::to_string(k / 4));
+    CHECK(g.locked_for("10.9.9.0") > 0 && g.locked_for("10.9.9.12") > 0);  // the guessers wait
+    CHECK(g.locked_for("10.0.0.2") == 0);                     // the owner, with no wrong PINs, doesn't
+    CHECK(g.login("482913", "10.0.0.2").size() == 64);
+    // A typo of the owner's own: now held by the backstop too, until it drains.
+    CHECK(g.login("111222", "10.0.0.3") == "" && g.locked_for("10.0.0.3") > 0);
+    c += 3700UL * 1000;
+    g.tick();
+    CHECK(g.locked_for("10.0.0.3") == 0 && g.login("482913", "10.0.0.3").size() == 64);
+  }
+  // The grill: a look-alike that takes the link over is a stand-in only. The remembered grill takes it back as soon
+  // as it's heard (even while the stand-in is connected), and the stand-in never gets the Wi-Fi password.
+  {
+    using namespace g980proto;
+    const uint64_t MINE = 0xA4C138000001ull, LOOK = 0xA4C138000002ull;
+    const uint32_t M = 60000;
+    TakeoverCheck t;
+    t.current = LOOK;  // taken over earlier
+    t.candidate = MINE;
+    t.remembered = MINE;
+    t.match = GrillMatch::WEAK;
+    t.idle = false;
+    t.now = 30 * M;
+    t.current_seen_at = 30 * M - 1000;
+    CHECK(may_take_over(t));                                          // back to the remembered grill, connected or not
+    { TakeoverCheck u = t; u.wifi_setup_pending = true; CHECK(!may_take_over(u)); }
+    { TakeoverCheck u = t; u.candidate = 0xA4C138000003ull; CHECK(!may_take_over(u)); }  // another stand-in: no
+    CredentialCheck c;
+    c.peer = LOOK;
+    c.remembered = MINE;
+    c.remembered_at_boot = true;
+    c.now = 60 * M;
+    c.status_on_link = true;
+    c.rssi = -50;
+    CHECK(credentials_refusal(c).find("Forget the grill") != std::string::npos);
+    c.peer = MINE;
+    CHECK(credentials_refusal(c).empty());
+  }
+  printf("security fixes ok\n");
+}
+static const bool security_fixes_ran = (test_security_fixes(), true);

@@ -43,6 +43,9 @@ static const char *const TAGS[] = {"juicy",      "tender",      "dry",       "to
                                    "too smoky",  "too little smoke", "fat rendered", "fat not rendered"};
 static constexpr size_t N_TAGS = sizeof(TAGS) / sizeof(TAGS[0]);
 static const char *const CUTS[] = {"Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish", "Auto"};
+static constexpr uint32_t SHARE_GAP_MS = 61000;            // Open Pitmaster: one stored upload a minute per client
+static constexpr uint32_t SHARE_BUSY_429_MS = 5 * 60000;    // after "too many requests"
+static constexpr uint32_t SHARE_BUSY_503_MS = 30 * 60000;   // after its daily cap ("unavailable")
 static constexpr uint32_t READY_AFTER_S = 12 * 3600;  // a cook without feedback is offered this long after it ended
 
 static uint32_t epoch_now() {
@@ -171,15 +174,38 @@ void Standalone::loop_cook_(uint32_t now) {
       for (size_t i = 0; i < JOURNAL_SLOTS; i++) {
         JEntry &e = this->journal_[i];
         if (e.id != id) continue;
-        if (share) {
+        const bool busy = d.code == 429 || d.code == 503;  // Open Pitmaster's rate limit or daily cap: try later
+        if (busy) {
+          // Kept queued with the same id and key (a 409 later means it did arrive), sent again after a pause.
+          if (share) { e.share = 3; this->share_wait_ |= 1u << i; }
+          else if (e.share == 1 && e.share_id[0]) this->unshare_wait_ |= 1u << i;
+          this->share_sent_at_ = now ? now : 1;
+          this->share_hold_ms_ = d.code == 503 ? SHARE_BUSY_503_MS : SHARE_BUSY_429_MS;
+          ESP_LOGI(TAG, "Open Pitmaster is busy (HTTP %d): %s again in %u min", d.code,
+                   share ? "sharing" : "withdrawing", unsigned(this->share_hold_ms_ / 60000));
+          this->share_results_.push_back({id, "Open Pitmaster is busy (HTTP " + std::to_string(d.code) + "): will try again"});
+        } else if (share) {
           bool ok = d.code == 201 || d.code == 409;
           e.share = ok ? 1 : 0;
           if (!ok) { e.share_id[0] = 0; e.share_key[0] = 0; }
           this->share_results_.push_back({id, ok ? "shared" : (d.code ? "refused (HTTP " + std::to_string(d.code) + ")" : "couldn't reach Open Pitmaster")});
         } else if (d.code == 200 || d.code == 404) {
+          // 200: deleted ({"already":true}: it had been already). 404: Open Pitmaster never stored it, though it had
+          // answered 201/409 when it was shared: said in the log and on the page, not passed over in silence.
+          if (d.code == 404) {
+            ESP_LOGW(TAG, "Withdrawing cook %08x: Open Pitmaster has no record of it (HTTP 404), though it was shared",
+                     unsigned(id));
+            this->share_results_.push_back({id, "not found on Open Pitmaster (HTTP 404): nothing to remove there"});
+          } else {
+            JsonDocument r = json::parse_json(d.body);
+            this->share_results_.push_back({id, (r["already"] | false) ? "already removed" : "removed"});
+          }
           e.share = 2;
           e.share_id[0] = 0;
           e.share_key[0] = 0;
+        } else {
+          this->share_results_.push_back({id, d.code ? "couldn't remove (HTTP " + std::to_string(d.code) + "): try again"
+                                                     : "couldn't reach Open Pitmaster to remove it: try again"});
         }
         this->journal_dirty_ |= 1u << i;
       }
@@ -205,6 +231,7 @@ void Standalone::loop_cook_(uint32_t now) {
       }
     }
   }
+  this->share_pump_(now);
   // Averages: once at start-up, then twice a day.
   static uint32_t community_asked = 0;
   if (network_ready_() && (community_asked == 0 || now - community_asked > 12UL * 3600 * 1000)) {
@@ -408,15 +435,46 @@ bool Standalone::share_entry_(JEntry &e, std::string &why) {
   random_bytes(rnd, sizeof(rnd));
   random_bytes(key, sizeof(key));
   std::string id = pinauth::to_hex(rnd, sizeof(rnd)), k = pinauth::to_hex(key, sizeof(key));
-  std::string rec = this->record_json_(e, id.c_str());
-  if (rec.empty()) { why = "This cook can't be shared (no total time)"; return false; }
-  auto h = pinauth::sha256(reinterpret_cast<const uint8_t *>(k.data()), k.size());
-  std::string body = "{\"record\":" + rec + ",\"key_hash\":\"" + pinauth::to_hex(h.data(), h.size()) + "\"}";
+  if (this->record_json_(e, id.c_str()).empty()) { why = "This cook can't be shared (no total time)"; return false; }
   std::strncpy(e.share_id, id.c_str(), sizeof(e.share_id) - 1);
   std::strncpy(e.share_key, k.c_str(), sizeof(e.share_key) - 1);
-  e.share = 3;  // sending
-  this->queue_({"share:" + hex32(e.id), "POST", std::string(SHARE_URL) + "/v1/cooks", body, "application/json", {}});
+  e.share = 3;  // sending: share_pump_ sends it (one upload a minute at most)
+  this->share_wait_ |= 1u << size_t(&e - this->journal_);
   return true;
+}
+
+// Open Pitmaster takes one stored upload a minute per client (and has a daily cap): uploads and withdrawals go out
+// one at a time, at least SHARE_GAP_MS apart, longer after a 429/503 (share_hold_ms_). From the main loop.
+void Standalone::share_pump_(uint32_t now) {
+  if (this->share_sent_at_ != 0 && now - this->share_sent_at_ < std::max(SHARE_GAP_MS, this->share_hold_ms_)) return;
+  std::lock_guard<std::recursive_mutex> g(this->lock_);
+  if (this->share_sent_at_ != 0) {  // the pause is over: cleared, so millis() wrapping can't bring it back
+    this->share_sent_at_ = 0;
+    this->share_hold_ms_ = 0;
+  }
+  if ((this->share_wait_ | this->unshare_wait_) == 0 || !this->network_ready_()) return;
+  for (int pass = 0; pass < 2; pass++) {  // withdrawals first
+    uint32_t &wait = pass == 0 ? this->unshare_wait_ : this->share_wait_;
+    for (size_t i = 0; i < JOURNAL_SLOTS; i++) {
+      if (!(wait & (1u << i))) continue;
+      wait &= ~(1u << i);
+      JEntry &e = this->journal_[i];
+      if (pass == 0 && e.id && e.share == 1 && e.share_id[0]) {
+        this->queue_({"unshare:" + hex32(e.id), "DELETE", std::string(SHARE_URL) + "/v1/cooks/" + e.share_id, "", "",
+                      {{"X-Delete-Key", e.share_key}}});
+      } else if (pass == 1 && e.id && e.share == 3 && e.share_id[0] && e.share_key[0]) {
+        std::string rec = this->record_json_(e, e.share_id);
+        if (rec.empty()) { e.share = 0; continue; }
+        auto h = pinauth::sha256(reinterpret_cast<const uint8_t *>(e.share_key), std::strlen(e.share_key));
+        std::string body = "{\"record\":" + rec + ",\"key_hash\":\"" + pinauth::to_hex(h.data(), h.size()) + "\"}";
+        this->queue_({"share:" + hex32(e.id), "POST", std::string(SHARE_URL) + "/v1/cooks", body, "application/json", {}});
+      } else {
+        continue;  // changed meanwhile (deleted, declined): nothing to send
+      }
+      this->share_sent_at_ = now ? now : 1;
+      return;
+    }
+  }
 }
 
 std::string Standalone::journal_json_(bool authed) {
@@ -535,8 +593,7 @@ std::string Standalone::api_cook_(const std::string &path, JsonDocument &in, boo
     for (size_t i = 0; i < JOURNAL_SLOTS; i++) {
       JEntry &e = this->journal_[i];
       if (e.id && e.share == 1 && e.share_id[0]) {
-        this->queue_({"unshare:" + hex32(e.id), "DELETE", std::string(SHARE_URL) + "/v1/cooks/" + e.share_id, "", "",
-                      {{"X-Delete-Key", e.share_key}}});
+        this->unshare_wait_ |= 1u << i;  // share_pump_ sends them, one at a time
         n++;
       }
     }

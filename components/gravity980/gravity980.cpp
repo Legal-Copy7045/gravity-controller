@@ -190,6 +190,13 @@ void Gravity980Component::setup() {
 void Gravity980Component::remember_grill(uint64_t a) {
   if (a == 0 || a == this->remembered_grill_)
     return;
+  // Never replaces a remembered grill: a look-alike that took the link over while it was quiet (may_take_over)
+  // would otherwise be remembered, then trusted with the Wi-Fi password. Only "Forget the grill" (or none yet).
+  if (this->remembered_grill_ != 0) {
+    ESP_LOGD(TAG, "Not remembering %s: the grill at %s is remembered (Forget the grill to change it)",
+             mac_tail(a).c_str(), mac_tail(this->remembered_grill_).c_str());
+    return;
+  }
   this->remembered_grill_ = a;
   this->remembered_at_boot_ = false;
   const uint32_t now = millis();
@@ -412,6 +419,17 @@ void Gravity980Component::loop() {
     this->wifi_rejoin();
   }
   const uint32_t now = millis();
+  // Deadlines that have passed are cleared, so millis() wrapping (49.7 days) can't bring them back.
+  if (this->test_until_ != 0 && now - this->test_until_ >= TEST_MODE_MS) {
+    this->test_until_ = 0;
+    ESP_LOGI(TAG, "Command tests switched themselves off (30 minutes)");
+  }
+  if (this->wifi_info_req_at_ != 0 && now - this->wifi_info_req_at_ >= WIFI_INFO_WINDOW_MS)
+    this->wifi_info_req_at_ = 0;
+  if (this->power_armed_ != 0 && now - this->power_armed_ >= POWER_CONFIRM_MS) {
+    this->power_armed_ = 0;
+    this->power_prompt_.clear();
+  }
   this->capture_.loop(now);
   if (this->enabled_ && !this->host_for_tcp_().empty()) {
     switch (this->tcp_state_) {
@@ -643,9 +661,9 @@ void Gravity980Component::on_ble_data(const uint8_t *data, size_t len) {
       this->ble_retries_ = 0;
       this->ble_last_frame_ = now;
 #ifdef USE_GRAVITY980_BLE
-      if (this->ble_ != nullptr && !this->ble_->has_fixed_address() &&
+      if (this->ble_ != nullptr && !this->ble_->has_fixed_address() && this->remembered_grill_ == 0 &&
           now - this->ble_status_since_ >= REMEMBER_AFTER_MS)
-        this->remember_grill(this->ble_->get_address());
+        this->remember_grill(this->ble_->get_address());  // first grill (or after Forget) only
 #endif
       this->handle_status_(s, Transport::BLE);
     }
@@ -1495,6 +1513,8 @@ bool Gravity980BLE::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
         svc = svc || u == SVC;
       t.match = grill_match(device.get_name(), this->name_prefix_, svc);
       if (may_take_over(t)) {
+        if (!t.idle)  // the remembered grill is back while we're on a stand-in: drop that link first
+          this->reconnect("the remembered grill is back");
         this->seen_at_ = this->grill_seen_at_ = now;
         auto name = device.get_name();
         ESP_LOGI(TAG, "Found grill '%s' at %02X:%02X:%02X:%02X:%02X:%02X (RSSI %d)", name.c_str(),
@@ -1546,6 +1566,12 @@ bool Gravity980BLE::reconnect(const char *why) {
 }
 
 void Gravity980BLE::set_enabled(bool enabled) {
+  // Paused (capture mode) or switched off: the scanner heard nothing meanwhile, which isn't the grill being quiet.
+  // Resuming restarts its 10 minutes, so a look-alike can't take over the moment capture ends.
+  if (enabled && !this->enabled_) {
+    const uint32_t n = millis();
+    this->seen_at_ = n ? n : 1;
+  }
   this->enabled_ = enabled;
   this->set_auto_connect(enabled);
   if (!enabled && this->state() != esp32_ble_tracker::ClientState::IDLE)

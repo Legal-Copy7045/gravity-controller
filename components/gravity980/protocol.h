@@ -93,7 +93,8 @@ bool build_wifi_credentials(const uint8_t bssid[6], const std::string &password,
 // Wi-Fi info notification can name any IP address: these decide whom the bridge trusts with what.
 constexpr uint32_t REMEMBER_AFTER_MS = 2u * 60u * 1000u;   // a new grill is remembered after 2 min of valid status
 constexpr uint32_t GRILL_TRUST_MS = 10u * 60u * 1000u;     // ...and trusted with the Wi-Fi password 10 min after that
-constexpr uint32_t TAKEOVER_SILENT_MS = 10u * 60u * 1000u;  // a remembered grill silent this long may be replaced
+constexpr uint32_t TAKEOVER_SILENT_MS = 10u * 60u * 1000u;  // a remembered grill silent this long may be stood in for
+                                                           // (connected to, never remembered or trusted instead)
 constexpr uint32_t TAKEOVER_SILENT_NEW_MS = 60000u;        // the same for one found this boot and not yet remembered
 constexpr int CREDENTIALS_MIN_RSSI = -75;                  // dBm: a weaker link isn't trusted with the password
 constexpr uint32_t WIFI_INFO_WINDOW_MS = 30000u;           // a grill IP is taken only this soon after we asked
@@ -130,6 +131,9 @@ struct TakeoverCheck {
   uint32_t current_seen_at{0};      // last advertisement from `current` (0 = not since boot: counts from boot)
   bool wifi_setup_pending{false};   // a scan, join or credential send is under way
 };
+/// A takeover only changes where the client connects for now: the remembered grill stays remembered (only "Forget
+/// the grill" replaces it), the stand-in is never trusted with the Wi-Fi password, and the remembered grill takes
+/// the link back as soon as it's heard (wifi setup permitting).
 bool may_take_over(const TakeoverCheck &t);
 
 /// True if `ip` (host byte order, as reported by the grill) may be connected to: a private (RFC 1918) address in the

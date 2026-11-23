@@ -36,6 +36,11 @@ esphome:
           if (!id(ntfy_topic).state.empty())
             id(ntfy_topic).make_call().set_value("").perform();
 
+# Flash encryption and secure boot are NOT enabled: both burn eFuses for good (a controller can then only take
+# images signed/encrypted with keys you must keep, and a mistake bricks it). Without them, anyone holding the board
+# can read its flash over USB: the Wi-Fi password, the API key, the device page's PIN hash and the write-only keys
+# (notifications, AI). Treat a controller you give away or lose like those secrets: change them. ESP-IDF's NVS
+# encryption needs one or the other eFuse too (flash encryption, or an HMAC key burned in), so it isn't used either.
 esp32:
   variant: esp32s3
   board: esp32-s3-devkitc-1
@@ -86,8 +91,10 @@ wifi:
 
 # Setup window (ESPHome's provisioning): the open setup hotspot, Improv and Home Assistant adopting the controller
 # (the native API starts without a key; Home Assistant sets one when you add the device) work only in the first 15
-# minutes after the controller starts. Once Home Assistant has set its key the API needs it. Missed it? Restart the
-# controller (power off and on) and add it again within 15 minutes.
+# minutes after the controller is powered on. Once Home Assistant has set its key the API needs it. While it has no
+# key, the window closes at once after a software restart (Restart, a crash, an update: anyone on the Wi-Fi can
+# cause one) and as soon as the device page's first PIN is set (components/standalone). Missed it? Power the
+# controller off and on and add it within 15 minutes.
 provisioning:
   timeout: 15min
 
@@ -503,14 +510,34 @@ number:
       name: Grill probe 2 target
       entity_category: config
 
+  # The highest pit an AI-written program may ask for (Plan with AI, Load as program): hotter steps are brought down
+  # to it, with a note. In °F (Home Assistant shows it in your unit).
+  - platform: template
+    id: ai_max_pit
+    name: AI max pit
+    icon: mdi:thermometer-alert
+    entity_category: config
+    device_class: temperature
+    unit_of_measurement: "°F"
+    min_value: 200
+    max_value: 700
+    step: 5
+    mode: box
+    initial_value: 400
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: id(smoker).set_ai_max_pit_c((x - 32.0f) / 1.8f);
+
 button:
   # Forgotten the device page's PIN? Press this in Home Assistant (or hold the controller's BOOT button for 10 s).
+  # Only once Home Assistant has adopted the controller (its API has a key): before that anyone on the Wi-Fi could.
   - platform: template
     name: Clear the device page PIN
     icon: mdi:lock-reset
     entity_category: config
     on_press:
-      - lambda: id(local).clear_pin();
+      - lambda: id(local).clear_pin_from_ha();
   # Use a different Govee H5198: the controller remembers the first one it hears, so a neighbour's isn't picked up.
   - platform: template
     name: Forget the thermometer

@@ -4,12 +4,16 @@
 //  - constant-time comparison;
 //  - lockout per client (its IP address): after 5 wrong PINs, 30 s, then doubling up to 1 h (reset by a right PIN
 //    from that client, forgotten a day after its last wrong one), so one machine on the Wi-Fi can't lock everyone
-//    out; plus a backstop for everyone together: 50 wrong PINs an hour (each forgiven after 72 s);
+//    out; plus a backstop for everyone together: 50 wrong PINs an hour (each forgiven after 72 s). The backstop holds
+//    only clients with wrong PINs of their own, so a machine (or a few) guessing can't keep the owner out; once more
+//    clients have guessed than are remembered (CLIENTS), it holds everyone until it drains, as before;
 //  - a PIN that can't be one (empty, too short or too long) is refused without hashing or counting;
 //  - the first PIN: only within 15 minutes of the controller being powered on or of the PIN being cleared (BOOT
 //    button, Home Assistant), so whoever happens to be on the Wi-Fi later can't claim the page. Without a PIN the page stays
 //    open to changes, as before (the owner's choice; keys and settings still need one);
-//  - sessions: 32 random bytes as hex, 12 h, renewed on use, at most 4 (the oldest is dropped).
+//  - sessions: 32 random bytes as hex, 12 h, renewed on use, at most 4 (the oldest is dropped). Expired ones are
+//    dropped by tick() (so an idle one can't come back when millis() wraps); kept across a restart with the time
+//    they had left (and their expiry on the clock, once it's set), never a fresh 12 h.
 
 #include <array>
 #include <cstddef>
@@ -24,10 +28,11 @@ constexpr uint32_t PIN_ITERATIONS = 20000;
 constexpr size_t SALT_LEN = 16, HASH_LEN = 32;
 constexpr size_t PIN_MIN = 6, PIN_MAX = 32;
 constexpr uint32_t FIRST_PIN_MS = 15UL * 60 * 1000;  // the first PIN's window
-constexpr size_t CLIENTS = 8;                          // clients with wrong PINs remembered (the least recent goes)
+constexpr size_t CLIENTS = 16;                         // clients with wrong PINs remembered (the least recent goes)
 constexpr uint32_t GLOBAL_MAX = 50;                    // wrong PINs an hour from everyone before everyone waits
 constexpr uint32_t GLOBAL_LEAK_MS = 3600UL * 1000 / GLOBAL_MAX;
 constexpr uint32_t FORGET_MS = 24UL * 3600 * 1000;     // a client's wrong PINs are forgotten after a quiet day
+constexpr uint32_t SESSION_MS = 12UL * 3600 * 1000;    // a session lasts this long from its last use
 extern const char *const FIRST_PIN_CLOSED;             // why a first PIN is refused outside its window
 
 using Digest = std::array<uint8_t, 32>;
@@ -47,6 +52,14 @@ struct Stored {
 
 /// Called every 1,000 PBKDF2 rounds when set (the controller: a 1-tick sleep, so hashing never starves other tasks).
 extern void (*pbkdf2_yield)();
+
+/// A session as kept across a restart: the time it had left, and its expiry on the clock (epoch seconds, 0 = the
+/// clock wasn't set).
+struct SavedSession {
+  std::string token;
+  uint32_t left_s{0};
+  uint32_t epoch_expires{0};
+};
 
 /// Why a PIN is refused as a new PIN ("" if fine).
 std::string pin_problem(const std::string &pin);
@@ -80,9 +93,12 @@ class Guard {
   uint32_t first_pin_for() const;
   /// No window for this start (a software restart: anyone could ask for one while there's no PIN).
   void close_first_pin() { this->first_open_ = false; }
-  /// Housekeeping, called often (the controller's main loop): closes the first PIN's window and ends or forgets
-  /// lockouts on time, so a clock that wraps (millis(), 49.7 days) can't bring an old one back.
+  /// Housekeeping, called often (the controller's main loop): closes the first PIN's window, ends or forgets
+  /// lockouts and drops expired sessions on time, so a clock that wraps (millis(), 49.7 days) can't bring an old one
+  /// back.
   void tick();
+  /// The wall clock (epoch seconds, 0 while it isn't set): sessions then also expire on it, across restarts.
+  void set_epoch_clock(std::function<uint32_t()> epoch) { this->epoch_ = std::move(epoch); }
   /// Is this token a live session? Renews it.
   bool check(const std::string &token);
   void logout(const std::string &token);
@@ -90,9 +106,12 @@ class Guard {
   std::string new_session() { return this->pin_set() ? this->new_token_() : std::string(); }
 
   /// The live sessions (to keep across a restart: an update or a crash shouldn't lock every browser out), and
-  /// putting them back after one, each valid for 12 hours from then.
+  /// putting them back after one with only the time they had left (a restart never extends a session).
   std::vector<std::string> tokens() const;
-  void restore(const std::vector<std::string> &tokens);
+  std::vector<SavedSession> saved() const;
+  void restore(const std::vector<SavedSession> &sessions);
+  /// Tokens saved without their time left (older firmware): each gets left_s.
+  void restore(const std::vector<std::string> &tokens, uint32_t left_s = SESSION_MS / 1000);
   /// Changes whenever the list of sessions does (login, logout, expiry, PIN change or clear).
   uint32_t generation() const { return this->gen_; }
 
@@ -117,12 +136,21 @@ class Guard {
   std::vector<Client> clients_;
   bool global_on_{false};
   uint32_t global_until_{0};  // when everyone's wrong PINs are all forgiven (a leaky bucket, GLOBAL_LEAK_MS each)
+  bool overflow_{false};      // a guessing client was dropped from clients_ while the bucket was filling: hold everyone
   bool first_open_{false};
   uint32_t first_from_{0};
   struct Session {
     std::string token;
-    uint32_t expires;
+    uint32_t from;          // millis() when issued, renewed or restored
+    uint32_t life;          // ms from `from` (unsigned elapsed compare: no wrap at 24.8 days)
+    uint32_t epoch_expires; // on the clock (0 = not known)
   };
+  uint32_t epoch_now_() const { return this->epoch_ ? this->epoch_() : 0; }
+  bool expired_(const Session &s, uint32_t now, uint32_t epoch) const {
+    return now - s.from >= s.life || (epoch != 0 && s.epoch_expires != 0 && epoch >= s.epoch_expires);
+  }
+  void prune_();
+  std::function<uint32_t()> epoch_;
   std::vector<Session> sessions_;
   uint32_t gen_{0};
 };

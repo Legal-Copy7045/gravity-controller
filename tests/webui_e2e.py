@@ -49,7 +49,7 @@ def get(path):
 
 def post(path, **params):
     q = ("?" + urllib.parse.urlencode(params)) if params else ""
-    req = urllib.request.Request(BASE + urllib.parse.quote(path) + q, method="POST", data=b"")
+    req = urllib.request.Request(BASE + urllib.parse.quote(path) + q, method="POST", data=b"", headers={"X-Smoker": "1"})
     with urllib.request.urlopen(req, timeout=5) as r:
         return r.status
 
@@ -105,6 +105,7 @@ def main():
                 run_page(b, width, height, shots)
             no_classic(b)
             capture_card(b)
+            other_sites()
             pin_flow(b)  # last: once a PIN is set, a fresh browser is locked
             try:
                 urllib.request.urlopen(BASE + "/local/capture", timeout=5)
@@ -244,7 +245,12 @@ def run_page(browser, width, height, shots):
     # Your grill photo: with "Grill photo URL" set, the readings are pinned on the photo; cleared, the drawing returns.
     png = tiny_png()
     pg.context.route("http://photo.test/**", lambda r: r.fulfill(status=200, content_type="image/png", body=png))
+    # Any other address is ignored (the owner's browser would load it): the drawing stays.
     post("/text/Grill photo URL/set", value="http://photo.test/grill.png")
+    pg.wait_for_timeout(1500)
+    check(pg.locator("#grillpic .gphoto").count() == 0 and pg.locator("#grillpic svg").count() == 1,
+          "a photo URL that isn't the integration's photo (or this controller's) is ignored")
+    post("/text/Grill photo URL/set", value="http://photo.test/api/smoker/grill_photo/image/abc123?token=x")
     try:
         pg.wait_for_selector("#grillpic .gphoto img", timeout=10000)
         pins = pg.locator("#grillpic .gphoto .pin").count()
@@ -319,6 +325,35 @@ def capture_card(browser):
     check(over <= 0, f"no horizontal overflow with the capture card ({over}px)")
     check(not errors, f"no page errors on the capture card {errors[:3]}")
     ctx.close()
+
+
+def other_sites():
+    """Another website (its script in the owner's browser) can't read or change anything; the page's own requests
+    (no Origin on reads, its own on posts, X-Smoker on every change) still work. Mirrors components/standalone."""
+    print("-- other websites")
+
+    def status(path, method="GET", headers=None):
+        req = urllib.request.Request(BASE + urllib.parse.quote(path), method=method, headers=headers or {},
+                                     data=b"" if method == "POST" else None)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+    evil = {"Origin": "http://evil.example"}
+    check(status("/button/Forget the grill/press", "POST") == 403, "a change without X-Smoker is refused (a form, an <img>)")
+    check(status("/button/Forget the grill/press", "GET") == 403, "a REST action sent as GET without X-Smoker is refused")
+    check(status("/switch/Boost/turn_on", "POST", {**evil, "X-Smoker": "1"}) == 403, "another origin can't change things")
+    check(status("/local/pin", "POST", {"Origin": "null", "X-Smoker": "1", "Content-Type": "application/json"}) == 403,
+          'an opaque ("null") origin can\'t claim the first PIN')
+    check(status("/local/status", "GET", evil) == 403, "another origin can't read /local/status")
+    check(status("/sensor/Pit temperature", "GET", evil) == 403, "another origin can't read the entities")
+    check(status("/local/status", "OPTIONS", {**evil, "Access-Control-Request-Method": "POST"}) == 403,
+          "a CORS preflight from another origin is refused")
+    check(status("/local/status") == 200 and status("/sensor/Pit temperature") == 200, "a plain visit still reads")
+    own = {"Origin": BASE, "X-Smoker": "1"}
+    check(status("/local/status", "GET", {"Origin": BASE}) == 200, "the page's own origin reads")
+    check(status("/text/Grill photo URL/set", "POST", own) == 200, "the page's own origin changes things")
 
 
 def pin_flow(browser):
@@ -483,6 +518,17 @@ def pin_flow(browser):
         pg.click("#ailabel [data-a=aiassign]")
         pg.wait_for_timeout(400)
         check("Set on Food" in pg.inner_text("#toast"), "the label's cut and weight set on a Food slot")
+    # The firmware update (no Home Assistant): shown under This controller, installed after a second tap.
+    setup()
+    pg.wait_for_function("document.querySelector('#dev').innerText.includes('0.2.99')", timeout=5000)
+    check("Update available" in pg.inner_text("#dev"), "This controller offers the firmware update")
+    pg.click("#dev [data-a=fwinstall]")
+    pg.wait_for_timeout(200)
+    check(get("/update/Firmware")["installs"] == 0 and "Tap again" in pg.inner_text("#dev"), "Install asks for a second tap")
+    pg.click("#dev [data-a=fwinstall]")
+    check(wait(lambda: get("/update/Firmware")["installs"] == 1, 5, "the install"), "the second tap installs the update")
+    pg.wait_for_function("document.querySelector('#dev').innerText.includes('installing')", timeout=5000)
+    check(True, "the page shows it installing")
     check(not errors, f"no page errors in the PIN flow {errors[:3]}")
     ctx.close()
 

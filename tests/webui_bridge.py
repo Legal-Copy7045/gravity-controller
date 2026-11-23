@@ -13,7 +13,11 @@ this serves the same HTTP interface from the host firmware's native API, mimicki
                                   {"uptime"} pings every 10 s
   GET  /<domain>/<name>           state JSON (?detail=all for the detail fields)
   POST /<domain>/<name>/<action>  switch turn_on|turn_off|toggle, button press, number set?value=,
-                                  select set?option=, text set?value=  -> 200, or 404
+                                  select set?option=, text set?value=, update install  -> 200, or 404
+
+components/standalone's request checks are mirrored (csrf()): a request naming another origin (or "null") is refused,
+reading included, and so is any change (POST, or a REST action) without "X-Smoker: 1". The host build has no update
+entity, so "update/Firmware" is a stand-in (an update available; Install marks it installing).
 
 Ids are "<domain>/<entity name>" (names, not object ids, since ESPHome 2026.x). Values follow the C++ JSON:
 sensor value float (null when NaN) and state "NA" or "<value> <uom>"; number value/min/max/step as strings
@@ -97,6 +101,15 @@ class Bridge:
         self.clients = set()
         self.t0 = time.monotonic()
         self.cli = None
+        # Stand-in for the Firmware update entity (http_request update; the host build has none).
+        self.fw = {"state": "UPDATE AVAILABLE", "latest": "0.2.99", "current": "0.2.50", "installs": 0}
+
+    def fw_json(self, detail):
+        o = {"id": "update/Firmware", "value": self.fw["latest"], "state": self.fw["state"]}
+        if detail:
+            o.update(domain="update", name="Firmware", icon="", entity_category=0, current_version=self.fw["current"],
+                     title="Smoker", summary="", release_url="")
+        return o
 
     def json(self, key, detail):
         dom, info = self.info[key]
@@ -166,6 +179,7 @@ class Bridge:
                                        "uptime": up}, ms, 30000)
         for key in list(self.info):
             await self.send(resp, "state", self.json(key, True))
+        await self.send(resp, "state", self.fw_json(True))
         self.clients.add(resp)
         try:
             while True:
@@ -183,6 +197,8 @@ class Bridge:
         return self.by_name.get((dom, name)), dom
 
     async def get(self, request):
+        if (request.match_info["domain"], request.match_info["name"]) == ("update", "Firmware"):
+            return web.json_response({**self.fw_json(True), "installs": self.fw["installs"]})
         key, _ = self.find(request)
         if key is None:
             return web.Response(status=404)
@@ -193,6 +209,13 @@ class Bridge:
             return web.json_response({"error": "Enter the PIN to make changes", "pin": True}, status=401)
         key, dom = self.find(request)
         act = request.match_info["action"]
+        if (dom, request.match_info["name"]) == ("update", "Firmware"):
+            if act != "install":
+                return web.Response(status=404)
+            self.fw.update(state="INSTALLING", installs=self.fw["installs"] + 1)
+            for resp in list(self.clients):
+                asyncio.ensure_future(self._safe(resp, self.fw_json(False)))
+            return web.Response(status=200)
         if key is None:
             return web.Response(status=404)
         q = dict(request.query)
@@ -222,6 +245,32 @@ class Bridge:
 
 
 LOCAL = None
+
+
+def foreign_origin(request):
+    """components/standalone Handler::foreign_origin_: an Origin that isn't the page's own Host (or "null")."""
+    o = request.headers.get("Origin")
+    if o is None:
+        return False
+    host = request.headers.get("Host", "")
+    if not o or o == "null" or "://" not in o or not host:
+        return True
+    norm = lambda h: (h.lower()[:-3] if h.lower().endswith(":80") else h.lower()).rstrip("/")  # noqa: E731
+    return norm(o.split("://", 1)[1]) != norm(host)
+
+
+@web.middleware
+async def csrf(request, handler):
+    """components/standalone's checks: other websites can't read or change anything (see Handler::canHandle)."""
+    path = request.path
+    local = path.startswith("/local/")
+    action = path.count("/") >= 3 and not path.startswith("/events")
+    if request.method == "OPTIONS" or foreign_origin(request):
+        return web.json_response({"error": "Only the controller's own page can use it"}, status=403)
+    write = request.method not in ("GET", "HEAD") or (action and not local)
+    if write and (local or action) and request.headers.get("X-Smoker") != "1":
+        return web.json_response({"error": "Changes come from the controller's own page only"}, status=403)
+    return await handler(request)
 
 
 class Local:
@@ -462,7 +511,7 @@ async def main():
 
     global LOCAL
     LOCAL = Local()
-    app = web.Application()
+    app = web.Application(middlewares=[csrf])
 
     async def root(_):
         return web.Response(text=index, content_type="text/html")

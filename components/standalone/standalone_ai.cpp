@@ -299,7 +299,7 @@ std::string Standalone::ai_plan_ask_(const std::string &req) {
                 std::string("You are an experienced pitmaster planning a cook on a Char-Griller Gravity 980 charcoal "
                             "smoker. Use this grill's past cooks and the journal when they're relevant. ") +
                     PROGRAM_HELP + " The pit can be set from " +
-                    (this->cook_ != nullptr ? this->cook_->pit_range_text() : std::string("200°F to 700°F")) +
+                    (this->cook_ != nullptr ? this->cook_->ai_pit_range_text() : std::string("200°F to 400°F")) +
                     " only: to keep food warm, hold at the lowest, never below it." +
                     " Reply ONLY with a JSON object: {\"summary\": two or three sentences, \"light_at\": the "
                     "clock time to light the grill or null, \"steps\": up to 6 of {\"when\", \"title\", \"detail\"}, "
@@ -343,9 +343,15 @@ void Standalone::loop_ai_(uint32_t now) {
     }
   }
   if (!prog.empty() && this->cook_ != nullptr) {
-    const bool ok = this->cook_->load_program(prog);
+    // Fitted again here: "AI max pit" may have been lowered since the plan came in.
+    std::string fixed, note, why;
+    const bool fits = this->cook_->fit_program(prog, fixed, note, why);
+    if (fits && !note.empty()) ESP_LOGI(TAG, "AI program adjusted before loading: %s", note.c_str());
+    const bool ok = fits && this->cook_->load_program(fixed);
     std::lock_guard<std::recursive_mutex> g(this->lock_);
-    this->ai_load_ = ok ? "loaded" : "The controller didn't take it (see the program card); the old program stays";
+    this->ai_load_ = ok     ? "loaded"
+                     : fits ? "The controller didn't take it (see the program card); the old program stays"
+                            : "The AI's program couldn't be read (" + why + "); the old program stays";
   }
   // The AI pitmaster every N minutes during a cook (when turned on).
   if (this->ai_.auto_advise && this->ai_ready_() && this->cook_ != nullptr && this->cook_->cook_active() &&
