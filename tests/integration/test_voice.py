@@ -58,7 +58,7 @@ async def test_voice(hass: HomeAssistant):
     hass.services.async_register("select", "select_option", select)
     hass.states.async_set("select.smoker_program_preset", "Custom", {"options": options})
     assert await async_setup_component(hass, "input_text", {"input_text": {
-        k: v for k, v in pkg["input_text"].items() if k == "smoker_voice_pending"}})
+        k: v for k, v in pkg["input_text"].items() if k in ("smoker_voice_pending", "smoker_voice_pit_pending")}})
 
     assert "251 degrees" in await _ask(hass, "how hot is the smoker")
     a = await _ask(hass, "when will the brisket be done")
@@ -72,6 +72,24 @@ async def test_voice(hass: HomeAssistant):
     assert "275" in a and calls[-1] == ("number", "set_value", {"entity_id": "number.smoker_pit_target", "value": 275.0})
     a = await _ask(hass, "set the smoker to 900")
     assert "between 200 and 700" in a
+    # More than 50°F at once waits for a confirmation (a misheard number, or a sentence overheard by a satellite).
+    n = len(calls)
+    a = await _ask(hass, "set the smoker to 700 degrees")
+    assert "confirm smoker temperature" in a and len(calls) == n, a
+    a = await _ask(hass, "confirm smoker temperature")
+    assert calls[-1] == ("number", "set_value", {"entity_id": "number.smoker_pit_target", "value": 700.0}), a
+    a = await _ask(hass, "confirm smoker temperature")  # once only
+    assert "no smoker temperature waiting" in a and len(calls) == n + 1, a
+    # Only the voice device / user that asked can confirm, within a minute.
+    import time
+
+    hass.states.async_set("input_text.smoker_voice_pit_pending", f"650|{int(time.time())}|satellite1/someone")
+    a = await _ask(hass, "confirm smoker temperature")
+    assert "no smoker temperature waiting" in a and len(calls) == n + 1, a
+    hass.states.async_set("input_text.smoker_voice_pit_pending", f"650|{int(time.time()) - 90}|/")
+    a = await _ask(hass, "confirm smoker temperature")
+    assert "no smoker temperature waiting" in a and len(calls) == n + 1, a
+    hass.states.async_set("number.smoker_pit_target", "275")
     a = await _ask(hass, "the hopper is three quarters full")
     assert calls[-1] == ("esphome", "gravity980_fuel_level", {"percent": 75.0}), calls[-1]
     await _ask(hass, "I topped up the hopper to half full")
@@ -97,12 +115,15 @@ async def test_voice(hass: HomeAssistant):
     # "the grill is off" is not a smoker sentence any more (it used to flip Food 1 to resting).
     await _ask(hass, "the grill is off")
     assert len(calls) == n, calls[-1]
-    # The range comes from the pit target number (°C controllers too).
-    hass.states.async_set("number.smoker_pit_target", "120", {"min": 93, "max": 371})
-    a = await _ask(hass, "set the smoker to 150 degrees")
-    assert calls[-1] == ("number", "set_value", {"entity_id": "number.smoker_pit_target", "value": 150.0}), a
+    # The range comes from the pit target number (°C controllers too: up to 28°C at once without confirming).
+    hass.states.async_set("number.smoker_pit_target", "120", {"min": 93, "max": 371, "unit_of_measurement": "°C"})
+    a = await _ask(hass, "set the smoker to 140 degrees")
+    assert calls[-1] == ("number", "set_value", {"entity_id": "number.smoker_pit_target", "value": 140.0}), a
     a = await _ask(hass, "set the smoker to 400")
     assert "between 93 and 371" in a, a
+    n = len(calls)
+    a = await _ask(hass, "set the smoker to 200 degrees")
+    assert "confirm smoker temperature" in a and len(calls) == n, a
     await _ask(hass, "I added half a hopper")
     assert calls[-1] == ("esphome", "gravity980_fuel_added", {"percent": 50.0}), calls[-1]
 
@@ -114,6 +135,12 @@ async def test_voice(hass: HomeAssistant):
     assert "loaded" in a and "confirm smoker start" in a, a
     assert hass.states.get("select.smoker_program_preset").state == "Brisket (overnight)"
     assert not [c for c in calls if c[1] == "gravity980_start_program"]
+    # Someone else (another voice device or user) can't confirm it.
+    pend = hass.states.get("input_text.smoker_voice_pending").state
+    hass.states.async_set("input_text.smoker_voice_pending", pend.rsplit("|", 1)[0] + "|satellite1/someone")
+    a = await _ask(hass, "confirm smoker start")
+    assert not [c for c in calls if c[1] == "gravity980_start_program"], a
+    await _ask(hass, "start the brisket program")
     # Someone changed the preset in between: nothing starts.
     hass.states.async_set("select.smoker_program_preset", "Pork shoulder", {"options": options})
     a = await _ask(hass, "confirm smoker start")
@@ -128,7 +155,7 @@ async def test_voice(hass: HomeAssistant):
     import time
 
     await _ask(hass, "start the brisket program")
-    hass.states.async_set("input_text.smoker_voice_pending", f"Brisket (overnight)|{int(time.time()) - 120}")
+    hass.states.async_set("input_text.smoker_voice_pending", f"Brisket (overnight)|{int(time.time()) - 120}|/")
     a = await _ask(hass, "confirm smoker start")
     assert "no smoker program waiting" in a and len([c for c in calls if c[1] == "gravity980_start_program"]) == 1
     # With a program running, nothing is loaded over it.

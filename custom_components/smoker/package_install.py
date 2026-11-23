@@ -30,6 +30,7 @@ from homeassistant.components import persistent_notification
 
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.start import async_at_started
 
@@ -48,6 +49,7 @@ MARK = "# Installed by the Smoker integration"
 # The package's top-level keys, each reloadable without a restart.
 RELOAD = ["input_boolean", "input_number", "input_text", "input_datetime", "timer", "template", "script", "automation"]
 KEEP_BACKUPS = 3
+ISSUE = "package_not_installed"  # a Repairs entry while /config/packages/smoker.yaml is missing
 _EID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 
 
@@ -75,7 +77,11 @@ def _previous_choices(text: str) -> dict:
     first = text.split("\n", 1)[0]
     if not first.startswith(MARK):
         return {}
-    return {k: v for k, v in re.findall(r"\b(notify|ai_task|weather|calendar|todo)=([a-z_]+\.[a-z0-9_]+)", first)}
+    found = dict(re.findall(r"\b(notify|ai_task|weather|calendar|todo)=([a-z_]+\.[a-z0-9_]+)", first))
+    # The phone placeholder recorded by an older version is no choice: the phone is asked for again.
+    if found.get("notify") == DEFAULTS["notify"]:
+        del found["notify"]
+    return found
 
 
 def fingerprint(body: str) -> str:
@@ -93,11 +99,15 @@ def render(bundled: str, choices: dict, version: str) -> str:
 
 
 def edited(text: str | None) -> bool:
-    """Installed by the integration, then changed by hand (its body no longer matches the recorded fingerprint)."""
+    """Installed by the integration, then changed by hand (its body no longer matches the recorded fingerprint).
+
+    A package installed before fingerprints were recorded (no sha= on its first line) can't be checked, so it counts as
+    edited: an automatic update leaves it alone (with a notification) rather than overwrite changes it can't see.
+    Running smoker.install_package updates it (and keeps the old file as a backup)."""
     if text is None or not text.startswith(MARK):
         return False
     m = re.search(r"\bsha=([0-9a-f]{16})", text.split("\n", 1)[0])
-    return bool(m) and fingerprint(_body(text) or "") != m.group(1)
+    return not m or fingerprint(_body(text) or "") != m.group(1)
 
 
 def _body(text: str | None) -> str | None:
@@ -117,10 +127,11 @@ def install(config_dir: str, fields: dict, version: str, only_if_ours: bool = Fa
         return {"path": str(target), "changed": False, "backup": None, "restart_needed": False, "skipped": True,
                 "edited": True}
     choices = {**(_previous_choices(old) if old else {}), **fields}
-    if "notify" not in choices:
+    if choices.get("notify") in (None, "", DEFAULTS["notify"]):
+        # Never install the placeholder: alerts (the controller's, the fire going out) would go nowhere, silently.
         raise HomeAssistantError(
-            "Say which phone gets the smoker's alerts: notify: notify.mobile_app_<your phone> "
-            "(Settings > Companion app shows the name)."
+            "Say which phone gets the smoker's alerts: notify: notify.mobile_app_<your phone> (to find the name, "
+            "open Developer tools > Actions and type notify.mobile_app)."
         )
     new = render(BUNDLED.read_text(encoding="utf-8"), choices, version)
     # Unchanged apart from the version in the header: leave it (no rewrite, no reload).
@@ -179,6 +190,17 @@ async def async_update_installed(hass: HomeAssistant, version: str, starting: bo
     return res
 
 
+async def async_check_installed(hass: HomeAssistant) -> None:
+    """A Repairs entry while there's no package (the alerts, the AI advisor and voice all live in it)."""
+    path = Path(hass.config.config_dir) / "packages" / "smoker.yaml"
+    if await hass.async_add_executor_job(path.exists):
+        ir.async_delete_issue(hass, DOMAIN, ISSUE)
+    else:
+        ir.async_create_issue(hass, DOMAIN, ISSUE, is_fixable=False, is_persistent=False,
+                              severity=ir.IssueSeverity.WARNING, translation_key=ISSUE,
+                              learn_more_url="https://github.com/Legal-Copy7045/gravity-controller/blob/main/docs/install.md")
+
+
 async def async_setup_package_install(hass: HomeAssistant, version: str) -> None:
     starting = not hass.is_running  # set up during start-up (not an integration reload at run time)
 
@@ -188,6 +210,10 @@ async def async_setup_package_install(hass: HomeAssistant, version: str) -> None
         except Exception as err:  # noqa: BLE001 - never break the integration over this
             persistent_notification.async_create(
                 hass, f"Couldn't update the Smoker package: {err}", "Smoker package", "smoker_package")
+        try:
+            await async_check_installed(hass)
+        except Exception:  # noqa: BLE001 - only a hint
+            pass
 
     async_at_started(hass, at_started)
 
@@ -200,6 +226,7 @@ async def async_setup_package_install(hass: HomeAssistant, version: str) -> None
                 msg += (" configuration.yaml doesn't load packages yet: add `packages: !include_dir_named packages` "
                         "under `homeassistant:` first.")
             persistent_notification.async_create(hass, msg, "Smoker package", "smoker_package")
+        await async_check_installed(hass)
         return res
 
     if not hass.services.has_service(DOMAIN, SERVICE):

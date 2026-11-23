@@ -1,9 +1,10 @@
 name: Build, test & release
 
 # Every push builds the firmware and runs every test. Pushes to the default
-# branch also publish the web installer + OTA manifest to GitHub Pages and,
-# when VERSION has no release yet, create release v<VERSION> (tag included)
-# with the firmware and the dashboard integration attached.
+# branch also, when VERSION has no release yet, create release v<VERSION> (tag
+# included) with the firmware and the dashboard integration attached, and then
+# publish that build's web installer + OTA manifest to GitHub Pages. A push that
+# doesn't release leaves Pages (what devices and the installer see) as it is.
 # (Adapted from the Magic-bHAnds project's workflow.)
 on:
   push:
@@ -37,22 +38,48 @@ jobs:
         run: python3 tools/brand_sync.py --check
 
 # Keeps personal details out of this public repository (.github/scripts/privacy_guard.py): nothing is published
-# (web installer, release) unless it passes.
+# (web installer, release) unless it passes. Two jobs:
+#  - privacy (every push and pull request, no secrets): no-reply commit emails, credentials and image metadata, in
+#    the tree and in every line the pushed commits add;
+#  - privacy-denylist (default branch only): the same plus the private terms in the PRIVACY_DENYLIST secret. The
+#    secret belongs in the `privacy` environment, which the owner restricts to the default branch (Settings ->
+#    Environments -> privacy -> Deployment branches: the default branch only), so a workflow edited on another
+#    branch can't read it. Release and Pages wait for both.
   privacy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Check for personal details
         env:
-          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        # The default branch's copy of the guard runs (a branch can't change the check that reads the denylist).
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        # The default branch's copy of the guard runs (a branch can't weaken the check).
         run: |
-          git show "origin/${{ github.event.repository.default_branch }}:.github/scripts/privacy_guard.py" > "$RUNNER_TEMP/privacy_guard.py"
+          git show "origin/${DEFAULT_BRANCH}:.github/scripts/privacy_guard.py" > "$RUNNER_TEMP/privacy_guard.py"
+          python3 "$RUNNER_TEMP/privacy_guard.py"
+
+  privacy-denylist:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: privacy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for personal details and private terms
+        env:
+          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
+          PRIVACY_DENYLIST_REQUIRED: "1"
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git show "origin/${DEFAULT_BRANCH}:.github/scripts/privacy_guard.py" > "$RUNNER_TEMP/privacy_guard.py"
           python3 "$RUNNER_TEMP/privacy_guard.py"
 
   unit-tests:
@@ -76,16 +103,28 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - name: Cache ESPHome toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Its own cache, never shared with firmware-tests (which runs third-party test tools): a cache that job saved
+      # can't end up in the published firmware. Restored and saved separately so it's saved only after a good build.
+      - name: Restore the ESPHome toolchain cache (this job's own)
+        id: fwcache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/esphome
-          key: esphome-${{ env.ESPHOME_VERSION }}-${{ runner.os }}
-      - name: Install ESPHome
-        run: pip install "esphome==${ESPHOME_VERSION}"
+          key: esphome-release-${{ env.ESPHOME_VERSION }}-${{ runner.os }}-${{ hashFiles('.github/requirements/firmware.txt') }}
+      - name: Install ESPHome (hash-pinned, .github/requirements/firmware.txt)
+        run: |
+          grep -qx "esphome==${ESPHOME_VERSION}" .github/requirements/firmware.in || { echo "::error::ESPHOME_VERSION and .github/requirements/firmware.in differ: regenerate the lock"; exit 1; }
+          python -m pip install --require-hashes -r .github/requirements/build-tools.txt
+          python -m pip install --require-hashes --no-build-isolation -r .github/requirements/firmware.txt
       - name: Compile ESP32-S3 firmware
         working-directory: firmware
         run: esphome compile gravity980-bridge.yaml
+      - name: Save the ESPHome toolchain cache
+        if: steps.fwcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/esphome
+          key: esphome-release-${{ env.ESPHOME_VERSION }}-${{ runner.os }}-${{ hashFiles('.github/requirements/firmware.txt') }}
       - name: Validate the optional wired-probes add-on
         run: esphome config tests/configs/wired-check.yaml
       - name: Validate the controller without Home Assistant (base.yaml alone, no API)
@@ -135,13 +174,16 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - name: Cache ESPHome toolchain
+      # Its own cache key (esphome-tests-...): never the firmware job's.
+      - name: Cache ESPHome toolchain (tests only)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/esphome
-          key: esphome-${{ env.ESPHOME_VERSION }}-${{ runner.os }}
-      - name: Install ESPHome and the test tools
-        run: pip install "esphome==${ESPHOME_VERSION}" "aioesphomeapi==46.25.1" "playwright==1.65.2" "aiohttp==3.14.5"
+          key: esphome-tests-${{ env.ESPHOME_VERSION }}-${{ runner.os }}-${{ hashFiles('.github/requirements/firmware-tests.txt') }}
+      - name: Install ESPHome and the test tools (hash-pinned, .github/requirements/firmware-tests.txt)
+        run: |
+          python -m pip install --require-hashes -r .github/requirements/build-tools.txt
+          python -m pip install --require-hashes --no-build-isolation -r .github/requirements/firmware-tests.txt
       - name: Compile native test build
         working-directory: tests
         run: esphome compile host-bridge.yaml
@@ -203,9 +245,12 @@ jobs:
       - name: Integration tests (journal, photo identification, voice)
         run: python -m pytest -q
 
+  # Pages (the web installer and the OTA manifest devices poll) is published only with a release: after the release
+  # job created v<VERSION> in this run (or on a re-run of the commit that release was made from), so the manifest
+  # never names a tag that doesn't exist and a push that doesn't release changes nothing devices see.
   deploy:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
-    needs: [privacy, firmware, attest, firmware-tests, unit-tests, home-assistant, integration]
+    if: needs.release.outputs.publish == 'true'
+    needs: [privacy, privacy-denylist, firmware, attest, firmware-tests, unit-tests, home-assistant, integration, release]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -219,12 +264,15 @@ jobs:
 
   release:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
-    needs: [privacy, firmware, firmware-tests, unit-tests, home-assistant, integration]
+    needs: [privacy, privacy-denylist, firmware, firmware-tests, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
       attestations: write
+    outputs:
+      # true when Pages should publish this build: the release was created now, or already points at this commit.
+      publish: ${{ steps.rel.outputs.created == 'true' || steps.rel.outputs.same_commit == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -241,13 +289,19 @@ jobs:
           V="$(tr -d '[:space:]' < VERSION)"
           TAG="v$V"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; bump VERSION to release again."
+            echo "Release $TAG already exists; bump VERSION to release again (Pages stays as it is)."
             echo "created=false" >> "$GITHUB_OUTPUT"
+            # A re-run of the commit the release was made from may still publish Pages (e.g. a failed deploy).
+            T="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>/dev/null || true)"
+            if [ "$T" = "$GITHUB_SHA" ]; then echo "same_commit=true" >> "$GITHUB_OUTPUT"; fi
             exit 0
           fi
           python3 .github/scripts/check_versions.py "$TAG"
           python3 .github/scripts/release_notes.py "$TAG" > notes.md
           (cd custom_components && zip -qr "../smoker-integration-$V.zip" smoker)
+          # The same files for HACS (hacs.json zip_release/filename): a fixed name, the integration's files at the
+          # zip's root, as HACS unpacks it straight into custom_components/smoker.
+          (cd custom_components/smoker && zip -qr "../../smoker-integration.zip" . -x '__pycache__/*' '*/__pycache__/*')
           (cd homeassistant/packages && zip -qr "../../smoker-ha-package-$V.zip" smoker.yaml)
           for f in firmware-bin/*.bin; do cp "$f" "./$(basename "${f%.bin}")-$V.bin"; done
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -260,6 +314,7 @@ jobs:
         with:
           subject-path: |
             smoker-integration-*.zip
+            smoker-integration.zip
             smoker-ha-package-*.zip
             *.bin
       - name: Publish the release
@@ -270,4 +325,4 @@ jobs:
           V: ${{ steps.rel.outputs.version }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Smoker bridge $V" \
-            --notes-file notes.md "smoker-integration-$V.zip" "smoker-ha-package-$V.zip" ./*-$V.bin
+            --notes-file notes.md "smoker-integration-$V.zip" smoker-integration.zip "smoker-ha-package-$V.zip" ./*-$V.bin

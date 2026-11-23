@@ -3,9 +3,15 @@
     "step": {
       "user": {
         "title": "Smoker dashboard",
-        "description": "Adds the Smoker page to the sidebar. It reads the ESPHome smoker controller's entities."
+        "description": "Add the ESPHome Smoker device first; then run Install the Smoker package (Developer tools > Actions, smoker.install_package). This adds the Smoker page to the sidebar; it reads the ESPHome smoker controller's entities."
       }
     },
     "abort": {"single_instance_allowed": "The Smoker dashboard is already set up."}
+  },
+  "issues": {
+    "package_not_installed": {
+      "title": "The Smoker package isn't installed",
+      "description": "The smoker's phone alerts, AI advisor and voice commands live in the Smoker package, and /config/packages/smoker.yaml isn't there. Go to Developer tools > Actions, run \"Install the Smoker package\" (smoker.install_package) with your phone's notify action, then restart Home Assistant."
+    }
   }
 }

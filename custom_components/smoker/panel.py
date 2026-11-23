@@ -1,7 +1,7 @@
 """The Smoker page, served as a Home Assistant sidebar panel (same pattern as the MagicbHAnds and home-dashboards pages).
 
 frontend/page.html gets frontend/common.js (helpers), frontend/shim.js (window.hdHA: live states and a small
-allowlist of controls) and the fonts and styles, and is served to logged-in users at /api/smoker/page.
+allowlist of controls) and the styles (system fonts: nothing is loaded from outside Home Assistant), and is served to logged-in users at /api/smoker/page.
 frontend/panel.js is the sidebar element that loads it into a frame and hands it the live `hass` object.
 """
 
@@ -24,12 +24,14 @@ _SETUP = "smoker_panel_http"
 
 
 def build_page() -> str:
-    """The page with its helpers, shim, fonts and styles (blocking: run in the executor)."""
+    """The page with its helpers, shim and styles (blocking: run in the executor)."""
     read = lambda name: (FRONTEND / name).read_text(encoding="utf-8")  # noqa: E731
     html = read("page.html").replace("/*COMMON*/", read("common.js"))
     version = json.loads((FRONTEND.parent / "manifest.json").read_text(encoding="utf-8"))["version"]
     head = "<script>window.SMOKER_INTEGRATION = " + json.dumps(version) + ";" + read("shim.js") + "</script>\n"
-    style = read("fonts.html") + "<style>" + read("style.css") + "</style>\n"
+    # No web fonts: the page used to load them from Google Fonts on every view (telling Google each time the dashboard
+    # was opened). The styles name the fonts first and fall back to the system's own, so it looks right without them.
+    style = "<style>" + read("style.css") + "</style>\n"
     html = html.replace("<head>", "<head>" + head, 1)
     i = html.find("</head>")
     return html[:i] + style + html[i:] if i >= 0 else style + html

@@ -26,7 +26,7 @@ def build_page():
     html = read("page.html").replace("/*COMMON*/", read("common.js"))
     html = html.replace("<head>", "<head><script>" + read("shim.js") + "</script>\n", 1)
     i = html.find("</head>")
-    style = "<style>" + read("style.css") + "</style>\n"  # fonts.html skipped: no network in tests
+    style = "<style>" + read("style.css") + "</style>\n"  # as panel.build_page (no web fonts)
     return html[:i] + style + html[i:]
 
 

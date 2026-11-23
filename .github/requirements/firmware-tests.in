@@ -1,0 +1,8 @@
+# Hash-pinned lock for CI (.github/workflows/build.yml). After changing this file (or ESPHOME_VERSION in build.yml),
+# regenerate firmware-tests.txt from the repository root with:
+#   uv pip compile .github/requirements/firmware-tests.in --generate-hashes --python-version 3.13 \
+#     --python-platform x86_64-unknown-linux-gnu --no-header -o .github/requirements/firmware-tests.txt
+esphome==2026.11.0
+aioesphomeapi==46.25.1
+playwright==1.65.2
+aiohttp==3.14.5

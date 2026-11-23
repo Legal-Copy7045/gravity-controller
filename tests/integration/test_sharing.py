@@ -218,3 +218,65 @@ async def test_malformed_averages_are_dropped(hass: HomeAssistant, aioclient_moc
     aioclient_mock.get(AGGREGATES_URL, json={"v": 1, "groups": {"cut": "Brisket"}})
     await hass.data[sharing.DATA]._refresh_community()
     assert hass.states.get("sensor.smoker_community").attributes["similar"] == []
+
+
+async def test_uploads_are_spaced_and_retried(hass: HomeAssistant, hass_client, hass_admin_user, aioclient_mock,
+                                              tmp_path, smoker_device_id):
+    """The service takes one cook a minute per client and has a daily cap: a backlog drains one a minute, and a
+    429/503 leaves the cook queued (sent later), never given up on."""
+    await _setup(hass, tmp_path, aioclient_mock)
+    client = await hass_client()
+    await client.post("/api/smoker/sharing", json={"enabled": True, "auto": True})
+    for _ in range(3):
+        hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(SUMMARY), "device_id": smoker_device_id})
+        await hass.async_block_till_done()
+    sh = hass.data[sharing.DATA]
+    ids = [e["id"] for e in hass.data["smoker_journal_data"].data["entries"]]
+    for i in ids:
+        await client.post(f"/api/smoker/journal/{i}", json={"rating": 4})
+        sh._touched[i] = 0
+    await hass.async_block_till_done()
+    posts = lambda: [c for c in aioclient_mock.mock_calls if c[0] == "POST"]  # noqa: E731
+
+    # The day's cap is reached: nothing is marked shared, and nothing more is tried for a while.
+    aioclient_mock.post(SHARE_URL + "/v1/cooks", status=503, text="too many uploads today")
+    assert await sh.share_ready() == 0 and len(posts()) == 1
+    assert all(sh.status(e) == "pending" for e in hass.data["smoker_journal_data"].data["entries"])
+    assert await sh.share_ready() == 0 and len(posts()) == 1  # (waits, doesn't hammer the service)
+    r = await client.post(f"/api/smoker/sharing/share/{ids[0]}")
+    assert r.status == 400 and "try again" in (await r.json())["message"]
+    # Later the service takes them again: one per pass, at least a minute apart.
+    sh._not_before = sh._last_upload = 0
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(SHARE_URL + "/v1/cooks", status=201, json={"ok": True})
+    assert await sh.share_ready() == 1 and len(posts()) == 1
+    assert await sh.share_ready() == 0 and len(posts()) == 1  # under a minute since the last one
+    # Busy (429): this one stays queued.
+    sh._last_upload -= 61
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(SHARE_URL + "/v1/cooks", status=429, text="slow down")
+    assert await sh.share_ready() == 0 and len(posts()) == 1
+    assert sum(sh.status(e) == "pending" for e in hass.data["smoker_journal_data"].data["entries"]) == 2
+    assert len(sh.data["shared"]) == 1
+    sh.unload()
+
+
+async def test_withdraw_reports_missing_and_busy(hass: HomeAssistant, hass_client, hass_admin_user, aioclient_mock,
+                                                 tmp_path):
+    await _setup(hass, tmp_path, aioclient_mock)
+    client = await hass_client()
+    sh = hass.data[sharing.DATA]
+    sh.data["shared"] = {"e1": {"id": "a" * 32, "key": "k1"}, "e2": {"id": "b" * 32, "key": "k2"},
+                         "e3": {"id": "c" * 32, "key": "k3"}}
+    aioclient_mock.delete(f"{SHARE_URL}/v1/cooks/{'a' * 32}", status=200, json={"ok": True, "already": True})
+    aioclient_mock.delete(f"{SHARE_URL}/v1/cooks/{'b' * 32}", status=404, json={"error": "not found"})
+    aioclient_mock.delete(f"{SHARE_URL}/v1/cooks/{'c' * 32}", status=429, text="slow down")
+    w = await (await client.post("/api/smoker/sharing/withdraw")).json()
+    # Already deleted counts as removed; "never stored" for a cook it accepted is reported, not counted as removed;
+    # 429 keeps the cook shared for another try.
+    assert w["removed"] == 1 and w["missing"] == 1 and w["retry_later"] == 1 and w["failed"] == 1, w
+    assert list(sh.data["shared"]) == ["e3"]
+    aioclient_mock.clear_requests()
+    aioclient_mock.delete(f"{SHARE_URL}/v1/cooks/{'c' * 32}", status=200, json={"ok": True})
+    w = await (await client.post("/api/smoker/sharing/withdraw")).json()
+    assert w["removed"] == 1 and w["failed"] == 0 and sh.data["shared"] == {}

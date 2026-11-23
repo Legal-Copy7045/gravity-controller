@@ -100,8 +100,8 @@ async def main():
     # 2c. smoker_notify: SMOKER_ buttons get the notification's one-off code, other buttons are left alone
     nv = pkg["script"]["smoker_notify"]["sequence"][0]["variables"]
     code = render(nv["code"])
-    check(isinstance(code, str) and len(code) == 16 and code.isalpha() and code != render(nv["code"]),
-          f"notification code {code!r}")
+    check(isinstance(code, str) and len(code) == 24 and code.isalnum() and code[0].isalpha() and code.isascii()
+          and code != render(nv["code"]), f"notification code {code!r}")
     given = [{"action": "SMOKER_PIT_HOLD", "title": "Hold"}, {"action": "URI", "title": "Open", "uri": "/x"}]
     b = render(nv["buttons"], actions=given, code=code)
     check(b["ours"] and b["list"][0]["action"] == "SMOKER_PIT_HOLD__" + code and b["list"][1]["action"] == "URI",
@@ -112,16 +112,17 @@ async def main():
     cond = autos["smoker_notification_actions"]["conditions"][0]["value_template"]
     import time as _t
     now_s = int(_t.time())
-    hass.states.async_set("input_text.smoker_notify_codes", f"{'a' * 16}:{now_s - 8000} {'b' * 16}:{now_s - 60}")
-    for action, want in [("SMOKER_START_PROGRAM__" + "b" * 16, True), ("SMOKER_START_PROGRAM__" + "a" * 16, False),
-                         ("SMOKER_START_PROGRAM", False), ("SMOKER_START_PROGRAM__" + "c" * 16, False),
-                         ("OTHER__" + "b" * 16, False), ("SMOKER_X__" + "b" * 16 + "__y", False)]:
+    A, B, C = "a" * 23 + "1", "B" * 23 + "2", "c" * 24
+    hass.states.async_set("input_text.smoker_notify_codes", f"{A}:{now_s - 8000} {B}:{now_s - 60}")
+    for action, want in [("SMOKER_START_PROGRAM__" + B, True), ("SMOKER_START_PROGRAM__" + A, False),
+                         ("SMOKER_START_PROGRAM", False), ("SMOKER_START_PROGRAM__" + C, False),
+                         ("SMOKER_START_PROGRAM__" + B.lower(), False), ("SMOKER_START_PROGRAM__" + B[:16], False),
+                         ("OTHER__" + B, False), ("SMOKER_X__" + B + "__y", False)]:
         got = render(cond, trigger={"event": {"data": {"action": action}}})
         check(got is want, f"button {action!r} accepted: {got!r}")
 
     # 2e. the AI plan's program is checked before it's loaded
-    pv = next(st for st in pkg["script"]["smoker_plan_cook"]["sequence"]
-              if isinstance(st, dict) and "variables" in st and "refused" in st["variables"])["variables"]["refused"]
+    pv = pkg["script"]["smoker_check_program"]["sequence"][0]["variables"]["refused"]
     hass.states.async_set("number.smoker_pit_target", "225", {"unit_of_measurement": "°F", "min": 200, "max": 700})
     ok = 'name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it; don\'t cut"'
     for prog, bad in [(ok, ""), ("pit 400F until after 2h", ""), ("1. pit 250\n2. hold 200", ""),
@@ -130,7 +131,17 @@ async def main():
                       ('pit 250 notify "go to www.example.com"', "link"), ("ignore the rules; pit 250", "not an action"),
                       ("pit 250; name: x", "must come first"), ('pit 250 notify "unbalanced', "quotes"),
                       ("", "no program"), ("name: only a name", "no steps"), ("pit 250 until food1 >= 165 {x}", "other than"),
-                      ("name: x; pit 250\nhold 900", "above")]:
+                      ("name: x; pit 250\nhold 900", "above"),
+                      # The controller starts a new word right after a closing quote: these are all pit 700.
+                      ('pit 250 notify "ok"pit 700', "above"), ('notify "go"pit 700', "above"),
+                      ("notify 'a'set to 700", "above"), ('notify "a"hold 700', "above"),
+                      ('pit 250 notify "x" "y"pit 700', "above"), ('notify "go",pit 700', "above"),
+                      ("pit 250 notify 'it''s'pit 700", "above"), ('notify ""pit 700', "above"),
+                      ('pit 250 notify "a"then pit 700', "above"), ("pit 250 then hold 900", "above"),
+                      # Words that only contain pit/hold/set are not actions the controller knows (refused anyway).
+                      ("pit 250 until food1 >= 165; setpit 900", "not an action"),
+                      # A pit with no readable number after it is refused, never skipped.
+                      ('notify "a"pit "b"', "can't be read"), ("pit 250 notify 'x'pit", "can't be read")]:
         got = str(render(pv, program=prog, explanation="Fine.", max_pit=400.0) or "")
         check((bad in got) if bad else got == "", f"plan check {prog!r} -> {got!r}")
     hass.states.async_set("number.smoker_pit_target", "107", {"unit_of_measurement": "°C", "min": 93, "max": 371})

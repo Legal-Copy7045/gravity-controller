@@ -950,7 +950,8 @@ window.act = {
     if (!withdrawArmed) { withdrawArmed = setTimeout(() => { withdrawArmed = 0; renderShare(); }, 4000); return renderShare(); }
     clearTimeout(withdrawArmed); withdrawArmed = 0; toast('Removing…');
     api('POST', '/api/smoker/sharing/withdraw').then(d => { share = d; renderShare(); renderJournal(true);
-      toast(d.failed ? `Removed ${d.removed}; ${d.failed} couldn't be reached, try again later` : `Removed ${d.removed} shared cook${d.removed === 1 ? '' : 's'}`); }).catch(fail);
+      toast((d.failed ? `Removed ${d.removed}; ${d.failed} couldn't be removed yet, try again in a minute` : `Removed ${d.removed} shared cook${d.removed === 1 ? '' : 's'}`)
+        + (d.missing ? ` (${d.missing} the service had no record of)` : '')); }).catch(fail);
   },
   shareExport() {
     api('GET', '/api/smoker/sharing/export').then(d => {

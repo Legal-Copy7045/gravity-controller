@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 import json
 from pathlib import Path
 
+from .controller_events import async_setup_controller_events, async_unload_controller_events
 from .journal import async_setup_journal, async_unload_journal
 from .sharing import async_setup_sharing, async_unload_sharing
 from .package_install import async_setup_package_install
@@ -24,6 +25,9 @@ DOMAIN = "smoker"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Checks the controller's esphome.smoker_* events and passes the genuine ones on as smoker_controller_* (the
+    # journal and the package listen to those).
+    await async_setup_controller_events(hass)
     journal = await async_setup_journal(hass)
     await async_setup_panel(hass)
     version = await hass.async_add_executor_job(
@@ -35,6 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    async_unload_controller_events(hass)
     async_unload_journal(hass)
     async_unload_sharing(hass)
     async_remove_panel(hass)

@@ -393,3 +393,117 @@ async def test_package_kept_up_to_date(hass: HomeAssistant, tmp_path):
     assert res["changed"] and not res["restart_needed"] and reloaded == ["automation"]
     assert "Old name" not in text and "notify.mobile_app_test_phone" in text and "9.9.9" in text.split("\n", 1)[0]
     assert len(list(pkg.parent.glob("smoker.yaml.bak-*"))) <= pi.KEEP_BACKUPS
+
+
+def test_photos_only_in_phone_formats():
+    """Only JPEG/PNG/WebP (and MPO) photos are opened; anything else Pillow could read is refused unread."""
+    import io
+
+    import pytest
+    from PIL import Image
+
+    from custom_components.smoker.journal import MAX_PIXELS, strip_metadata
+
+    def make(fmt, size=(8, 8)):
+        b = io.BytesIO()
+        Image.new("RGB", size, (200, 80, 40)).save(b, fmt)
+        return b.getvalue()
+
+    for fmt in ("JPEG", "PNG", "WEBP"):
+        assert strip_metadata(make(fmt), "jpg")[0]
+    for fmt in ("GIF", "BMP", "TIFF", "PPM"):
+        with pytest.raises(ValueError):
+            strip_metadata(make(fmt), "jpg")
+    assert MAX_PIXELS == 24_000_000
+    with pytest.raises(ValueError, match="too many pixels"):
+        strip_metadata(make("PNG", (6000, 4001)), "png")
+
+
+async def test_controller_events_checked_and_signed(hass: HomeAssistant, tmp_path, smoker_device_id, other_device_id):
+    """esphome.smoker_* events are passed on (as smoker_controller_*) only from the smoker controller, fired inside
+    Home Assistant; once the controller has sent the event secret, only events carrying it."""
+    from homeassistant.core import Context, EventOrigin
+
+    from custom_components.smoker import controller_events as ce
+
+    pushed = []
+
+    async def set_secret(call: ServiceCall):
+        pushed.append(call.data["secret"])
+
+    hass.services.async_register("esphome", "gravity980_set_event_secret", set_secret)
+    await _setup(hass, tmp_path)
+    await hass.async_block_till_done()
+    c = hass.data[ce.DATA]
+    assert len(c.secret) == 32 and pushed == [c.secret]  # handed to the controller (it has the action)
+    got = []
+    hass.bus.async_listen("smoker_controller_notify", lambda e: got.append(dict(e.data)))
+
+    async def fire(data, origin=EventOrigin.local, context=None):
+        hass.bus.async_fire("esphome.smoker_notify", {"title": "t", "message": "m", **data}, origin, context)
+        await hass.async_block_till_done()
+
+    # Older firmware (no secret yet): taken from the smoker controller only, and only when fired inside HA.
+    await fire({"device_id": other_device_id})
+    await fire({"device_id": smoker_device_id}, EventOrigin.remote)
+    await fire({"device_id": smoker_device_id}, context=Context(user_id="0123456789abcdef0123456789abcdef"))
+    assert got == []
+    await fire({"device_id": smoker_device_id})
+    assert len(got) == 1 and got[0]["device_id"] == smoker_device_id
+    # A wrong secret is never taken.
+    await fire({"device_id": smoker_device_id, "secret": "0" * 32})
+    assert len(got) == 1
+    # The controller sends the secret: passed on without it, and from now on it's required.
+    await fire({"device_id": smoker_device_id, "secret": c.secret})
+    assert len(got) == 2 and "secret" not in got[1] and c.confirmed
+    await fire({"device_id": smoker_device_id})
+    assert len(got) == 2
+    # The journal takes finished cooks from the checked event only.
+    j = hass.data[DATA]
+    n = len(j.data["entries"])
+    summary = json.dumps({"probe": "food1", "total_h": 1})
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": summary, "device_id": smoker_device_id})
+    hass.bus.async_fire("smoker_controller_cook_complete", {"summary": summary, "device_id": smoker_device_id},
+                        EventOrigin.remote)
+    await hass.async_block_till_done()
+    assert len(j.data["entries"]) == n
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": summary, "device_id": smoker_device_id,
+                                                         "secret": c.secret})
+    await hass.async_block_till_done()
+    assert len(j.data["entries"]) == n + 1
+    # The secret is pushed again whenever the controller (re)connects and registers its actions.
+    hass.services.async_remove("esphome", "gravity980_set_event_secret")
+    hass.services.async_register("esphome", "gravity980_set_event_secret", set_secret)
+    await hass.async_block_till_done()
+    assert pushed == [c.secret, c.secret]
+
+
+async def test_install_package_checks(hass: HomeAssistant, tmp_path):
+    """The phone placeholder is never installed; an install without a fingerprint counts as edited; a missing package
+    shows in Repairs until it's installed."""
+    import pytest
+    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.smoker import package_install as pi
+
+    hass.config.config_dir = str(tmp_path)
+    (tmp_path / "configuration.yaml").write_text("homeassistant:\n  packages: !include_dir_named packages\n")
+    await _setup(hass, tmp_path)
+    await pi.async_check_installed(hass)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, pi.ISSUE)
+    with pytest.raises(HomeAssistantError, match="Developer tools"):
+        await hass.services.async_call(DOMAIN, "install_package", {"notify": "notify.mobile_app_your_phone"},
+                                       blocking=True, return_response=True)
+    await hass.services.async_call(DOMAIN, "install_package", {"notify": "notify.mobile_app_test_phone"},
+                                   blocking=True, return_response=True)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, pi.ISSUE) is None
+    # An older install recorded the placeholder as its phone: it's asked for again.
+    assert "notify" not in pi._previous_choices(pi.MARK + " 0.1: notify=notify.mobile_app_your_phone, ai_task=ai_task.x")
+    # Installed before fingerprints were recorded: can't tell if it was edited, so it's left alone.
+    old = pi.MARK + " 0.2.10: notify=notify.mobile_app_test_phone\n# Re-run...\ninput_boolean: {}\n"
+    assert pi.edited(old)
+    pkg = tmp_path / "packages/smoker.yaml"
+    pkg.write_text(old)
+    res = await pi.async_update_installed(hass, "9.9.9")
+    assert res.get("edited") and pkg.read_text() == old

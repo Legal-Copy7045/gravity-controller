@@ -46,6 +46,19 @@ CUTS = {"Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", 
 TIMEOUT = ClientTimeout(total=20)
 READY_AFTER = 12 * 3600  # a cook without feedback is offered this long after it ended
 SETTLE = 600  # automatic sharing waits this long after the last star/tag/note change (seconds)
+# The sharing service stores at most one cook a minute from each client (429 otherwise) and has a daily cap for
+# everyone together (503 "too many uploads today"): uploads are spaced at least this far apart, and a 429/503 leaves
+# the cook waiting to be sent later (never marked as failed).
+UPLOAD_GAP = 60
+RETRY_GAP = 3600  # after a 503 (the day's cap): wait this long before trying again
+
+
+class RetryLater(ValueError):
+    """The sharing service is busy (429) or full for today (503): the cook stays queued and is sent later."""
+
+    def __init__(self, msg: str, wait: float = UPLOAD_GAP) -> None:
+        super().__init__(msg)
+        self.wait = wait
 
 
 
@@ -166,6 +179,9 @@ class Sharing:
         self._unsub = None
         self._sending: set[str] = set()      # entries being uploaded right now (one upload per cook)
         self._touched: dict[str, float] = {}  # entry id -> last feedback change (automatic sharing waits)
+        self._last_upload = 0.0  # monotonic time of the last upload sent (they're spaced UPLOAD_GAP apart)
+        self._not_before = 0.0   # monotonic time before which nothing is sent (after a 429/503)
+        self._drain = None       # a later automatic-sharing pass already scheduled
 
     @property
     def url(self) -> str:
@@ -189,29 +205,53 @@ class Sharing:
             await self._refresh_community()
         await self.share_ready()
 
+    def _ready_to_send(self) -> list[dict]:
+        since = float(self.data.get("auto_since") or time.time())
+        now = time.time()
+        # Wait SETTLE s after the last star/tag/note change, so a cook goes out with all its feedback at once.
+        return [e for e in self.journal.data["entries"] if now - self._touched.get(e["id"], 0) >= SETTLE
+                and float(e.get("ended") or 0) >= since and self.status(e) == "pending"]
+
     async def share_ready(self) -> int:
+        """Send the cooks waiting to be shared automatically, one per pass: a backlog drains one cook a minute (the
+        service's limit), and a busy or full service leaves the rest queued for later."""
         if not (self.data["enabled"] and self.data["auto"]):
             return 0
-        since = float(self.data.get("auto_since") or time.time())
-        n = 0
-        now = time.time()
-        for e in list(self.journal.data["entries"]):
-            # Wait SETTLE s after the last star/tag/note change, so a cook goes out with all its feedback at once.
-            if now - self._touched.get(e["id"], 0) < SETTLE:
-                continue
-            if (float(e.get("ended") or 0) >= since and self.status(e) == "pending"):
-                try:
-                    await self.share(e["id"])
-                    n += 1
-                except ValueError as err:
-                    _LOGGER.debug("Automatic sharing will retry: %s", err)
-                    break
-        return n
+        todo = self._ready_to_send()
+        if not todo:
+            return 0
+        try:
+            await self.share(todo[0]["id"])
+        except RetryLater as err:
+            _LOGGER.debug("Automatic sharing will retry: %s", err)
+            self._later(err.wait)
+            return 0
+        except ValueError as err:
+            _LOGGER.debug("Automatic sharing will retry: %s", err)
+            return 0
+        if len(todo) > 1:
+            self._later(UPLOAD_GAP)
+        return 1
+
+    def _later(self, wait: float) -> None:
+        """Another automatic-sharing pass in `wait` seconds (only one is ever scheduled; the hourly tick also runs)."""
+        if self._drain is not None or self._unsub is None:
+            return
+
+        @callback
+        def run(_now=None) -> None:
+            self._drain = None
+            self.hass.async_create_task(self.share_ready())
+
+        self._drain = async_call_later(self.hass, max(1.0, wait), run)
 
     def unload(self) -> None:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        if self._drain:
+            self._drain()
+            self._drain = None
         if self._on_entry in self.journal.listeners:
             self.journal.listeners.remove(self._on_entry)
 
@@ -263,6 +303,9 @@ class Sharing:
             return self.data["shared"][entry_id]
         if entry_id in self._sending:
             raise ValueError("already sending this cook")
+        wait = max(self._last_upload + UPLOAD_GAP, self._not_before) - time.monotonic()
+        if wait > 0:
+            raise RetryLater(f"the sharing service takes one cook a minute: try again in {math.ceil(wait)} s", wait)
         # The record id and deletion key are chosen once and saved before sending, so a retry (or a reply lost to a
         # timeout) re-sends the same record instead of a second copy whose key would be lost.
         pend = self.data.setdefault("pending", {})
@@ -275,8 +318,16 @@ class Sharing:
             raise ValueError("this cook can't be shared (no total time recorded)")
         body = {"record": record, "key_hash": hashlib.sha256(key.encode()).hexdigest()}
         self._sending.add(entry_id)
+        self._last_upload = time.monotonic()
         try:
             async with async_get_clientsession(self.hass).post(self.url + "/v1/cooks", json=body, timeout=TIMEOUT) as r:
+                if r.status == 429:  # more than one a minute from here: kept, sent later
+                    self._not_before = time.monotonic() + UPLOAD_GAP
+                    raise RetryLater("the sharing service is busy: this cook will be sent a little later")
+                if r.status == 503:  # the service's cap for the day: kept, tried again in an hour
+                    self._not_before = time.monotonic() + RETRY_GAP
+                    raise RetryLater("the sharing service has taken all the cooks it can today: this cook will be "
+                                     "sent later", RETRY_GAP)
                 if r.status not in (201, 409):  # 409: this id is already stored (an earlier try got through)
                     raise ValueError(f"the sharing service said {r.status}: {(await r.text())[:200]}")
         except (ClientError, TimeoutError) as err:
@@ -306,38 +357,55 @@ class Sharing:
             self._save()
 
     async def withdraw(self) -> dict:
-        """Delete every cook shared from here (the deletion keys prove they're ours)."""
-        gone, failed = 0, 0
+        """Delete every cook shared from here (the deletion keys prove they're ours).
+
+        The service answers 200 when it deleted the cook, or had already ({"already": true}); 404 when it never stored
+        that id; 429 when asked too often (the rest wait: run it again in a minute). A cook it accepted (201) but
+        says it never stored is counted as "missing" and logged, not as removed: it isn't there to delete, and that
+        shouldn't happen."""
+        gone, failed, missing, later = 0, 0, 0, 0
         session = async_get_clientsession(self.hass)
-        # Uploads whose reply was lost may be stored too: delete them as well (404 = never stored).
-        for entry_id, s in list(self.data.get("pending", {}).items()):
+
+        async def delete(s: dict) -> int | None:
             try:
                 async with session.delete(f"{self.url}/v1/cooks/{s['id']}", headers={"X-Delete-Key": s["key"]},
                                           timeout=TIMEOUT) as r:
-                    ok = r.status in (200, 404)
-            except ClientError:
-                ok = False
-            if ok:
+                    return r.status
+            except (ClientError, TimeoutError):
+                return None
+
+        busy = False
+        # Uploads whose reply was lost may be stored too: delete them as well (404 = never stored, as expected).
+        for entry_id, s in list(self.data.get("pending", {}).items()):
+            status = None if busy else await delete(s)
+            if status in (200, 404):
                 del self.data["pending"][entry_id]
                 if entry_id not in self.data["declined"]:
                     self.data["declined"].append(entry_id)
+            elif status == 429 or busy:
+                busy = True
+                later += 1
             else:
                 failed += 1
         for entry_id, s in list(self.data["shared"].items()):
-            try:
-                async with session.delete(f"{self.url}/v1/cooks/{s['id']}", headers={"X-Delete-Key": s["key"]},
-                                          timeout=TIMEOUT) as r:
-                    ok = r.status in (200, 404)
-            except ClientError:
-                ok = False
-            if ok:
+            status = None if busy else await delete(s)
+            if status in (200, 404):
+                if status == 404:
+                    missing += 1
+                    _LOGGER.warning("Withdrawing shared cooks: the sharing service has no record of one it accepted "
+                                    "(id %s…); nothing left to delete there", s["id"][:8])
+                else:
+                    gone += 1
                 del self.data["shared"][entry_id]
-                self.data["declined"].append(entry_id)
-                gone += 1
+                if entry_id not in self.data["declined"]:
+                    self.data["declined"].append(entry_id)
+            elif status == 429 or busy:  # asked too often: these stay shared, run Withdraw again in a minute
+                busy = True
+                later += 1
             else:
                 failed += 1
         self._save()
-        return {"removed": gone, "failed": failed}
+        return {"removed": gone, "failed": failed + later, "missing": missing, "retry_later": later}
 
     def set(self, enabled: bool | None, auto: bool | None) -> None:
         if enabled is not None:

@@ -1,6 +1,7 @@
 """Cook journal and "what's being cooked" from photos.
 
-* Every finished cook (the controller's `esphome.smoker_cook_complete` event) becomes a journal entry: protein,
+* Every finished cook (the controller's `esphome.smoker_cook_complete` event, checked and passed on as
+  `smoker_controller_cook_complete` by controller_events.py) becomes a journal entry: protein,
   weight, pit, stall, total time, weather, plus your notes and rating, and the items you scanned for it.
 * POST photos of the barcode/label of one or more packages to /api/smoker/identify: the AI (Home Assistant's
   AI Task) reads them and returns the items (cut, protein profile, weight). They're kept as the "next cook" draft;
@@ -36,11 +37,17 @@ MAX_ENTRIES = 200
 MAX_PHOTOS = 6
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_UPLOAD_BYTES = 4 * MAX_PHOTO_BYTES  # all the photos of one scan together
-MAX_PIXELS = 40_000_000  # bigger than any phone photo; refused before it's decoded (a "decompression bomb")
+# A phone's normal photo (12-24 MP) fits; a 48-200 MP "full resolution" shot doesn't (it isn't needed to read a label).
+# Checked before anything is decoded (a "decompression bomb" is a small file that unpacks to billions of pixels).
+MAX_PIXELS = 24_000_000
+# Only the formats a phone or the page sends (JPEG, PNG, WebP, and MPO: an iPhone/Android JPEG with a depth map).
+# Pillow can open many more (old and rarely tested decoders): those are refused unread.
+PHOTO_FORMATS = ("JPEG", "PNG", "WEBP", "MPO")
 SCAN_DIR = "smoker_scans"  # our own folder under the media directory
 SCAN_NAME = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}-\d\.(jpg|png)")  # only files we wrote are ever tidied away
 PROFILES = ["Auto", "Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"]
 DATA = "smoker_journal_data"
+COOK_COMPLETE = "smoker_controller_cook_complete"  # the controller's esphome.smoker_cook_complete, once checked
 # "How was it?": what the food turned out like (cooking outcomes only; also shared, if sharing is on).
 TAGS = ["juicy", "tender", "dry", "tough", "undercooked", "just right", "overcooked", "great bark", "soft bark",
         "good smoke", "too smoky", "too little smoke", "fat rendered", "fat not rendered"]
@@ -147,7 +154,11 @@ class Journal:
     # ---- entries ----
     @callback
     def handle_cook_complete(self, event: Event) -> None:
-        if not from_smoker(self.hass, event):
+        from .controller_events import fired_inside
+
+        # Passed on by controller_events.py (already checked there); a phone or the REST API can fire the same event
+        # name, but only as a remote event with a user attached.
+        if not fired_inside(event) or not from_smoker(self.hass, event):
             _LOGGER.debug("Ignored a cook summary that didn't come from the smoker controller")
             return
         try:
@@ -496,7 +507,7 @@ def strip_metadata(body: bytes, ext: str) -> tuple[bytes, str]:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-            img = Image.open(io.BytesIO(body))
+            img = Image.open(io.BytesIO(body), formats=PHOTO_FORMATS)
         w, h = img.size
     except Exception as err:  # noqa: BLE001
         raise ValueError("couldn't read that photo") from err
@@ -675,7 +686,7 @@ async def async_setup_journal(hass: HomeAssistant) -> Journal:
     if DATA in hass.data:  # reloaded: views are still registered, listen again
         j = hass.data[DATA]
         if getattr(j, "unsub", None) is None:
-            j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
+            j.unsub = hass.bus.async_listen(COOK_COMPLETE, j.handle_cook_complete)
         j._publish()  # its sensor was removed with the entry
         return j
     j = Journal(hass)
@@ -683,7 +694,7 @@ async def async_setup_journal(hass: HomeAssistant) -> Journal:
     hass.data[DATA] = j
     for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView(), GrillPhotoView(), GrillPhotoImageView()):
         hass.http.register_view(view)
-    j.unsub = hass.bus.async_listen("esphome.smoker_cook_complete", j.handle_cook_complete)
+    j.unsub = hass.bus.async_listen(COOK_COMPLETE, j.handle_cook_complete)
     return j
 
 

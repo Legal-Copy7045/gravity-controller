@@ -7,7 +7,9 @@ install_package:
   fields:
     notify:
       name: Phone
-      description: The notify action for your phone (Settings > Companion app shows the name).
+      description: >-
+        The notify action for your phone, e.g. notify.mobile_app_my_phone (to find it, open Developer tools > Actions
+        and type notify.mobile_app). Needed the first time; later runs keep it.
       example: notify.mobile_app_my_phone
       selector:
         text:
