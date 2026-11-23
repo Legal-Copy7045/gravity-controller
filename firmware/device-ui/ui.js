@@ -393,15 +393,16 @@ function renderKpis() {
   add('Cook time', el != null ? mins(el) : '--', '', on(E('binary_sensor', 'Cook active')) ? 'in progress' : 'idle');
   if (out != null) add('Outside', fmt(out), TU(), LOCAL && LOCAL.location ? 'Open-Meteo' : 'Home Assistant');
   put('kpis', k.join(''));
-  const now = $('s-now'); if (now) now.hidden = lvl == null && el == null && out == null;  // nothing to say yet
 }
 // Which sections start folded, and what their headings say while folded (the shared SECT block does the rest).
 function placeSections() {
   const cooking = on(E('binary_sensor', 'Cook active')) || /Running|Paused/.test(T('Program state') || '');
   SECT.order(cooking);
   const conn = on(E('binary_sensor', 'Grill connected')), L = LOCAL;
-  SECT.want('setup', !!(L && L.pin), `${conn ? 'grill connected' : 'grill not connected'}${L ? ' · PIN ' + (L.pin ? 'set' : 'not set') : ''}${T('Release') ? ' · ' + T('Release') : ''}`);
-  SECT.want('chart', !(HIST && HIST.series && HIST.series[0] && HIST.series[0].length > 1), 'fills in as the controller records');
+  // Decided before the controller has answered, so the page doesn't jump once it does: Setup starts folded (it opens
+  // on a controller without a PIN), the chart open (it folds only once its history is known to be empty).
+  SECT.want('setup', !L || !!L.pin, `${conn ? 'grill connected' : 'grill not connected'}${L ? ' · PIN ' + (L.pin ? 'set' : 'not set') : ''}${T('Release') ? ' · ' + T('Release') : ''}`);
+  SECT.want('chart', !!HIST && !(HIST.series && HIST.series[0] && HIST.series[0].length > 1), 'fills in as the controller records');
   SECT.want('journal', cooking, (JOURNAL.entries || []).length + ' cooks');
 }
 

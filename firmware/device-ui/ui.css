@@ -4,6 +4,9 @@
 :root.gx{--ground:#f2f4f6;--surface:#fff;--sunk:#e9edf1;--ink:#0f1b27;--ink-2:#44556a;--muted:#6d7d8f;--line:#dbe2e9;--ok:#1d8a5f;--warn:#a86400;--bad:#b3261e;--page:#c2410c;--exp:#6d28d9;--page-soft:color-mix(in srgb,var(--page) 11%,var(--surface));color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root.gx:not([data-theme="light"]){--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#7b8a9a;--line:#233040;--ok:#3cc08a;--warn:#e0a24a;--bad:#ef6b61;--page:#fb8a3c;--exp:#a78bfa}}
 :root.gx[data-theme="dark"]{--ground:#0c1218;--surface:#131b24;--sunk:#0f161e;--ink:#e9eff5;--ink-2:#abb8c6;--muted:#7b8a9a;--line:#233040;--ok:#3cc08a;--warn:#e0a24a;--bad:#ef6b61;--page:#fb8a3c;--exp:#a78bfa}
+/* Before the script runs (it adds .gx): the page's own ground, not a white flash. */
+html{background:#f2f4f6}
+@media (prefers-color-scheme:dark){html{background:#0c1218}}
 .gx [hidden]{display:none!important}
 .gx h3.split{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .gx body{background:var(--ground);color:var(--ink);font:15px/1.5 "Instrument Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;padding:14px 16px 56px;-webkit-text-size-adjust:100%;overflow-x:hidden}
