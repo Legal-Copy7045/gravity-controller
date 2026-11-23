@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.2.51] - 2026-11-23
+
+**Security release from a second full audit, plus documentation for other owners.**
+
+**The controller**
+- **Other websites can't use your browser to control or read the controller.** Every change needs the page's own
+  `X-Smoker` header, requests from other origins (including "null") are refused, reads too, and so are their
+  preflights. Scripts that POST to the controller must now send `X-Smoker: 1`.
+- **Before Home Assistant adopts the controller:**
+  - The keyless setup window opens only after a power-on, not after a crash or restart. It closes once a page PIN is
+    set.
+  - Home Assistant's *Clear the device page PIN* button does nothing until the API has its key.
+- **A look-alike grill can no longer replace the remembered one or get the Wi-Fi password.** Only *Forget the grill*
+  changes which grill is remembered. The real grill takes the link back as soon as it's heard.
+- **Sessions keep their real expiry across restarts and are pruned on time.** Timers no longer come back when the
+  clock wraps after about 49 days.
+- **Wrong PINs:** the global limit now holds only the clients making wrong guesses.
+- **The grill photo** loads only from Home Assistant's photo address.
+- **AI max pit** (400°F by default) now applies to programs the controller's own AI writes.
+- **Firmware updates on the controller's page**, for owners without Home Assistant, with a two-tap confirm.
+- **Sharing to Open Pitmaster** is paced (one cook a minute) and retries when the service is busy.
+- **New:** a *Program (as parsed)* sensor, and an event secret that Home Assistant uses to recognise the controller.
+
+**Home Assistant**
+- **The AI-plan temperature check can no longer be bypassed** with text glued to a quote. The controller's program
+  is checked again after loading, and refused if it differs.
+- **Text the AI reads can't break out of its "data" wrapper.** This covers notes, labels, community data, state,
+  history and cook summaries. AI tips and reviews come without links.
+- **Controller events must come from the controller.** They must be fired inside Home Assistant (not by a webhook or
+  a user), name the smoker, and carry its secret once the controller has one.
+- **Voice:** a pit change of more than 50°F needs "confirm smoker temperature". Confirmations must come from the same
+  device and person.
+- **Notification codes:** used once, even when two presses arrive together, and kept out of the history.
+- **Photos:** only JPEG, PNG and WebP up to 24 MP.
+- **The integration's page** no longer loads web fonts.
+- **Install the Smoker package:**
+  - It now needs your phone's notify action.
+  - It never overwrites an older package you edited.
+  - A *package not installed* repair appears until it's done.
+- **AI prompts** use your units, not always °F and mph.
+
+**Releases and Open Pitmaster**
+- **Separate caches:** the published firmware and the tests never share a build cache.
+- **Pinned installs:** Python installs for the firmware build are pinned by hash.
+- **The web installer and update manifest** change only when a release is published.
+- **The privacy check:**
+  - It also looks at every added line in the pushed commits, at images carrying location or editing data, and at
+    every commit's email.
+  - Its private word list is used only on the default branch.
+- **HACS** now installs the attested `smoker-integration.zip` from the release.
+- **Open Pitmaster:**
+  - A real global daily upload cap, one stored upload a minute per client (IPv6 by /64), and deletion keys that don't
+    expire.
+  - Averages are published from 5 cooks, with the outliers trimmed.
+
+**Docs:** what you need, the install order, the 15-minute rule, updating and logs without Home Assistant, Basic and
+Advanced, Turbo, on/off, licences (MIT, with the firmware binary under GPLv3; see THIRD_PARTY.md), and issue forms.
+
 ## [0.2.50] - 2026-11-23
 
 - **Turbo works**, confirmed on a 980: the grill's turbo flag follows within 3 s.
