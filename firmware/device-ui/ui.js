@@ -196,6 +196,12 @@ const armed = {};
 const ACT = {
   pit(el) { const c = cur('Pit target'); if (c == null) return toast('Pit target not known yet'); setNum('Pit target', c + Number(el.dataset.d) * stepOf('Pit target', isF() ? 5 : 2)); },
   pitset() { const v = parseFloat($('pitin').value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete $('pitin').dataset.dirty; setNum('Pit target', v); },
+  timer(el) {
+    const v = el && el.dataset && el.dataset.v != null ? 0 : parseFloat(($('timerin') || {}).value);
+    if (!Number.isFinite(v) || v < 0 || v > 1440) return toast('Type the minutes (1 to 1440)');
+    const i = $('timerin'); if (i) delete i.dataset.dirty;
+    setNum('Timer', v);
+  },
   heroset() { const i = $('heropit'), v = parseFloat(i && i.value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete i.dataset.dirty; i.blur(); setNum('Pit target', v); },
   tgt(el) { const n = el.dataset.n, c = cur(n); if (c == null) return toast(n + ' not known yet'); setNum(n, c + Number(el.dataset.d) * stepOf(n, isF() ? 1 : 0.5)); },
   toggle(el) { post('switch', el.dataset.n, 'toggle'); },
@@ -362,7 +368,7 @@ function wire() {
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
   doc.addEventListener('input', e => { if (e.target.id) e.target.dataset.dirty = '1'; });
-  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', heropit: 'heroset', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
+  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', heropit: 'heroset', timerin: 'timer', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
   doc.addEventListener('focusout', () => setTimeout(render, 0));  // redraw what was held back while a field had focus
   // (the section bar marks the section in view: SECT)
 }
@@ -415,7 +421,7 @@ function render() {
     <div class="chips"><span class="chip ${L.cls}">${esc(L.txt)}</span>${L.exp ? EXP('Setting targets over Bluetooth is new on the 980: check the grill follows the first change.') : ''}
       ${active ? `<span class="chip hot">Cooking${el != null ? ' · ' + mins(el) : ''}</span>` : '<span class="chip">No cook running</span>'}
       ${/Running|Paused/.test(pst) ? `<span class="chip ${pst === 'Paused' ? 'warn' : 'hot'}">Program ${esc(pst.toLowerCase())}</span>` : ''}
-      ${on(E('binary_sensor', 'Fan turbo')) ? '<span class="chip hot">Turbo (panel)</span>' : ''}
+      ${on(E('binary_sensor', 'Fan')) ? '<span class="chip">Fan on</span>' : ''}${on(E('binary_sensor', 'Fan turbo')) ? '<span class="chip hot">Turbo (panel)</span>' : ''}
       ${on(E('binary_sensor', 'Lid')) ? '<span class="chip warn">Lid open</span>' : ''}
       ${on(E('binary_sensor', 'Grill alarm')) ? '<span class="chip bad">Grill alarm</span>' : ''}</div>
     ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}
@@ -570,6 +576,18 @@ function renderPit(u, pit, tgt) {
     <p class="note">The grill only takes a new target while it is cooking (started from its own panel).</p>`);
 }
 
+// The kitchen timer (the Char-Griller app's timer): set minutes and Start; a notification says when it's done.
+function timerCard() {
+  const n = E('number', 'Timer'); if (!n) return '';
+  const left = S('Timer remaining'), run = left != null && left > 0;
+  const hm = s => { const m = Math.ceil(s / 60); return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); };
+  return `<article class="card food timer"><h3><span>${ic('steps')}Timer</span>${run ? '<span class="chip hot">Running</span>' : ''}</h3>
+    <div class="ptemp">${run ? hm(left) : '--:--'}<small>${run ? ' h:mm left' : ' h:mm'}</small></div>
+    ${run ? `<div class="btns"><button class="btn" data-a="timer" data-v="0">Stop</button></div>`
+      : `<div class="row"><span>Minutes</span><span class="entry"><input id="timerin" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="60" aria-label="Timer minutes"><button class="btn pri" data-a="timer">Start</button></span></div>`}
+    <p class="note">You get a notification when it's done.</p></article>`;
+}
+
 function renderFood(u) {
   const cards = [];
   for (let i = 1; i <= 6; i++) {
@@ -584,10 +602,10 @@ function renderFood(u) {
       <h3><span>${esc(L)}${prot && !/^Auto/i.test(prot) ? ` <small>· ${esc(prot)}</small>` : ''}</span>${chip}</h3>
       <div class="ptemp">${fmt(t)}<small>${esc(u)}${tg != null ? ' / ' + fmt(tg) + esc(u) : ''}</small></div>
       ${warn ? '<p class="err">The probe jumped towards pit temperature: is it still in the meat?</p>' : ''}
-      <div class="eta" style="margin-top:6px"><span class="t">${rem != null ? clock(rem) : '--'}</span><span class="muted small">${rem != null ? 'in ' + mins(rem) : esc(phase || 'no estimate yet')}</span>${rem != null && isExp(info) ? EXP('Finish times firm up after a few similar cooks. ' + info) : ''}</div>
-      ${fin && fin !== '--' ? row('Finish', esc(fin)) : ''}
+      <div class="adv"><div class="eta" style="margin-top:6px"><span class="t">${rem != null ? clock(rem) : '--'}</span><span class="muted small">${rem != null ? 'in ' + mins(rem) : esc(phase || 'no estimate yet')}</span>${rem != null && isExp(info) ? EXP('Finish times firm up after a few similar cooks. ' + info) : ''}</div>
+      ${fin && fin !== '--' ? row('Finish', esc(fin)) : ''}</div>
       ${E('number', L + ' target') ? `<div class="row"><span>Target</span><span class="step"><button class="btn" data-a="tgt" data-n="${L} target" data-d="-1" aria-label="Lower ${L} target">−</button><span class="r">${tg != null ? fmt(tg) + esc(u) : '--'}</span><button class="btn" data-a="tgt" data-n="${L} target" data-d="1" aria-label="Raise ${L} target">+</button></span></div>` : ''}
-      ${(pl => { const d = planDeviation(pl, t, Date.now()); return d == null ? '' : row('Plan', `<span class="chip ${Math.abs(d) <= 10 ? 'ok' : d < 0 ? 'warn' : ''}">${esc(planWords(d))}</span>`); })(parsePlan(T(L + ' plan'), u === '°F'))}
+      <div class="adv">${(pl => { const d = planDeviation(pl, t, Date.now()); return d == null ? '' : row('Plan', `<span class="chip ${Math.abs(d) <= 10 ? 'ok' : d < 0 ? 'warn' : ''}">${esc(planWords(d))}</span>`); })(parsePlan(T(L + ' plan'), u === '°F'))}
       ${pull != null ? row('Pull at', `${fmt(pull)}${esc(u)} <span class="muted">(coasts to target)</span>${pullExp(info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}`) : ''}
       ${pulled ? row('Ready to slice', rest != null ? (rest <= 0 ? 'now' : 'in ' + mins(rest)) : 'measuring…') : ''}
       ${E('select', L + ' probe') ? `<div class="row"><span>Probe</span>${sel('select', L + ' probe')}</div>` : ''}
@@ -596,10 +614,10 @@ function renderFood(u) {
         ${w ? `<div class="row"><span>Weight</span><span class="entry"><input id="w${i}" type="number" step="0.1" min="0" data-c="number" data-n="${L} weight" value="${num(w) ?? ''}" aria-label="${L} weight"><span class="muted">${esc(w.uom || (isF() ? 'lb' : 'kg'))}</span></span></div>` : ''}
         ${tog(L + ' wrapped', 'Wrapped')}${tog(L + ' pulled', 'Off the grill, resting')}
         ${rate ? row('Rising', num(rate) != null ? fmt(num(rate), 1) + ' ' + esc(rate.uom || '') : '--') : ''}
-        ${info ? `<p class="note">${esc(info)}</p>` : ''}</details></article>`);
+        ${info ? `<p class="note">${esc(info)}</p>` : ''}</details></div></article>`);
   }
   $('foodsub').textContent = cards.length ? cards.length + ' on the grill' : '';
-  put('food', cards.join('') || '<div class="empty">No food probe is reading. Plug one in, or pick a thermometer for a slot under Setup.</div>');
+  put('food', (cards.join('') || '<div class="empty">No food probe is reading. Plug one in, or pick a thermometer for a slot under Setup.</div>') + timerCard());
 }
 
 let fuelMode = 'check';
@@ -1411,7 +1429,15 @@ function renderAI() {
 // Setup is a page of its own: the section bar's Setup button shows it alone (with "Back to the cook"), so the cook
 // isn't buried under settings; the phone's back gesture returns too.
 const SECT = (() => {
-  const KEY = 'smoker-sections';
+  const KEY = 'smoker-sections', MODE_KEY = 'smoker-mode';
+  // Basic: what the Char-Griller app does (pit and food temperatures and targets, a timer, turbo/fan/lid, the chart,
+  // settings). Advanced: everything. Only the page changes: alerts, programs and Boost run either way.
+  const BASIC = ['food', 'chart', 'setup'];
+  let basic = false;
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    basic = m ? m === 'basic' : !localStorage.getItem(KEY);  // new here: Basic; already using the page: Advanced
+  } catch (e) { /* private window: Advanced */ }
   const IDLE = ['plan', 'now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
   const COOKING = ['now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'plan', 'journal', 'setup'];
   let mine = {};
@@ -1429,7 +1455,7 @@ const SECT = (() => {
     let k = -1;
     links.forEach((a, i) => {
       const s = document.getElementById(a.getAttribute('href').slice(1));
-      if (!s || s.offsetParent === null || s.classList.contains('view-off')) return;
+      if (!s || s.offsetParent === null || s.classList.contains('view-off') || s.classList.contains('mode-off')) return;
       const top = s.getBoundingClientRect().top;
       if (k < 0 || top <= y) k = i;
       else if (!pin && innerHeight + scrollY >= document.documentElement.scrollHeight - 4 && top < innerHeight) k = i;  // the end of the page
@@ -1487,6 +1513,23 @@ const SECT = (() => {
     if (pushed) { pushed = false; try { history.back(); return; } catch (e) { /* no history: below */ } }
     view(false, true);
   }
+  function mode(b) {
+    basic = !!b;
+    try { localStorage.setItem(MODE_KEY, basic ? 'basic' : 'advanced'); } catch (e) { /* not remembered */ }
+    show();
+  }
+  function show() {
+    document.documentElement.classList.toggle('basic', basic);
+    document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('mode-off', basic && !BASIC.includes(s.dataset.sect)));
+    const bar = document.getElementById('secbar');
+    if (bar) bar.querySelectorAll('a[href^="#"]').forEach(a => {
+      const s = document.getElementById(a.getAttribute('href').slice(1));
+      a.classList.toggle('mode-off', !!(s && s.classList.contains('mode-off')));
+    });
+    const sw = document.getElementById('modesw');
+    if (sw) sw.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mode === 'basic') === basic)));
+    cur = null; mark();
+  }
   function apply(k) {
     const s = sec(k); if (!s) return;
     const f = !peek[k] && (k in mine ? mine[k] : !!dflt[k]);
@@ -1540,6 +1583,15 @@ const SECT = (() => {
     let raf = 0;
     window.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
     window.addEventListener('resize', () => { cur = null; mark(); });
+    // Basic / Advanced: just above the section bar, on every view.
+    if (bar && !document.getElementById('modesw')) {
+      const sw = document.createElement('div');
+      sw.id = 'modesw'; sw.className = 'modesw'; sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'How much to show');
+      sw.innerHTML = '<button type="button" data-mode="basic" title="The essentials, like the Char-Griller app">Basic</button>' +
+        '<button type="button" data-mode="advanced" title="Everything: programs, AI, charcoal, planning, the journal">Advanced</button>';
+      sw.addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) mode(b.dataset.mode === 'basic'); });
+      bar.parentNode.insertBefore(sw, bar);
+    }
     const st = sec('setup'), h = st && st.querySelector('h2.sec');
     if (h && !st.querySelector('.sect-back')) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sect-back';
@@ -1554,6 +1606,7 @@ const SECT = (() => {
       if (id) goTo(id);
     });
     view(false);
+    show();
   }
   // How a section starts unless this browser chose (folded or not), and the line its heading shows while folded.
   function want(k, folded, summary) { dflt[k] = !!folded; if (summary != null) sums[k] = summary; apply(k); }
@@ -1567,7 +1620,7 @@ const SECT = (() => {
       const a = bar && bar.querySelector(`a[href="#${s.id}"]`); if (a) bar.appendChild(a);
     });
   }
-  return { init, want, order, toggle, openSetup, closeSetup, inSetup: () => inSetup };
+  return { init, want, order, toggle, openSetup, closeSetup, inSetup: () => inSetup, basic: () => basic, mode };
 })();
 // ==== END page sections (shared block) ====
 

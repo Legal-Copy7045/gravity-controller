@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.48] - 2026-11-23
+
+- **Basic and Advanced mode** (both dashboards; the switch sits above the section bar, and each browser remembers
+  its choice):
+  - **Basic is what the Char-Griller app does:** the pit's temperature and target, food probes with their temperature
+    and target, a timer, Boost (for turbo), the fan, lid and turbo state, the temperature chart, and Setup.
+  - **Advanced is everything:** programs, AI, charcoal, planning, the journal, estimates and more.
+  - A browser that hasn't used the page before starts in Basic. One that has starts in Advanced.
+  - The mode only changes the page: alerts, programs and Boost run either way.
+- **A timer, like the app's:** type the minutes and press Start. You get a notification when it's done.
+  - It's kept by the controller, so it works without Home Assistant (it doesn't survive a restart).
+  - New entities: *Timer* and *Timer remaining*.
+- **A *Fan on* chip** on the controller's page.
+
 ## [0.2.47] - 2026-11-23
 
 **Security release: the fixes from a full audit.** It looked for anything that would let someone else control the

@@ -13,6 +13,13 @@
 .hero .big{font:600 clamp(44px,8vw,76px)/1 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .hero .big small{font:500 18px "Instrument Sans",sans-serif;color:var(--ink-2);margin-left:6px}
 .hero .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+/* Basic / Advanced */
+.mode-off{display:none!important}
+.basic .adv{display:none!important}
+.modesw{display:inline-flex;align-self:flex-start;gap:2px;padding:3px;margin:4px 0 2px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.modesw button{font:600 13px "Instrument Sans",system-ui,sans-serif;border:0;background:none;color:var(--ink-2);padding:6px 14px;border-radius:999px;min-height:34px;cursor:pointer}
+.modesw button[aria-pressed="true"]{background:var(--page);color:var(--on-page,#fff)}
+.tc.timer input{width:90px}
 .hero-tgt{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
 .hero-tgt .l{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-right:2px}
 .hero-tgt .btn{min-width:48px;min-height:48px;font-size:22px;line-height:1;border-radius:12px}
@@ -271,8 +278,8 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
       <div class="big" id="pitbig">--<small>°F pit</small></div>
       <div class="chips" id="chips"></div>
       <div id="herotgt"></div>
-      <p class="sub small" id="gstatus" style="margin-top:8px"></p>
-      <div class="hero-next"><span class="l">Coming up</span>
+      <p class="sub small adv" id="gstatus" style="margin-top:8px"></p>
+      <div class="hero-next adv"><span class="l">Coming up</span>
         <div id="heronext" class="next"><span class="muted small">No food on the grill yet.</span></div></div>
     </div>
     <div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div>
@@ -828,6 +835,12 @@ window.act = {
     const step = isF() ? 5 : 2; setNum(e, cur + delta * step);
   },
   boost() { const e = E('Boost', ['switch']); e && H().call('switch', val(e) === 'on' ? 'turn_off' : 'turn_on', e).catch(fail); },
+  timer(stop) {
+    const i = $('timerin'), v = stop === 0 ? 0 : parseFloat(i && i.value);
+    if (!Number.isFinite(v) || v < 0 || v > 1440) return fail('Type the minutes (1 to 1440)');
+    if (i) { delete i.dataset.dirty; i.blur(); }
+    setNum(E('Timer', ['number']), v);
+  },
   pitTo() {
     const i = $('heropit'), v = parseFloat(i && i.value); if (!Number.isFinite(v)) return fail('Type a temperature');
     delete i.dataset.dirty; i.blur(); setNum(E('Pit target', ['number']), v);
@@ -1374,6 +1387,19 @@ function rangeBar(s, ai) {
     <div class="small muted" style="display:flex;justify-content:space-between"><span>now</span><span>${atTxt(s.lo)} – ${atTxt(s.hi)}</span></div>`;
 }
 
+// The kitchen timer (the Char-Griller app's timer), kept by the controller: set minutes and Start; a notification
+// says when it's done.
+function timerCard() {
+  const n = E('Timer', ['number']); if (!n) return '';
+  const left = num(E('Timer remaining', ['sensor'])), run = left != null && left > 0;
+  const hm = x => { const m = Math.ceil(x / 60); return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); };
+  return `<section class="tc timer"><h3><span>Timer</span>${run ? '<span class="chip hot">Running</span>' : ''}</h3>
+    <div class="ptemp">${run ? hm(left) : '--:--'}<small>${run ? ' h:mm left' : ' h:mm'}</small></div>
+    ${run ? `<div class="row"><span></span><button class="btn" onclick="act.timer(0)">Stop</button></div>`
+      : `<div class="row"><span>Minutes</span><span><input id="timerin" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="60" aria-label="Timer minutes" onkeydown="if (event.key === 'Enter') act.timer()"> <button class="btn pri" onclick="act.timer()">Start</button></span></div>`}
+    <div class="small muted" style="margin-top:6px">You get a notification when it's done.</div></section>`;
+}
+
 function renderProbes() {
   const aiLeft = aiLeftMin();
   const cards = [];
@@ -1389,15 +1415,15 @@ function renderProbes() {
       <h3><span>${esc(p.label)}${prot ? ` <small>· ${esc(prot)}</small>` : ''}</span> ${phaseChip}</h3>
       <div class="ptemp">${fmt(s.t)}<small>${esc(TU())}${s.tgt != null ? ' / ' + fmt(s.tgt) + esc(TU()) : ''}</small></div>
       ${s.warn ? '<div class="err">Probe jumped towards pit temperature – is it still in the meat?</div>' : ''}
-      <div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
+      <div class="adv"><div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
         <span class="muted small">${s.rem != null ? 'in ' + minsTxt(s.rem) : esc(s.phase || 'no estimate yet')}</span>
         ${s.rem != null && isExp(s.info) ? EXP('Finish times firm up after a few similar cooks. ' + (s.info || '')) : ''}</div>
       ${rangeBar(s, i === 0 ? aiLeft : null)}
-      ${s.stall && s.stallRem != null ? `<div class="row"><span>Stall left</span><span class="r">~${minsTxt(s.stallRem)}</span></div>` : ''}
+      ${s.stall && s.stallRem != null ? `<div class="row"><span>Stall left</span><span class="r">~${minsTxt(s.stallRem)}</span></div>` : ''}</div>
       <div class="row"><span>Target</span><span class="step"><button class="btn" onclick="act.target('${p.key}',-1)" aria-label="Lower ${esc(p.label)} target">−</button>
         <span class="r">${s.tgt != null ? fmt(s.tgt) + esc(TU()) : '--'}</span>
         <button class="btn" onclick="act.target('${p.key}',1)" aria-label="Raise ${esc(p.label)} target">+</button></span></div>
-      ${(pl => { if (!pl) return ''; const now = Date.now(), d = planDeviation(pl, s.t, now), planned = at(pl.pts.map(q => [q[0] / 3600e3, q[1]]), now / 3600e3);
+      <div class="adv">${(pl => { if (!pl) return ''; const now = Date.now(), d = planDeviation(pl, s.t, now), planned = at(pl.pts.map(q => [q[0] / 3600e3, q[1]]), now / 3600e3);
         return d == null ? '' : `<div class="row"><span>Plan</span><span class="r"><span class="chip ${Math.abs(d) <= 10 ? 'ok' : d < 0 ? 'warn' : ''}">${esc(planWords(d))}</span>${planned != null ? ` <span class="muted small">planned ${fmt(planned)}${esc(TU())} by now</span>` : ''}</span></div>`; })(parsePlan(val(E(p.label + ' plan', ['sensor'])), isF()))}
       ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span>${pullExp(s.info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}</span></div>` : ''}
       ${s.pulledE ? `<div class="row"><span>Off the grill, resting</span><button class="tg ${s.isPulled ? 'on' : ''}" role="switch" aria-checked="${!!(s.isPulled)}" onclick="act.pulled('${p.key}')" aria-label="pulled"></button></div>` : ''}
@@ -1409,10 +1435,10 @@ function renderProbes() {
         <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(s.rateU || TU() + '/h') : '--'}</span></div>
         <div class="row"><span>Whole cook</span><span class="r">${s.total != null ? minsTxt(s.total) : '--'}</span></div>
         ${s.info ? `<div class="small muted" style="margin-top:6px">${esc(s.info)}</div>` : ''}
-      </details>
+      </details></div>
     </section>`);
   });
-  put('probes', cards.join('') || '<div class="empty">No food probes reading. Plug one in, or pick a thermometer for a slot under Setup.</div>');
+  put('probes', (cards.join('') || '<div class="empty">No food probes reading. Plug one in, or pick a thermometer for a slot under Setup.</div>') + timerCard());
   renderSources();
 }
 
@@ -1910,7 +1936,15 @@ function renderRange() {
 // Setup is a page of its own: the section bar's Setup button shows it alone (with "Back to the cook"), so the cook
 // isn't buried under settings; the phone's back gesture returns too.
 const SECT = (() => {
-  const KEY = 'smoker-sections';
+  const KEY = 'smoker-sections', MODE_KEY = 'smoker-mode';
+  // Basic: what the Char-Griller app does (pit and food temperatures and targets, a timer, turbo/fan/lid, the chart,
+  // settings). Advanced: everything. Only the page changes: alerts, programs and Boost run either way.
+  const BASIC = ['food', 'chart', 'setup'];
+  let basic = false;
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    basic = m ? m === 'basic' : !localStorage.getItem(KEY);  // new here: Basic; already using the page: Advanced
+  } catch (e) { /* private window: Advanced */ }
   const IDLE = ['plan', 'now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
   const COOKING = ['now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'plan', 'journal', 'setup'];
   let mine = {};
@@ -1928,7 +1962,7 @@ const SECT = (() => {
     let k = -1;
     links.forEach((a, i) => {
       const s = document.getElementById(a.getAttribute('href').slice(1));
-      if (!s || s.offsetParent === null || s.classList.contains('view-off')) return;
+      if (!s || s.offsetParent === null || s.classList.contains('view-off') || s.classList.contains('mode-off')) return;
       const top = s.getBoundingClientRect().top;
       if (k < 0 || top <= y) k = i;
       else if (!pin && innerHeight + scrollY >= document.documentElement.scrollHeight - 4 && top < innerHeight) k = i;  // the end of the page
@@ -1986,6 +2020,23 @@ const SECT = (() => {
     if (pushed) { pushed = false; try { history.back(); return; } catch (e) { /* no history: below */ } }
     view(false, true);
   }
+  function mode(b) {
+    basic = !!b;
+    try { localStorage.setItem(MODE_KEY, basic ? 'basic' : 'advanced'); } catch (e) { /* not remembered */ }
+    show();
+  }
+  function show() {
+    document.documentElement.classList.toggle('basic', basic);
+    document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('mode-off', basic && !BASIC.includes(s.dataset.sect)));
+    const bar = document.getElementById('secbar');
+    if (bar) bar.querySelectorAll('a[href^="#"]').forEach(a => {
+      const s = document.getElementById(a.getAttribute('href').slice(1));
+      a.classList.toggle('mode-off', !!(s && s.classList.contains('mode-off')));
+    });
+    const sw = document.getElementById('modesw');
+    if (sw) sw.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mode === 'basic') === basic)));
+    cur = null; mark();
+  }
   function apply(k) {
     const s = sec(k); if (!s) return;
     const f = !peek[k] && (k in mine ? mine[k] : !!dflt[k]);
@@ -2039,6 +2090,15 @@ const SECT = (() => {
     let raf = 0;
     window.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; mark(); }); }, { passive: true });
     window.addEventListener('resize', () => { cur = null; mark(); });
+    // Basic / Advanced: just above the section bar, on every view.
+    if (bar && !document.getElementById('modesw')) {
+      const sw = document.createElement('div');
+      sw.id = 'modesw'; sw.className = 'modesw'; sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'How much to show');
+      sw.innerHTML = '<button type="button" data-mode="basic" title="The essentials, like the Char-Griller app">Basic</button>' +
+        '<button type="button" data-mode="advanced" title="Everything: programs, AI, charcoal, planning, the journal">Advanced</button>';
+      sw.addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) mode(b.dataset.mode === 'basic'); });
+      bar.parentNode.insertBefore(sw, bar);
+    }
     const st = sec('setup'), h = st && st.querySelector('h2.sec');
     if (h && !st.querySelector('.sect-back')) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sect-back';
@@ -2053,6 +2113,7 @@ const SECT = (() => {
       if (id) goTo(id);
     });
     view(false);
+    show();
   }
   // How a section starts unless this browser chose (folded or not), and the line its heading shows while folded.
   function want(k, folded, summary) { dflt[k] = !!folded; if (summary != null) sums[k] = summary; apply(k); }
@@ -2066,7 +2127,7 @@ const SECT = (() => {
       const a = bar && bar.querySelector(`a[href="#${s.id}"]`); if (a) bar.appendChild(a);
     });
   }
-  return { init, want, order, toggle, openSetup, closeSetup, inSetup: () => inSetup };
+  return { init, want, order, toggle, openSetup, closeSetup, inSetup: () => inSetup, basic: () => basic, mode };
 })();
 // ==== END page sections (shared block) ====
 

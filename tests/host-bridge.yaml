@@ -54,6 +54,13 @@ gravity980:
   port: 13333
   temperature_unit: F
 sensor:
+  - platform: template
+    id: timer_left
+    name: Timer remaining
+    icon: mdi:timer-sand
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    update_interval: never
   - platform: gravity980
     pit_temperature: {id: pit_temp, name: Pit temperature}
     pit_target: {id: pit_target_reported, name: Pit target reported}
@@ -84,6 +91,29 @@ text_sensor:
     link: {name: Grill link}
     link_status: {name: Grill link status}
 number:
+  # A kitchen timer, like the Char-Griller app's: set minutes to start (0 stops), "Timer remaining" counts down and
+  # a notification says when it's done. Kept in the controller, so it works without Home Assistant (not across a
+  # restart).
+  - platform: template
+    id: kitchen_timer
+    name: Timer
+    icon: mdi:timer-outline
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 1440
+    step: 1
+    mode: box
+    initial_value: 0
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (x <= 0) {
+            id(timer_end_ms) = 0;
+          } else {
+            uint32_t e = millis() + uint32_t(x * 60000.0f);
+            id(timer_end_ms) = e ? e : 1;
+          }
+          id(timer_left).publish_state(x > 0 ? x * 60.0f : 0.0f);
   - platform: gravity980
     pit_target: {id: pit_setpoint, name: Pit target}
     food1_target: {id: grill_food1_target, name: Grill probe 1 target}
@@ -165,3 +195,27 @@ switch:
       - lambda: id(grill).set_test_mode(true);
     turn_off_action:
       - lambda: id(grill).set_test_mode(false);
+
+globals:
+  - id: timer_end_ms
+    type: uint32_t
+    initial_value: "0"
+
+interval:
+  # The kitchen timer: counts down, then notifies (like the app's "Timer has finished").
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (id(timer_end_ms) == 0) return;
+          int32_t left = int32_t(id(timer_end_ms) - millis());
+          if (left > 0) {
+            id(timer_left).publish_state(float((left + 999) / 1000));
+            return;
+          }
+          id(timer_end_ms) = 0;
+          id(timer_left).publish_state(0);
+          auto call = id(kitchen_timer).make_call();
+          call.set_value(0);
+          call.perform();
+          id(smoker).notify("Timer finished", "Your smoker timer is done.", 1, "timer");
+

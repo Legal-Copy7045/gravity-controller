@@ -135,6 +135,31 @@ def section_chips(fr):
     return fails
 
 
+def basic_mode(fr):
+    """The Basic / Advanced switch: Basic shows only the Char-Griller app's essentials (food, chart, setup; temperature
+    and target on the food cards; the timer), Advanced everything; the choice is remembered."""
+    fails = []
+    if fr.locator("#modesw").count() != 1:
+        return ["basic mode: no Basic/Advanced switch"]
+    fr.click('#modesw button[data-mode="basic"]'); time.sleep(0.3)
+    vis = fr.evaluate("""() => [...document.querySelectorAll('[data-sect]')].filter(s => s.offsetParent !== null).map(s => s.dataset.sect)""")
+    if set(vis) - {"food", "chart"} or "food" not in vis or "chart" not in vis:
+        fails.append(f"basic mode: sections shown {vis}")
+    links = fr.evaluate("""() => [...document.querySelectorAll('#secbar a')].filter(a => a.offsetParent !== null).map(a => a.textContent.trim())""")
+    if set(links) != {"Food", "Chart", "Setup"}:
+        fails.append(f"basic mode: section bar {links}")
+    if fr.evaluate("[...document.querySelectorAll('.adv')].some(e => e.offsetParent !== null)"):
+        fails.append("basic mode: advanced parts of the food cards still shown")
+    if not fr.evaluate("!!document.querySelector('.timer') && document.querySelector('.timer').offsetParent !== null"):
+        fails.append("basic mode: no timer card")
+    if fr.evaluate("localStorage.getItem('smoker-mode')") != "basic":
+        fails.append("basic mode: choice not remembered")
+    fr.click('#modesw button[data-mode="advanced"]'); time.sleep(0.3)
+    if fr.evaluate("document.querySelector('[data-sect=pit]').offsetParent === null"):
+        fails.append("advanced mode: Pit & program still hidden")
+    return fails
+
+
 def offline(ctx):
     # LAN only: block everything else (the optional web fonts fail and the system fonts take over).
     ctx.route("**/*", lambda r: r.continue_() if r.request.url.startswith(BASE) else r.abort())
@@ -143,6 +168,7 @@ def offline(ctx):
 def run_page(browser, width, height, shots):
     print(f"-- {width}px")
     ctx = browser.new_context(viewport={"width": width, "height": height})
+    ctx.add_init_script("try { localStorage.getItem('smoker-mode') || localStorage.setItem('smoker-mode', 'advanced'); } catch (e) {}")  # Advanced (the checks below are for it); basic_mode() tests Basic
     offline(ctx)
     global PAGE
     pg = PAGE = ctx.new_page()
@@ -184,6 +210,9 @@ def run_page(browser, width, height, shots):
     pg.fill("#heropit", "240")
     pg.click("#hero .hero-tgt .btn.pri")
     check(wait(lambda: value("number", "Pit target") == 240, 10, "the top card's target"), "the top card sets the pit target")
+    for f in basic_mode(pg):
+        check(False, f)
+    check(True, f"Basic / Advanced at {width}px")
     for f in section_chips(pg):
         check(False, f)
     check(True, f"section bar chips at {width}px")
@@ -250,6 +279,7 @@ def pin_flow(browser):
     """The device page's PIN: set it, store a key (write-only), lock, refused changes, unlock."""
     print("-- PIN")
     ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script("try { localStorage.getItem('smoker-mode') || localStorage.setItem('smoker-mode', 'advanced'); } catch (e) {}")  # Advanced (the checks below are for it); basic_mode() tests Basic
     offline(ctx)
     pg = ctx.new_page()
     errors = []
@@ -504,6 +534,7 @@ def no_classic(browser):
     """?classic used to load ESPHome's stock page from oi.esphome.io into this origin (where the session token is)."""
     print("-- no ?classic")
     ctx = browser.new_context()
+    ctx.add_init_script("try { localStorage.getItem('smoker-mode') || localStorage.setItem('smoker-mode', 'advanced'); } catch (e) {}")  # Advanced (the checks below are for it); basic_mode() tests Basic
     asked = []
 
     def route(r):

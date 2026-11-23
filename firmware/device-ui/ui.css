@@ -252,3 +252,11 @@ html{background:#f2f4f6}
 :root.gx{--on-page:#fff}
 @media (prefers-color-scheme:dark){:root.gx:not([data-theme="light"]){--on-page:#1c0e04}}
 :root.gx[data-theme="dark"]{--on-page:#1c0e04}
+
+/* Basic / Advanced */
+.gx .mode-off{display:none!important}
+.gx.basic .adv{display:none!important}
+.gx .modesw{display:inline-flex;align-self:flex-start;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.gx .modesw button{font:600 13px "Instrument Sans",system-ui,sans-serif;border:0;background:none;color:var(--ink-2);padding:6px 14px;border-radius:999px;min-height:34px;cursor:pointer}
+.gx .modesw button[aria-pressed="true"]{background:var(--page);color:#fff}
+.gx .food.timer .entry input{width:90px}

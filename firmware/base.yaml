@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "0.2.47"
+  project_version: "0.2.48"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -207,6 +207,13 @@ text:
     initial_value: ""
 
 sensor:
+  - platform: template
+    id: timer_left
+    name: Timer remaining
+    icon: mdi:timer-sand
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    update_interval: never
   - platform: gravity980
     bluetooth_signal:
       name: Grill Bluetooth signal
@@ -425,7 +432,53 @@ text_sensor:
     update_interval: 60s
     lambda: return std::string(ESPHOME_PROJECT_VERSION);
 
+globals:
+  - id: timer_end_ms
+    type: uint32_t
+    initial_value: "0"
+
+interval:
+  # The kitchen timer: counts down, then notifies (like the app's "Timer has finished").
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (id(timer_end_ms) == 0) return;
+          int32_t left = int32_t(id(timer_end_ms) - millis());
+          if (left > 0) {
+            id(timer_left).publish_state(float((left + 999) / 1000));
+            return;
+          }
+          id(timer_end_ms) = 0;
+          id(timer_left).publish_state(0);
+          auto call = id(kitchen_timer).make_call();
+          call.set_value(0);
+          call.perform();
+          id(smoker).notify("Timer finished", "Your smoker timer is done.", 1, "timer");
+
 number:
+  # A kitchen timer, like the Char-Griller app's: set minutes to start (0 stops), "Timer remaining" counts down and
+  # a notification says when it's done. Kept in the controller, so it works without Home Assistant (not across a
+  # restart).
+  - platform: template
+    id: kitchen_timer
+    name: Timer
+    icon: mdi:timer-outline
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 1440
+    step: 1
+    mode: box
+    initial_value: 0
+    optimistic: true
+    set_action:
+      - lambda: |-
+          if (x <= 0) {
+            id(timer_end_ms) = 0;
+          } else {
+            uint32_t e = millis() + uint32_t(x * 60000.0f);
+            id(timer_end_ms) = e ? e : 1;
+          }
+          id(timer_left).publish_state(x > 0 ? x * 60.0f : 0.0f);
   - platform: gravity980
     pit_target:
       id: pit_setpoint

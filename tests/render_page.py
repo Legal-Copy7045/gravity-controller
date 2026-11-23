@@ -42,6 +42,8 @@ STATES = dict([
     st("sensor.smoker_pit_temperature", 251, "Smoker Pit temperature", **F),
     st("number.smoker_pit_target", 250, "Smoker Pit target", **F),
     st("switch.smoker_boost", "off", "Smoker Boost"),
+    st("number.smoker_timer", 0, "Smoker Timer", unit_of_measurement="min"),
+    st("sensor.smoker_timer_remaining", 0, "Smoker Timer remaining", unit_of_measurement="s"),
     st("sensor.smoker_boost_status", "", "Smoker Boost status"),
     st("binary_sensor.smoker_grill_connected", "on", "Smoker Grill connected"),
     st("sensor.smoker_grill_link", "wifi", "Smoker Grill link"),
@@ -341,6 +343,31 @@ def program_editor(pg, fr):
     return fails
 
 
+def basic_mode(fr):
+    """The Basic / Advanced switch: Basic shows only the Char-Griller app's essentials (food, chart, setup; temperature
+    and target on the food cards; the timer), Advanced everything; the choice is remembered."""
+    fails = []
+    if fr.locator("#modesw").count() != 1:
+        return ["basic mode: no Basic/Advanced switch"]
+    fr.click('#modesw button[data-mode="basic"]'); time.sleep(0.3)
+    vis = fr.evaluate("""() => [...document.querySelectorAll('[data-sect]')].filter(s => s.offsetParent !== null).map(s => s.dataset.sect)""")
+    if set(vis) - {"food", "chart"} or "food" not in vis or "chart" not in vis:
+        fails.append(f"basic mode: sections shown {vis}")
+    links = fr.evaluate("""() => [...document.querySelectorAll('#secbar a')].filter(a => a.offsetParent !== null).map(a => a.textContent.trim())""")
+    if set(links) != {"Food", "Chart", "Setup"}:
+        fails.append(f"basic mode: section bar {links}")
+    if fr.evaluate("[...document.querySelectorAll('.adv')].some(e => e.offsetParent !== null)"):
+        fails.append("basic mode: advanced parts of the food cards still shown")
+    if not fr.evaluate("!!document.querySelector('.timer') && document.querySelector('.timer').offsetParent !== null"):
+        fails.append("basic mode: no timer card")
+    if fr.evaluate("localStorage.getItem('smoker-mode')") != "basic":
+        fails.append("basic mode: choice not remembered")
+    fr.click('#modesw button[data-mode="advanced"]'); time.sleep(0.3)
+    if fr.evaluate("document.querySelector('[data-sect=pit]').offsetParent === null"):
+        fails.append("advanced mode: Pit & program still hidden")
+    return fails
+
+
 def section_chips(fr):
     """Each section-bar chip scrolls its section to just under the bar and is the one marked, even near the end of the
     page (the next, shorter section used to be marked instead)."""
@@ -452,6 +479,7 @@ def main():
         for scheme in ["light", "dark"]:
             for name, vp in [("desktop", {"width": 1280, "height": 1900}), ("phone", {"width": 390, "height": 2600})]:
                 ctx = b.new_context(viewport=vp, color_scheme=scheme, device_scale_factor=1)
+                ctx.add_init_script("try { localStorage.getItem('smoker-mode') || localStorage.setItem('smoker-mode', 'advanced'); } catch (e) {}")  # Advanced (the checks below are for it); basic_mode() tests Basic
                 pg = ctx.new_page()
                 errors = []
                 pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -702,6 +730,12 @@ def main():
                         failures.append(f"restart not pressed after the second tap: {pg.evaluate('window.calls')[-2:]}")
                     fr.click("#setup .sect-back"); time.sleep(0.3)
                     failures += [f"{scheme}/{name}: {f}" for f in section_chips(fr)]
+                    failures += [f"{scheme}/{name}: {f}" for f in basic_mode(fr)]
+                    # The timer: minutes and Start set the controller's Timer.
+                    n0 = len(pg.evaluate("window.calls"))
+                    fr.fill("#timerin", "45"); fr.click(".timer .btn.pri"); time.sleep(0.3)
+                    if not any(c[0] == "number" and c[2].get("entity_id") == "number.smoker_timer" and c[2].get("value") == 45 for c in pg.evaluate("window.calls")[n0:]):
+                        failures.append(f"{scheme}/{name}: timer start: {pg.evaluate('window.calls')[n0:]}")
                     # The pit target sits in the top card: type it and Set, or + / −.
                     n0 = len(pg.evaluate("window.calls"))
                     fr.fill("#heropit", "260"); fr.click("#herotgt .btn.pri"); time.sleep(0.3)
