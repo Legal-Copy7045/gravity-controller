@@ -1,9 +1,10 @@
-"""Anonymous, opt-in sharing of finished cooks, and the community averages built from everyone's shared cooks.
+"""Open Pitmaster: anonymous, opt-in sharing of finished cooks, and the averages built from everyone's shared cooks.
 
-Off until the owner turns it on (Setup > Share cooks). Then each finished cook is either offered on the page
-("Share this cook?") or, with "share automatically", sent when it ends. What is sent is ONLY the record built by
+Off until the owner turns it on (Setup > Share cooks). A cook is ready to share once it has feedback (stars or
+"How was it?" tags) or 12 h after it ended; then it's offered on the page ("Share this cook?") or, with "share
+automatically", sent (automatic sharing covers only cooks that end after it was turned on, never your history). What is sent is ONLY the record built by
 `anonymise()`: rounded, banded values with no date, time, place, notes, photos, names or ids that link cooks.
-docs/sharing.md describes it; the receiving Worker (sharing/worker) refuses anything else.
+docs/sharing.md describes it; the receiving service (github.com/Legal-Copy7045/open-pitmaster) refuses anything else.
 
 Each shared cook gets a fresh random id and a deletion key that never leaves this Home Assistant except to delete
 it ("Remove my shared cooks"). Withdrawal deletes every cook shared from here.
@@ -30,15 +31,19 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .journal import TAGS
+
 _LOGGER = logging.getLogger(__name__)
 
 DATA = "smoker_sharing"
-# The receiving Worker (sharing/worker) and the published averages (branch community-data, built nightly).
-SHARE_URL = "https://smoker-data.open-pitmaster.workers.dev"
-AGGREGATES_URL = "https://raw.githubusercontent.com/Legal-Copy7045/gravity-controller/community-data/aggregates.json"
+# Open Pitmaster (github.com/Legal-Copy7045/open-pitmaster): the receiving service and the nightly averages.
+SHARE_URL = "https://api.open-pitmaster.workers.dev"
+AGGREGATES_URL = "https://raw.githubusercontent.com/Legal-Copy7045/open-pitmaster/main/data/aggregates.json"
 PRIVACY_URL = "https://github.com/Legal-Copy7045/gravity-controller/blob/main/docs/sharing.md"
 CUTS = {"Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish", "Auto"}
 TIMEOUT = ClientTimeout(total=20)
+READY_AFTER = 12 * 3600  # a cook without feedback is offered this long after it ended
+
 
 
 def _band(v: float | None, step: float, lo: float, hi: float, floor: bool = False) -> float | None:
@@ -96,7 +101,14 @@ def anonymise(entry: dict[str, Any], release: str, latitude: float, record_id: s
         "total_h": total,
         "outside_f": _band(c2f(entry.get("ambient_c")), 5, -10, 110, floor=True),
         "rating": rating if isinstance(rating, int) and 1 <= rating <= 5 else None,
+        "tags": [t for t in TAGS if t in (entry.get("tags") or [])],
     }
+
+
+def ready(entry: dict, now: float | None = None) -> bool:
+    """Feedback given (so the shared record says how it turned out), or long enough that none is coming."""
+    now = time.time() if now is None else now
+    return bool(entry.get("rating") or entry.get("tags")) or now - float(entry.get("ended") or 0) >= READY_AFTER
 
 
 class Sharing:
@@ -104,7 +116,9 @@ class Sharing:
         self.hass, self.journal, self.version = hass, journal, version
         self.store = Store(hass, 1, "smoker_sharing")
         # shared: entry id -> {"id": record id, "key": deletion key}; the keys never leave except to delete.
-        self.data: dict[str, Any] = {"enabled": False, "auto": False, "shared": {}, "declined": [], "url": ""}
+        # auto_since: automatic sharing covers cooks that end after this (never the history from before).
+        self.data: dict[str, Any] = {"enabled": False, "auto": False, "auto_since": None, "shared": {}, "declined": [],
+                                     "url": ""}
         self.community: dict[str, Any] | None = None
         self._unsub = None
 
@@ -120,8 +134,30 @@ class Sharing:
         if self._on_entry not in self.journal.listeners:
             self.journal.listeners.append(self._on_entry)
         if self._unsub is None:
-            self._unsub = async_track_time_interval(self.hass, self._refresh_community, timedelta(hours=12))
+            self._unsub = async_track_time_interval(self.hass, self._tick, timedelta(hours=1))
             self.hass.async_create_task(self._refresh_community())
+
+    async def _tick(self, now=None) -> None:
+        """Hourly: automatic sharing of cooks that became ready; the community averages every 12 h."""
+        self._ticks = getattr(self, "_ticks", 0) + 1
+        if self._ticks % 12 == 0:
+            await self._refresh_community()
+        await self.share_ready()
+
+    async def share_ready(self) -> int:
+        if not (self.data["enabled"] and self.data["auto"]):
+            return 0
+        since = float(self.data.get("auto_since") or time.time())
+        n = 0
+        for e in list(self.journal.data["entries"]):
+            if (float(e.get("ended") or 0) >= since and self.status(e) == "pending"):
+                try:
+                    await self.share(e["id"])
+                    n += 1
+                except ValueError as err:
+                    _LOGGER.debug("Automatic sharing will retry: %s", err)
+                    break
+        return n
 
     def unload(self) -> None:
         if self._unsub:
@@ -142,7 +178,9 @@ class Sharing:
             return "shared"
         if entry["id"] in self.data["declined"]:
             return "declined"
-        return "pending" if self.record_for(entry) else "ineligible"
+        if not self.record_for(entry):
+            return "ineligible"
+        return "pending" if ready(entry) else "waiting"
 
     def summary(self) -> dict:
         entries = self.journal.data["entries"]
@@ -154,9 +192,9 @@ class Sharing:
         }
 
     @callback
-    def _on_entry(self, entry: dict) -> None:
+    def _on_entry(self, entry: dict, event: str = "new") -> None:
         if self.data["enabled"] and self.data["auto"]:
-            self.hass.async_create_task(self.share(entry["id"]))
+            self.hass.async_create_task(self.share_ready())
 
     async def share(self, entry_id: str) -> dict:
         if not self.data["enabled"]:
@@ -222,6 +260,8 @@ class Sharing:
         if enabled is not None:
             self.data["enabled"] = bool(enabled)
         if auto is not None:
+            if bool(auto) and not self.data["auto"]:
+                self.data["auto_since"] = time.time()
             self.data["auto"] = bool(auto)
         self._save()
 
@@ -246,9 +286,14 @@ class Sharing:
     def _publish_community(self) -> None:
         c = self.community or {}
         # Compact for the AI prompt: one line per group with enough cooks behind it.
-        lines = [f"{g['cut']} {g['weight']} at {g['pit']} ({g['outside']} outside): median {g['total_h']} h"
-                 f" (middle half {g['total_p25']}-{g['total_p75']} h), stall {g['stall_h']} h, wrapped {g['wrapped_pct']}%,"
-                 f" {g['n']} cooks" for g in (c.get("groups") or [])[:40]]
+        def line(g: dict) -> str:
+            said = ", ".join(f"{t} {pct}%" for t, pct in list((g.get("tags") or {}).items())[:4])
+            return (f"{g['cut']} {g['weight']} at {g['pit']} ({g['outside']} outside): median {g['total_h']} h"
+                    f" (middle half {g['total_p25']}-{g['total_p75']} h), stall {g['stall_h']} h, wrapped"
+                    f" {g['wrapped_pct']}%" + (f", rated {g['rating']}/5" if g.get("rating") else "")
+                    + (f", cooks said: {said}" if said else "") + f"; {g['n']} cooks")
+
+        lines = [line(g) for g in (c.get("groups") or [])[:40]]
         self.hass.states.async_set("sensor.smoker_community", c.get("cooks", 0), {
             "friendly_name": "Smoker community cooks", "icon": "mdi:account-group", "unit_of_measurement": "cooks",
             "updated": c.get("updated"), "similar": lines, "source": PRIVACY_URL})

@@ -36,6 +36,9 @@ SCAN_DIR = "smoker_scans"  # our own folder under the media directory
 SCAN_NAME = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}-\d\.(jpg|png)")  # only files we wrote are ever tidied away
 PROFILES = ["Auto", "Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"]
 DATA = "smoker_journal_data"
+# "How was it?": what the food turned out like (cooking outcomes only; also shared, if sharing is on).
+TAGS = ["juicy", "tender", "dry", "tough", "undercooked", "just right", "overcooked", "great bark", "soft bark",
+        "good smoke", "too smoky", "too little smoke", "fat rendered", "fat not rendered"]
 
 IDENTIFY_INSTRUCTIONS = """You are looking at photos of meat or fish packages that are about to be cooked on a smoker
 (barcode stickers, butcher labels, packaging). Identify every distinct item.
@@ -107,7 +110,7 @@ class Journal:
         recent = []
         for e in self.data["entries"][-8:]:
             recent.append({k: e.get(k) for k in ("ended", "profile", "weight_kg", "pit_c", "stall_h", "total_h",
-                                                  "carryover_c", "rating", "notes")})
+                                                  "carryover_c", "rating", "tags", "notes")})
         self.hass.states.async_set("sensor.smoker_journal", len(self.data["entries"]),
                                    {"friendly_name": "Smoker journal", "icon": "mdi:notebook", "recent": recent,
                                     "draft_items": [i["name"] for i in self.data["draft"]["items"]]})
@@ -145,6 +148,7 @@ class Journal:
             "photos": list(self.data["draft"].get("photos", [])) if mine else [],
             "notes": "",
             "rating": None,
+            "tags": [],
         }
         self.data["entries"].append(entry)
         self.data["entries"] = self.data["entries"][-MAX_ENTRIES:]
@@ -155,7 +159,7 @@ class Journal:
             self.data["draft"]["photos"] = []
         self._save()
         for cb in list(self.listeners):
-            cb(entry)
+            cb(entry, "new")
 
     def update_entry(self, entry_id: str, changes: dict[str, Any]) -> dict | None:
         for e in self.data["entries"]:
@@ -170,7 +174,16 @@ class Journal:
                 e["rating"] = rating
                 if "notes" in changes:
                     e["notes"] = str(changes["notes"])[:2000]
+                if "tags" in changes:
+                    tags = changes["tags"] or []
+                    if not isinstance(tags, list) or any(t not in TAGS for t in tags):
+                        raise ValueError("unknown tag")
+                    e["tags"] = [t for t in TAGS if t in tags]  # known order, no repeats
+                e["feedback_at"] = time.time() if ("rating" in changes or "tags" in changes) else e.get("feedback_at")
                 self._save()
+                if "rating" in changes or "tags" in changes:
+                    for cb in list(self.listeners):
+                        cb(e, "feedback")
                 return e
         return None
 

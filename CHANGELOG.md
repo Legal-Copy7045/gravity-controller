@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.26] - 2026-11-23
+
+- Sharing is now **Open Pitmaster**: the service is at `api.open-pitmaster.workers.dev`, and the dataset, the service's
+  code and the format live in their own repository (github.com/Legal-Copy7045/open-pitmaster). This repo keeps the
+  integration.
+- **"How was it?"** on every journal entry: juicy, tender, dry, tough, undercooked, just right, overcooked, great or
+  soft bark, smoke, fat rendered or not. Stored with the cook, given to the AI pitmaster with your notes and stars,
+  and part of a shared record.
+- Sharing waits for feedback: a cook is offered once it's rated or tagged, or 12 h after it ended. Automatic sharing
+  covers only cooks that end after it was turned on.
+- The averages include what cooks said ("juicy 60%") and the average stars.
+
 ## [0.2.25] - 2026-11-23
 
 - **Share cooks, anonymously, if you want to** (Setup → Share cooks; **off unless you turn it on**). Finished cooks

@@ -1,8 +1,7 @@
 """Opt-in anonymous sharing: off by default, exactly the anonymised record goes out, deletion with the local key."""
 
 import json
-import shutil
-import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -11,19 +10,23 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smoker import sharing
-from custom_components.smoker.sharing import AGGREGATES_URL, SHARE_URL, anonymise
+from custom_components.smoker.sharing import AGGREGATES_URL, SHARE_URL, anonymise, ready
+
+from .open_pitmaster_format import validate
 
 ROOT = Path(__file__).resolve().parents[2]
 SUMMARY = {"probe": "food1", "name": "Food 1", "profile": "Pork shoulder", "weight_kg": 3.82, "wrapped": True,
            "pit_c": 121.3, "target_c": 95.0, "stall_h": 3.14, "total_h": 11.63, "ambient_c": 2.4}
 ENTRY = {"id": "abc", "ended": 1795378582.0, "notes": "Great bark, at my brother Dave's", "rating": 4, **SUMMARY,
+         "tags": ["great bark", "juicy", "not-a-tag"],
          "photos": ["x.jpg"], "items": [{"name": "Butt from Smith's"}]}
 
 
 def test_anonymise_keeps_only_coarse_values():
     r = anonymise(ENTRY, "0.2.25", 40.8)
     assert set(r) == {"v", "id", "grill", "release", "season", "cut", "weight_lb", "wrapped", "pit_f", "target_f",
-                      "stall_h", "total_h", "outside_f", "rating"}
+                      "stall_h", "total_h", "outside_f", "rating", "tags"}
+    assert r["tags"] == ["juicy", "great bark"]  # known tags only, in the list's order
     assert r["weight_lb"] == 8.5 and r["pit_f"] == 250 and r["target_f"] == 203 and r["stall_h"] == 3.1
     assert r["total_h"] == 11.6 and r["outside_f"] == 35 and r["season"] == "autumn" and r["rating"] == 4
     text = json.dumps(r)
@@ -39,16 +42,24 @@ def test_anonymise_keeps_only_coarse_values():
     assert anonymise({**ENTRY, "total_h": 0}, "0.2.25", 40) is None
 
 
-@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
-def test_records_pass_the_workers_own_validation():
-    """The integration and the Worker agree on the format (the Worker refuses anything else)."""
-    recs = [anonymise(ENTRY, "0.2.25", 40.8), anonymise({**ENTRY, "weight_kg": None, "rating": None, "wrapped": None,
-                                                        "stall_h": None, "ambient_c": None, "pit_c": None}, "0.2.25", 1)]
-    js = ("import { validate } from './sharing/worker/src/index.js';"
-          "const recs = JSON.parse(process.argv[1]); console.log(JSON.stringify(recs.map(validate)));")
-    out = subprocess.run(["node", "--input-type=module", "-e", js, json.dumps(recs)], cwd=ROOT, capture_output=True,
-                         text=True, check=True).stdout
-    assert json.loads(out) == [None, None]
+def test_records_follow_the_open_pitmaster_format():
+    """The service refuses anything else; the examples are a copy of open-pitmaster's format/examples.json."""
+    ex = json.loads((ROOT / "tests/fixtures/open_pitmaster_examples.json").read_text())
+    for r in ex["valid"]:
+        assert validate(r) is None
+    for change, why in ex["invalid"]:
+        assert why in (validate({**ex["valid"][0], **change}) or "")
+    for e in (ENTRY, {**ENTRY, "weight_kg": None, "rating": None, "wrapped": None, "stall_h": None, "ambient_c": None,
+                      "pit_c": None, "tags": []}, {**ENTRY, "weight_kg": 50, "ambient_c": -60, "total_h": 99}):
+        assert validate(anonymise(e, "0.2.26", 40.8)) is None
+
+
+def test_ready_waits_for_feedback():
+    now = time.time()
+    assert not ready({"ended": now - 3600, "rating": None, "tags": []}, now)
+    assert ready({"ended": now - 3600, "rating": 3, "tags": []}, now)
+    assert ready({"ended": now - 3600, "rating": None, "tags": ["dry"]}, now)
+    assert ready({"ended": now - 13 * 3600, "rating": None, "tags": []}, now)
 
 
 async def _setup(hass, tmp_path, aioclient_mock):
@@ -75,8 +86,14 @@ async def test_opt_in_share_withdraw(hass: HomeAssistant, hass_client, hass_admi
     hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(SUMMARY)})
     await hass.async_block_till_done()
     summary = await (await client.get("/api/smoker/sharing")).json()
-    assert summary["enabled"] is False and summary["entries"][0]["status"] == "pending"
+    assert summary["enabled"] is False and summary["entries"][0]["status"] == "waiting"  # no feedback yet
     entry_id = summary["entries"][0]["entry"]
+    r = await client.post(f"/api/smoker/journal/{entry_id}", json={"rating": 5, "tags": ["tender", "juicy", "nope"]})
+    assert r.status == 400  # unknown tag
+    r = await client.post(f"/api/smoker/journal/{entry_id}", json={"rating": 5, "tags": ["tender", "juicy"]})
+    assert (await r.json())["tags"] == ["juicy", "tender"]
+    summary = await (await client.get("/api/smoker/sharing")).json()
+    assert summary["entries"][0]["status"] == "pending" and summary["entries"][0]["record"]["tags"] == ["juicy", "tender"]
     # Off by default: nothing can be sent.
     r = await client.post(f"/api/smoker/sharing/share/{entry_id}")
     assert r.status == 400 and "sharing is off" in (await r.json())["message"]
@@ -110,11 +127,25 @@ async def test_auto_share_and_non_admin(hass: HomeAssistant, hass_client, hass_a
     await _setup(hass, tmp_path, aioclient_mock)
     client = await hass_client()
     aioclient_mock.post(SHARE_URL + "/v1/cooks", status=201, json={"ok": True})
-    await client.post("/api/smoker/sharing", json={"enabled": True, "auto": True})
+    # A cook from before automatic sharing was turned on is never sent automatically.
     hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(SUMMARY)})
     await hass.async_block_till_done()
+    old = hass.data["smoker_journal_data"].data["entries"][-1]
+    old["ended"] -= 86400
+    await client.post("/api/smoker/sharing", json={"enabled": True, "auto": True})
+    await client.post(f"/api/smoker/journal/{old['id']}", json={"rating": 3})
+    await hass.async_block_till_done()
+    assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    # A new cook: waits for feedback, then goes by itself.
+    hass.bus.async_fire("esphome.smoker_cook_complete", {"summary": json.dumps(SUMMARY)})
+    await hass.async_block_till_done()
+    assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    new = hass.data["smoker_journal_data"].data["entries"][-1]
+    await client.post(f"/api/smoker/journal/{new['id']}", json={"tags": ["dry"]})
+    await hass.async_block_till_done()
     assert [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
-    assert (await (await client.get("/api/smoker/sharing")).json())["entries"][0]["status"] == "shared"
+    st = {e["entry"]: e["status"] for e in (await (await client.get("/api/smoker/sharing")).json())["entries"]}
+    assert st[new["id"]] == "shared" and st[old["id"]] == "pending"
     # Only an administrator can turn sharing on or withdraw.
     hass_admin_user.groups = []
     assert (await client.post("/api/smoker/sharing", json={"enabled": False})).status == 403

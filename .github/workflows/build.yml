@@ -7,7 +7,7 @@ name: Build, test & release
 # (Adapted from the Magic-bHAnds project's workflow.)
 on:
   push:
-    branches: ["**", "!community-data"]  # the nightly data branch has no code to build
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
@@ -43,8 +43,6 @@ jobs:
           persist-credentials: false
       - name: Core library tests (protocol, predictor, history, programs)
         run: make -C tests
-      - name: Cook-sharing Worker tests
-        run: cd sharing/worker && node --test test/*.test.js
 
   firmware:
     needs: versions

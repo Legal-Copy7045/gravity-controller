@@ -157,7 +157,7 @@ const SHARE = { enabled: true, auto: false, shared: 0, privacy: 'https://example
   community: { cooks: 42, updated: '2026-11-23' },
   entries: [{ entry: 'abc123def456', status: 'pending', record: { v: 1, id: '0123456789abcdef0123456789abcdef', grill: 'gravity980',
     release: '0.2.25', season: 'autumn', cut: 'Pork shoulder', weight_lb: 8.5, wrapped: true, pit_f: 250, target_f: 203,
-    stall_h: 3.1, total_h: 11.6, outside_f: 35, rating: 4 } }] };
+    stall_h: 3.1, total_h: 11.6, outside_f: 35, rating: 4, tags: ['juicy', 'great bark'] } }] };
 window.__smHass = {
   fetchWithAuth: (path, opt) => { window.calls.push(['api', path, opt && opt.method]);
     const body = path === '/api/smoker/journal' ? JOURNAL : path === '/api/smoker/draft' ? JOURNAL.draft
@@ -483,8 +483,11 @@ def main():
                     failures.append(f"{scheme}/{name}: food repeated in Right now")
                 sh = fr.evaluate("async () => { await loadJournal(true); renderShare(); return [document.getElementById('sharecard').innerText, document.getElementById('jshare').innerText]; }")
                 if "Share my cooks" not in sh[0] or "42 shared cooks" not in sh[0] or "Share this cook?" not in sh[1] \
-                        or "Pork shoulder · 8.5 lb · pit 250°F" not in sh[1]:
+                        or "Pork shoulder · 8.5 lb · pit 250°F" not in sh[1] or "juicy, great bark" not in sh[1]:
                     failures.append(f"{scheme}/{name}: sharing: {sh!r}")
+                taste = fr.evaluate("[...document.querySelectorAll('#jlist .taste button')].map(b => b.textContent)")
+                if "juicy" not in taste or "overcooked" not in taste:
+                    failures.append(f"{scheme}/{name}: how was it? tags: {taste!r}")
                 okshare = fr.evaluate("window.hdHA.api('POST','/api/smoker/sharing/share/abc123def456').then(()=>'ok',e=>e.message)")
                 if okshare != "ok":
                     failures.append(f"{scheme}/{name}: shim refused the share call: {okshare}")
