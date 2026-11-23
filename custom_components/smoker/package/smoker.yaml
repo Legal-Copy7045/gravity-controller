@@ -1252,6 +1252,8 @@ automation:
           tag: "maint_{{ trigger.id }}"
 
   # ---------------- Serve time from your calendar ----------------
+  # A timed event with a smoker word in it ("Brisket cook", "BBQ"): its END is the serve-by time, so you can block
+  # out the whole cook (e.g. a 12-hour event). Events already under way count until they end.
   - id: smoker_calendar_serve_time
     alias: Smoker - serve time from the calendar
     mode: single
@@ -1280,7 +1282,7 @@ automation:
             {% set evs = (cal[calendar_id].events if cal and calendar_id in cal else []) %}
             {% set ns = namespace(e=none) %}
             {% for e in evs | sort(attribute='start') %}
-              {% if ns.e is none and 'T' in e.start and as_datetime(e.start) > now() %}
+              {% if ns.e is none and 'T' in e.start and 'T' in (e.end | default('')) and as_datetime(e.end) > now() %}
                 {% set t = ((e.summary | default('')) ~ ' ' ~ (e.description | default(''))) | lower %}
                 {% for w in words %}{% if ns.e is none and w in t %}{% set ns.e = e %}{% endif %}{% endfor %}
               {% endif %}
@@ -1293,7 +1295,8 @@ automation:
         then:
           - variables:
               # (variables come back as text: parse the time again wherever it's used)
-              when: "{{ as_local(as_datetime(ev.start)).strftime('%Y-%m-%d %H:%M:%S') }}"
+              when: "{{ as_local(as_datetime(ev.end)).strftime('%Y-%m-%d %H:%M:%S') }}"
+              began: "{{ as_local(as_datetime(ev.start)).strftime('%a %-I:%M %p') }}"
           - if: >
               {{ cur in ['unknown', ''] or as_datetime(cur) is none or
                  ((as_datetime(cur) | as_local) - (as_datetime(when) | as_local)) | abs > timedelta(minutes=1) }}
@@ -1307,7 +1310,7 @@ automation:
               - action: script.smoker_notify
                 data:
                   title: Smoker plan from your calendar
-                  message: "\"{{ ev.summary }}\" at {{ (as_datetime(when) | as_local).strftime('%a %-I:%M %p') }}: set as the serve-by time. Set the cut and weight on a food card for the light-up time."
+                  message: "\"{{ ev.summary }}\" ({{ began }} to {{ (as_datetime(when) | as_local).strftime('%a %-I:%M %p') }}): serve by {{ (as_datetime(when) | as_local).strftime('%-I:%M %p') }}, the end of the event. Set the cut and weight on a food card for the light-up time."
                   priority: 0
                   tag: plan
 

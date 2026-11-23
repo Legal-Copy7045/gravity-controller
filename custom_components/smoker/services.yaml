@@ -25,7 +25,7 @@ install_package:
           domain: weather
     calendar:
       name: Calendar (optional)
-      description: An event with "BBQ", "brisket", "smoker", "ribs"... in its title sets the serve-by time.
+      description: A timed event with "BBQ", "brisket", "smoker", "ribs"... in its title sets the serve-by time to the end of the event (block out the whole cook, e.g. 12 hours).
       example: calendar.family
       selector:
         entity:

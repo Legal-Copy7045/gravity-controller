@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.43] - 2026-11-23
+
+- **The calendar event's end is the serve-by time:** block out the whole cook in your calendar (say a 12-hour
+  "Brisket cook") and the smoker plans to have it ready when the event ends. An event that has already started still
+  counts until it ends; all-day events are ignored. The notification shows the event's start and end.
+
 ## [0.2.42] - 2026-11-23
 
 - **No more "unknown entity" warnings for a calendar or to-do list you haven't chosen** (Spook/Repairs flagged

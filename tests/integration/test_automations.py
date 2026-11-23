@@ -164,7 +164,9 @@ async def test_calendar_sets_the_serve_time_unless_set_by_hand(hass: HomeAssista
     async def events(call: ServiceCall):
         return {"calendar.your_calendar": {"events": [
             {"start": (when - dt.timedelta(hours=3)).isoformat(), "end": when.isoformat(), "summary": "Dentist"},
-            {"start": when.isoformat(), "end": (when + dt.timedelta(hours=2)).isoformat(), "summary": "Brisket dinner"}]}}
+            {"start": "2026-11-20", "end": "2026-11-21", "summary": "BBQ week"},  # all day: no time to serve by
+            # A 12-hour cook block that has already started: its end is the serve-by time.
+            {"start": (when - dt.timedelta(hours=21)).isoformat(), "end": when.isoformat(), "summary": "Brisket dinner"}]}}
 
     hass.services.async_register("calendar", "get_events", events, supports_response=SupportsResponse.ONLY)
     calls = await _setup(hass, ["smoker_calendar_serve_time"], [("script", "smoker_notify")])
