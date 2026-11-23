@@ -55,6 +55,30 @@ with values 0, 1, 2, 0x10, 100, 255, 0x0100 and 0x1000, and ids `0x07`-`0x1F` wi
 fan or any other byte of the status frame, and none upset the grill. The bridge's **Boost** raises the pit target
 instead (see the changelog for 0.2.46).
 
+### Capturing the app's commands
+
+To find the bytes the official Char-Griller app sends for **Power** (switch the grill off) and **Turbo**, the
+controller can pose as the grill for the app and record what it writes. It is off unless you turn it on (the
+controller never advertises as a grill otherwise), turns itself off after 10 minutes, and never sends anything it
+captures to the real grill: its own Bluetooth link to the grill is paused while it runs.
+
+1. Switch the real grill **off**, so the app finds the controller instead.
+2. Turn on **Capture the app's commands** (device page: Setup → *Find the app's commands*; or the config switch in
+   Home Assistant). It needs the device page's PIN when one is set, like every other switch.
+3. Open the Char-Griller app and add or connect the grill it finds: **Gravity980-XXXX** (the last 4 hex digits of the
+   controller's Bluetooth address). The app sees a grill that is switched on and running: pit 65 °F, target 200 °F,
+   fan on (a real frame from a 980 that was on; the bridge's last status instead if its grill was on), sent every 2 s
+   as `00 19 10 00` + the 16-byte frame. Target changes from the app show up in it. Anything else, a Power press
+   included, leaves it looking on, so you can press it again.
+4. Press **Power** a couple of times, a few seconds apart, then **Turbo** the same way.
+5. Read the list on the card (newest first: time since the start, the bytes, a guess where the command is known), or
+   the *Captured app commands* sensor, or the log (tag `CAPTURE`). Then turn capture off.
+
+What is kept: the last 64 writes and events (connect, disconnect, notifications on/off), each write's characteristic,
+length and bytes (only the first 4 of anything over 16 bytes). A Wi-Fi credentials message (type `0x01`) is recorded as
+*(Wi-Fi credentials: not recorded)* with its first 2 bytes only: the password is never stored or logged. One phone
+at a time. The list is at `GET /local/capture` (behind the PIN when one is set) and *Clear* empties it.
+
 The bridge confirms every target change against the next status frames and reverts the HA entity (with a log
 warning) if the grill didn't take it.
 

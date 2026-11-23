@@ -24,4 +24,4 @@ async def to_code(config):
     if "clear_capture" in config:
         b = await button.new_button(config["clear_capture"])
         await cg.register_component(b, config["clear_capture"])
-        cg.add(b.set_capture(parent.capture().address))
+        cg.add(b.set_capture(cg.RawExpression(f"&{parent}->capture()")))

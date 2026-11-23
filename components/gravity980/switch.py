@@ -39,5 +39,5 @@ async def to_code(config):
     if "app_capture" in config:
         s = await switch.new_switch(config["app_capture"])
         await cg.register_component(s, config["app_capture"])
-        cg.add(s.set_capture(parent.capture().address))
+        cg.add(s.set_capture(cg.RawExpression(f"&{parent}->capture()")))
         cg.add(parent.capture().set_switch(s))

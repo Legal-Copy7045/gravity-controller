@@ -260,3 +260,4 @@ html{background:#f2f4f6}
 .gx .modesw button{font:600 13px "Instrument Sans",system-ui,sans-serif;border:0;background:none;color:var(--ink-2);padding:6px 14px;border-radius:999px;min-height:34px;cursor:pointer}
 .gx .modesw button[aria-pressed="true"]{background:var(--page);color:#fff}
 .gx .food.timer .entry input{width:90px}
+.gx .caplist{max-height:340px;overflow:auto;margin:6px 0}.gx .caplist code{font:500 12.5px "JetBrains Mono",ui-monospace,monospace;word-break:break-all}.gx .caplist .row>span:first-child{min-width:0}

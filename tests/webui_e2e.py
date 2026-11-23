@@ -104,7 +104,13 @@ def main():
             for width, height in ((1440, 1000), (390, 844)):
                 run_page(b, width, height, shots)
             no_classic(b)
+            capture_card(b)
             pin_flow(b)  # last: once a PIN is set, a fresh browser is locked
+            try:
+                urllib.request.urlopen(BASE + "/local/capture", timeout=5)
+                check(False, "with a PIN set, /local/capture needs it")
+            except urllib.error.HTTPError as e:
+                check(e.code == 401, "with a PIN set, /local/capture needs it")
             b.close()
     finally:
         for pr in procs:
@@ -273,6 +279,46 @@ def _png(w, h):
     chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)  # noqa: E731
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def capture_card(browser):
+    """Setup's "Find the app's commands": the captured list, newest first; Clear; the switch (refused on the host)."""
+    print("-- capture")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    ctx.add_init_script("try { localStorage.setItem('smoker-mode', 'basic'); } catch (e) {}")  # Setup is in Basic too
+    offline(ctx)
+    pg = ctx.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(BASE + "/")
+    pg.wait_for_selector("#conn h3", state="attached", timeout=15000)
+    pg.click('#secbar a[href="#s-setup"]')
+    try:
+        pg.wait_for_function("document.querySelector('#capture') && !document.querySelector('#capture').hidden && "
+                             "document.querySelector('#capture').innerText.includes('power?')", timeout=8000)
+    except Exception:
+        pass
+    text = pg.inner_text("#capture") if pg.locator("#capture").count() else ""
+    check("Find the app's commands" in text and pg.locator("#capture").is_visible(), "the capture card is in Setup")
+    check(text.find("FF 04 00 00") != -1 and text.find("FF 04 00 00") < text.find("FF 00 00 E1"),
+          "captured writes are listed newest first, with their bytes")
+    check("Wi-Fi credentials: not recorded" in text and "pit target 225" in text, "each write has its guess")
+    check(pg.locator('#capture [data-a=toggle][data-n="Capture the app\'s commands"]').count() == 1,
+          "the card has the capture switch")
+    # The host build has no Bluetooth: turning it on is refused by the controller and the switch goes back off.
+    pg.click('#capture [data-a=toggle]')
+    pg.wait_for_timeout(1500)
+    sw = get("/switch/Capture the app's commands")
+    check(sw.get("value") is False, "capture mode doesn't start without Bluetooth (the switch stays off)")
+    with open(os.path.join(HERE, "webui-device.log"), encoding="utf-8", errors="replace") as f:
+        check("Capture mode didn't start" in f.read(), "the controller says why it didn't start")
+    pg.click("#capture [data-a=capclear]")
+    pg.wait_for_function("document.querySelector('#capture').innerText.includes('Nothing captured')", timeout=5000)
+    check(True, "Clear empties the list")
+    over = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+    check(over <= 0, f"no horizontal overflow with the capture card ({over}px)")
+    check(not errors, f"no page errors on the capture card {errors[:3]}")
+    ctx.close()
 
 
 def pin_flow(browser):

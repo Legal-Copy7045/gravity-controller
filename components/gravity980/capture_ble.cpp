@@ -45,8 +45,8 @@ void AppCapture::clear() {
 
 void AppCapture::publish_switch_(bool on) {
 #ifdef USE_SWITCH
-  if (this->switch_ != nullptr && this->switch_->state != on)
-    this->switch_->publish_state(on);
+  if (this->switch_ != nullptr)
+    this->switch_->publish_state(on);  // also when unchanged: a refused "on" must reach Home Assistant as off
 #endif
 }
 
@@ -54,7 +54,7 @@ std::string AppCapture::json() {
   std::lock_guard<std::mutex> g(this->lock_);
   const bool on = this->state_ != State::OFF;
   const uint32_t used = this->started_at_ ? millis() - this->started_at_ : 0;
-  char b[200];
+  char b[256];
   std::snprintf(b, sizeof b,
                 "{\"available\":%s,\"active\":%s,\"advertising\":%s,\"left_s\":%u,\"name\":\"%s\",\"connected\":%s,"
                 "\"subscribed\":%s,\"total\":%u,",

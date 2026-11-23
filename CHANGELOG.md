@@ -13,6 +13,10 @@
   - It's kept by the controller, so it works without Home Assistant (it doesn't survive a restart).
   - New entities: *Timer* and *Timer remaining*.
 - **A *Fan on* chip** on the controller's page.
+- **Find the app's commands** (Setup, and a config switch *Capture the app's commands*): for 10 minutes the controller
+  poses as the grill so the Char-Griller app connects to it, and lists every byte the app sends. Switch the grill off,
+  turn capture on, connect the app to *Gravity980-XXXX* and press Power and Turbo: that's how their commands will be found.
+  Nothing is ever sent to the grill, and a Wi-Fi password the app sends isn't kept (docs/protocol.md).
 
 ## [0.2.47] - 2026-11-23
 
