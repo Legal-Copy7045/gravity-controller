@@ -9,3 +9,5 @@ tests/e2e-*.log
 tests/e2e-scen-*.log
 tests/webui-*.log
 .pytest_cache/
+firmware/signing_key.pem
+*.pem

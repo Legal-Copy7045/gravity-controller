@@ -51,6 +51,9 @@ collide. A second one needs its own build with a different `name`, and then a Ho
   **Install**, and **don't tick "Erase device"**. Settings, the PIN and learned cooks are normally kept, but note your
   settings first (Wi-Fi, ntfy topic, keys) in case they aren't.
 - **Built in the ESPHome dashboard:** update it from the dashboard (pull the latest and install).
+- **Signed updates (from 1.1.0):** released firmware is signed, and a controller running it only installs updates
+  signed with the same key, and never an older version. Someone who took over the download site couldn't push their
+  own firmware to it. Flashing over USB from the web installer always works, so it's never stuck.
 
 **Logs.** The controller's page doesn't show its log. Use the web installer's **Logs & console** over USB (click
 **Install**, connect, then *Logs & console*), the ESPHome dashboard's *Logs* if you build it yourself, or the

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0] - 2026-11-23
+
+- **Signed firmware updates:**
+  - Released firmware is now signed with the project's key, which is kept in GitHub and used only by the release
+    build.
+  - A controller running 1.1.0 or later only installs updates signed with that key, and never an older version
+    (downgrade protection). Someone who took over the download site or the release pipeline couldn't push their own
+    firmware to controllers.
+  - The first update to 1.1.0 installs as usual. Flashing over USB from the web installer still always works (no
+    eFuses are burned).
+  - Builds of branches and pull requests are signed with a throwaway key and never published.
+
 ## [1.0.1] - 2026-11-23
 
 - **Fixed: the controller's page couldn't plan a cook, log charcoal, edit the journal, share or send a test
