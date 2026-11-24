@@ -1042,8 +1042,12 @@ def main():
                     if not fr.evaluate("""(() => { const b = document.querySelector('[data-act="summary"][data-a="abc123def456"]');
                             if (!b) return false; b.click(); return true; })()"""):
                         failures.append("cook summary: no Summary button with the cook's id in data-a")
-                    time.sleep(0.8)
-                    sm = fr.evaluate("[!document.getElementById('summary').hidden, document.getElementById('summary').textContent]")
+                    # (it builds the summary after reading the cook's curve: up to a few seconds on a slow CI machine)
+                    try:
+                        fr.wait_for_function("(() => { const s = document.getElementById('summary'); return s && !s.hidden && /Total/.test(s.textContent); })()", timeout=8000)
+                    except Exception:
+                        pass
+                    sm = fr.evaluate("(() => { const s = document.getElementById('summary'); return s ? [!s.hidden, s.textContent] : [false, 'no #summary']; })()")
                     if not sm[0] or "Total" not in sm[1] or "Great bark" not in sm[1] or "Print or save as PDF" not in sm[1]:
                         failures.append(f"cook summary: {sm[1][:160]!r}")
                     fr.click("#summary .sum-tools button:has-text('Close')"); time.sleep(0.2)

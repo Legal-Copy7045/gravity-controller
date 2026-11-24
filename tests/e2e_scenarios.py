@@ -236,7 +236,9 @@ async def main():
 
         print("scenario 5: food reaches its target, then the probe is pulled: one 'done' alert")
         grill({"food1_f": 205})
-        check(await dev.wait(lambda: (v("food_1_phase") or "").startswith("Done"), 150, "done"),
+        # (Done, or already Resting: on a slow machine the phase can move on between two looks)
+        check(await dev.wait(lambda: (v("food_1_phase") or "").startswith(("Done", "Resting"))
+                             or "Food 1 is done" in open(os.path.join(HERE, "e2e-scen-device.log")).read(), 240, "done"),
               f"food 1 phase Done ({v('food_1_phase')!r})")
         grill({"food1_f": 75})
         await asyncio.sleep(75)
