@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from catalogue import claims as _claims, load_catalogue  # noqa: E402
+from catalogue import claims as _claims, feature_for, load_catalogue  # noqa: E402
 OUT = HERE / "out"
 ROOT = HERE.parent
 STAGES = ["ci", "core", "firmware", "sim", "device", "page", "integration", "package", "live", "manual"]
@@ -58,6 +58,9 @@ def load():
             claims += data.get("claims", [])
     findings.sort(key=lambda f: (SEV.index(f.get("severity", "info")) if f.get("severity") in SEV else 9, f.get("id", "")))
     catalogue = load_catalogue()
+    for s, d in stages.items():  # features from the catalogue as it is now (it may have changed since the stage ran)
+        for r in d.get("results", []):
+            r["feature"] = feature_for(catalogue, s, r["id"], r.get("check", "")) or r.get("feature", "")
     notes = json.loads((OUT / "notes.json").read_text()) if (OUT / "notes.json").is_file() else {}
     notes["_claims"] = claims
     return stages, findings, catalogue, notes
