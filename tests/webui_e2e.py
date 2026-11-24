@@ -176,7 +176,7 @@ def run_page(browser, width, height, shots):
     # The page's state, for the program editor check (the host build has no "Program" text: see program_editor()).
     src = open(os.path.join(ROOT, "firmware/device-ui/ui.js"), encoding="utf-8").read()
     pg.route(BASE + "/0.js", lambda r: r.fulfill(status=200, content_type="text/javascript",
-                                                  body=src + "\nwindow.__gxTest = { ents, render, progEd };\n"))
+                                                  body=src + "\nwindow.__gxTest = { ents, render, progEd, loadLocal, renderPlan, serveLine, serveTogether, serveFoods, RP, replayCook };\n"))
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and not (m.location or {}).get("url", "").startswith(
@@ -259,6 +259,8 @@ def run_page(browser, width, height, shots):
     except Exception:
         check(False, "drawing didn't come back after clearing the photo")
     program_editor(pg, width, shots)
+    serve_together(pg, width)
+    replay_and_picture(pg, width, shots)
     over = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     check(over <= 0, f"no horizontal overflow at {width}px ({over}px)")
     check(not errors, f"no console errors at {width}px {errors[:3]}")
@@ -270,6 +272,100 @@ def run_page(browser, width, height, shots):
         pg.screenshot(path=os.path.join(shots, f"device-{width}-dark.png"), full_page=True)
     ctx.close()
     PAGE = None
+
+
+def local_json(path, body):
+    req = urllib.request.Request(BASE + path, method="POST", data=json.dumps(body).encode(),
+                                 headers={"X-Smoker": "1", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read())
+
+
+def png_size(data):
+    """(width, height) of a PNG, or None."""
+    import struct
+    return struct.unpack(">II", data[16:24]) if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" else None
+
+
+def serve_together(pg, width):
+    """Plan: with a serve time and two foods set up, when each goes on (the controller lights the grill with the first)."""
+    local_json("/local/plan", {"serve_by": int(time.time()) + 10 * 3600, "rest_min": 60})
+    # Two more food slots (the host build has Food 1 and 2): set up with a weight, an estimate and a cut.
+    pg.evaluate("""async () => { const E = __gxTest.ents;
+        const add = (dom, name, v) => { E[dom + '/' + name] = { domain: dom, name, value: v, state: String(v), option: [] }; };
+        add('sensor', 'Food 5 estimated total cook time', 540); add('number', 'Food 5 weight', 8); add('select', 'Food 5 protein', 'Pork shoulder');
+        add('sensor', 'Food 6 estimated total cook time', 150); add('number', 'Food 6 weight', 2.5); add('select', 'Food 6 protein', 'Poultry');
+        add('sensor', 'Food 4 estimated total cook time', 400); add('select', 'Food 4 protein', 'Brisket');  // no weight: not in the plan
+        await __gxTest.loadLocal(); __gxTest.renderPlan(); }""")
+    pg.wait_for_function("document.querySelectorAll('#plan .stt li').length >= 3", timeout=5000)
+    steps = pg.evaluate("[...document.querySelectorAll('#plan .stt li .stt-w')].map(e => e.textContent)")
+    check(steps[:2] == ["Light the grill, pork shoulder on", "Poultry on"] and steps[-1] == "Serve" and "Brisket on" not in steps,
+          f"serve together at {width}px: {steps}")
+    line = pg.evaluate("__gxTest.serveLine(__gxTest.serveTogether(Date.now() + 36000e3, 60, 0, __gxTest.serveFoods()))")
+    check(" pork shoulder on · " in line and " poultry on · " in line and line.endswith(" serve"), f"serve together as one line: {line!r}")
+    check("each food should go on" in pg.inner_text("#plan"), "the plan says a notification comes for each food")
+    wide = pg.evaluate("""() => [...document.querySelectorAll('#plan .stt *')].filter(e => e.getBoundingClientRect().right >
+        document.getElementById('plan').getBoundingClientRect().right + 1).length""")
+    check(wide == 0, f"the timeline fits the card at {width}px")
+    local_json("/local/plan", {"serve_by": 0})
+    pg.evaluate("async () => { await __gxTest.loadLocal(); __gxTest.renderPlan(); }")
+
+
+def replay_and_picture(pg, width, shots):
+    """Journal: replay a cook (curves, scrubber, play, events, compare) and share it as a picture (a PNG download here)."""
+    pg.wait_for_selector("#journal [data-a=jreplay][data-id=a1b2c3d4]", state="attached", timeout=10000)
+    pg.evaluate("document.querySelector('#journal [data-a=jreplay][data-id=a1b2c3d4]').click()")
+    try:
+        pg.wait_for_selector("#rp:not([hidden]) #rp-chart svg", timeout=8000)
+    except Exception:
+        check(False, f"replay opened at {width}px ({pg.inner_text('#toast')!r})")
+        return
+    check(pg.locator("#rp-chart svg path").count() >= 2, "replay: the pit and food curves are drawn")
+    evs = pg.inner_text("#rp-evs")
+    check(all(w in evs for w in ("Lid open 2 min", "Stall began (Food 1)", "Charcoal topped up to 85%", "Wrapped (Food 1)",
+                                 "Program step 2", "Stall ended (Food 1)", "Off the grill (Food 1)")), f"replay: the events {evs!r}")
+    check(pg.locator("#rp-chart .rp-mk").count() == 7, "replay: a marker for each event on the chart")
+    pg.evaluate("() => { const r = document.getElementById('rp-pos'); r.value = 500; r.dispatchEvent(new Event('input', { bubbles: true })); }")
+    rd = pg.inner_text("#rp-read")
+    check("5 h 48 min in" in rd and "Pit 2" in rd and "Food 1 " in rd, f"replay: the scrubber shows the temperatures then ({rd!r})")
+    pg.click("#rp-evs button:has-text('Wrapped')")
+    check(pg.inner_text("#rp-read").startswith("6 h 00 min in"), f"replay: an event jumps there ({pg.inner_text('#rp-read')[:40]!r})")
+    box = pg.locator("#rp-chart svg").bounding_box()
+    pg.mouse.click(box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.6)
+    p1 = pg.evaluate("__gxTest.RP.state().pos")
+    check(0.1 < p1 < 0.3, f"replay: a tap on the chart moves there ({p1:.2f})")
+    pg.click("#rp-play")
+    pg.wait_for_timeout(800)
+    p2 = pg.evaluate("__gxTest.RP.state().pos")
+    check(p2 > p1 and pg.inner_text("#rp-play") == "Pause", f"replay: Play moves on ({p1:.3f} -> {p2:.3f})")
+    pg.click("#rp-play")
+    check(pg.inner_text("#rp-play") == "Play", "replay: Pause stops it")
+    pg.select_option("#rp-cmp", "b2c3d4e5")
+    pg.wait_for_function("__gxTest.RP.state().cmp === 'b2c3d4e5'", timeout=5000)
+    check(pg.locator("#rp-chart svg path[stroke-dasharray='6 5']").count() >= 2 and "Other " in pg.inner_text("#rp-read"),
+          "replay: a second cook overlaid (dashed), with its temperature at that point")
+    ow = pg.evaluate("(() => { const d = document.getElementById('rp'); return d.scrollWidth - d.clientWidth; })()")
+    check(ow <= 1, f"replay: fits the screen at {width}px ({ow}px over)")
+    if shots:
+        pg.screenshot(path=os.path.join(shots, f"device-replay-{width}.png"))
+    with pg.expect_download(timeout=15000) as dl:
+        pg.click("#rp [data-rp=png]")
+    data = open(dl.value.path(), "rb").read()
+    check(png_size(data) == (1080, 1350) and len(data) > 20000 and dl.value.suggested_filename.endswith(".png"),
+          f"the picture from the replay: a 1080 x 1350 PNG ({png_size(data)}, {len(data)} bytes, {dl.value.suggested_filename})")
+    if shots:
+        open(os.path.join(shots, f"device-cook-card-{width}.png"), "wb").write(data)
+    pg.keyboard.press("Escape")
+    check(pg.evaluate("document.getElementById('rp').hidden"), "replay: Escape closes it")
+    # Share image straight from the journal (no Web Share here: a download).
+    with pg.expect_download(timeout=15000) as dl:
+        pg.evaluate("document.querySelector('#journal [data-a=jimg][data-id=b2c3d4e5]').click()")
+    check(png_size(open(dl.value.path(), "rb").read()) == (1080, 1350), "Share image from the journal downloads the picture")
+    # The picture follows the page's colours: its background is the card colour.
+    bg = pg.evaluate("""async () => { const c = await __gxTest.replayCook('a1b2c3d4'), b = await __gxTest.RP.png(c), i = await createImageBitmap(b);
+        const cv = document.createElement('canvas'); cv.width = i.width; cv.height = i.height; const x = cv.getContext('2d'); x.drawImage(i, 0, 0);
+        return [...x.getImageData(20, 700, 1, 1).data].slice(0, 3).join(','); }""")
+    check(bg == "255,255,255", f"the picture's background is the page's card colour ({bg})")
 
 
 def _png(w, h):

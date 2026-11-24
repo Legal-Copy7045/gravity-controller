@@ -263,3 +263,15 @@ html{background:#f2f4f6}
 .gx .modesw button{font:600 13px "Instrument Sans",system-ui,sans-serif;border:0;background:none;color:var(--ink-2);padding:6px 14px;border-radius:999px;min-height:34px;cursor:pointer}
 .gx .modesw button[aria-pressed="true"]{background:var(--page);color:#fff}
 .gx .food.timer .entry input{width:90px}
+/* serve together: when each food goes on (shared block "serve together"; page.html has the same rules) */
+.gx .stt{list-style:none;margin:6px 0 4px 6px;padding:0 0 0 16px;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.gx .stt li{position:relative;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;font-size:14px;min-width:0}
+.gx .stt li::before{content:"";position:absolute;left:-23px;top:.3em;width:8px;height:8px;border-radius:50%;background:var(--surface);border:2px solid var(--line)}
+.gx .stt li.on::before{border-color:var(--page)}.gx .stt li.next::before{background:var(--page);border-color:var(--page)}
+.gx .stt li.serve::before{background:var(--ok);border-color:var(--ok)}
+.gx .stt li.past{color:var(--muted)}
+.gx .stt-t{font:600 13.5px "JetBrains Mono",ui-monospace,monospace;min-width:74px;white-space:nowrap}
+.gx .stt-w{font-weight:600;flex:1 1 0;min-width:0;overflow-wrap:anywhere}
+.gx .stt-n{flex-basis:100%;padding-left:84px;font-size:12.5px;color:var(--muted)}
+@media (max-width:560px){.gx .stt-n{padding-left:0}}
+.gx .je .btns{margin-top:6px}

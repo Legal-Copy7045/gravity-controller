@@ -292,7 +292,11 @@ class Local:
         self.journal = {"share": {"enabled": False, "auto": False}, "results": [], "entries": [
             {"id": "a1b2c3d4", "ended": 1795300000, "profile": "Pork shoulder", "weight_kg": 3.86, "pit_c": 121.1,
              "stall_h": 3.1, "total_h": 11.6, "ambient_c": 2.0, "wrapped": True, "notes": "", "share": "pending",
-             "tags": [], "record": rec}]}
+             "tags": [], "record": rec},
+            # an earlier cook of the same cut, to compare with in the replay (declined: no record to offer)
+            {"id": "b2c3d4e5", "ended": 1795000000, "profile": "Pork shoulder", "weight_kg": 4.1, "pit_c": 121.1,
+             "stall_h": 2.5, "total_h": 10.9, "wrapped": False, "notes": "", "share": "declined", "tags": [],
+             "rating": 3}]}
 
     def authed(self, request):  # like the controller: no PIN set, nothing is locked
         return self.pin is None or request.headers.get("X-Smoker-Token", "") in self.tokens
@@ -321,6 +325,9 @@ class Local:
                                           "series": [pit, [250.0] * n, [round(120 + i * 0.2, 1) for i in range(n)]]})
             if path == "journal":
                 return web.json_response(self.journal)
+            if path.startswith("journal/") and path.endswith("/curve"):  # a cook's replay (standalone_replay.cpp)
+                e = next((x for x in self.journal["entries"] if x["id"] == path[8:-6]), None)
+                return web.json_response(curve(e)) if e else web.json_response({"error": "no such cook"}, status=404)
             if path == "community":
                 return web.json_response({"cooks": 42, "updated": "2026-11-23", "groups": [
                     {"cut": "Pork shoulder", "line": "Pork shoulder 8-10 lb at 225-255°F: typically 11.2 h; 12 cooks"}]})
@@ -406,6 +413,28 @@ class Local:
         else:
             return err("not found", 404)
         return web.json_response(self.status(request))
+
+
+def curve(e):
+    """A synthetic replay like curve_json_() in components/standalone/standalone_replay.cpp: the pit near 250 °F, the
+    food climbing with a stall, and the cook's events."""
+    total = e["total_h"] * 3600
+    start = e["ended"] - round(total)
+    step = 60 * max(1, math.ceil(total / 60 / 120))
+    n = min(120, int(total // step) + 1)
+    pit, food, k = [], [], int(e["id"][:2], 16) % 3  # (each cook a little different)
+    for i in range(n):
+        h = i * step / 3600
+        pit.append(round(250 - 5 * k + 6 * math.sin(h * 1.7 + k), 1))
+        f = 40 + 120 * (1 - math.exp(-h / (1.8 + 0.4 * k)))
+        f = min(f, 158) if h < 6.5 else 158 + (h - 6.5) * 9
+        food.append(round(f, 1) if i % 17 else None)  # a missed reading now and then
+    at = lambda h: start + round(h * 3600)  # noqa: E731
+    return {"id": e["id"], "start": start, "step_s": step, "slot": 1, "unit": "\u00b0F", "pit": pit, "food": food,
+            "events": [{"t": at(1.0), "k": "lid", "d": 95}, {"t": at(3.2), "k": "stall_start", "slot": 1},
+                       {"t": at(4.5), "k": "fuel", "v": 85}, {"t": at(6.0), "k": "wrap", "slot": 1},
+                       {"t": at(6.0), "k": "step", "v": 2}, {"t": at(6.5), "k": "stall_end", "slot": 1},
+                       {"t": at(e["total_h"] - 0.05), "k": "pulled", "slot": 1}]}
 
 
 def _ai_json(self):

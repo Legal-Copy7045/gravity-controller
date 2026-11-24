@@ -97,6 +97,11 @@ STATES = dict([
     st("sensor.smoker_food_3_estimate_basis", "Experimental (learning: 0 of 3 similar cooks). Poultry, 0 similar past cooks, "
        "grill factor 1.00; pull-at experimental (0 of 2 rests measured)", "Smoker Food 3 estimate basis"),
     st("sensor.smoker_food_3_pull_at", 170, "Smoker Food 3 pull at", **F),
+    st("sensor.smoker_food_3_estimated_total_cook_time", 300, "Smoker Food 3 estimated total cook time", **MIN),
+    st("number.smoker_food_3_weight", 3.5, "Smoker Food 3 weight", unit_of_measurement="lb"),
+    # Food 4 has an estimate (it has a target) but no weight: not set up for this cook, so not in "Ready together".
+    st("sensor.smoker_food_4_estimated_total_cook_time", 420, "Smoker Food 4 estimated total cook time", **MIN),
+    st("input_number.smoker_rest_minutes", 45, "Smoker rest time", unit_of_measurement="min"),
     st("sensor.smoker_charcoal_estimate_basis", "Experimental: default burn rate for briquettes (learned from 0.0 of 3 kg).",
        "Smoker Charcoal estimate basis"),
     st("switch.smoker_control_over_bluetooth_experimental", "on", "Smoker Control over Bluetooth (experimental)"),
@@ -166,8 +171,14 @@ function hist(ids, start) {
     out[id] = L; });
   return out;
 }
+// A tiny photo (the journal's first photo goes on the cook's picture).
+const PHOTO = Uint8Array.from(atob('%PHOTO%'), c => c.charCodeAt(0));
 const JOURNAL = {
-  entries: [{ id: 'abc123def456', started: Date.now() / 1000 - 86400 * 3 - 12 * 3600, ended: Date.now() / 1000 - 86400 * 3,
+  entries: [{ id: 'fed987654321', started: Date.now() / 1000 - 86400 * 9 - 11 * 3600, ended: Date.now() / 1000 - 86400 * 9,
+    probe: 'food1', probe_name: 'Food 1', profile: 'Pork shoulder', weight_kg: 4.1, wrapped: false, pit_c: 118, stall_h: 2.6,
+    total_h: 11.0, ambient_c: 10, items: [{ name: 'Pork butt', weight_lb: 9 }], photos: ['20261113-180000-a1b2c3-0.jpg'], notes: '',
+    rating: 3, tags: ['juicy', 'great bark'] },
+    { id: 'abc123def456', started: Date.now() / 1000 - 86400 * 3 - 12 * 3600, ended: Date.now() / 1000 - 86400 * 3,
     probe: 'food1', probe_name: 'Food 1', profile: 'Pork shoulder', weight_kg: 3.8, wrapped: true, pit_c: 121, stall_h: 3.1,
     total_h: 11.6, ambient_c: 4, items: [{ name: 'Bone-in pork shoulder', weight_lb: 8.4 }], photos: [], notes: 'Great bark', rating: 4 }],
   draft: { items: [{ id: 'aa11bb22', name: 'Beef brisket (packer)', profile: 'Brisket', weight_lb: 14.2, barcode: '', notes: 'prime', probe: null }], photos: [] },
@@ -177,8 +188,25 @@ const SHARE = { enabled: true, auto: false, shared: 0, privacy: 'https://example
   entries: [{ entry: 'abc123def456', status: 'pending', record: { v: 1, id: '0123456789abcdef0123456789abcdef', grill: 'gravity980',
     release: '0.2.25', season: 'autumn', cut: 'Pork shoulder', weight_lb: 8.5, wrapped: true, pit_f: 250, target_f: 203,
     stall_h: 3.1, total_h: 11.6, outside_f: 35, rating: 4, tags: ['juicy', 'great bark'] } }] };
+// A cook's replay as the integration's replay.py answers: curves every few minutes, and the cook's events.
+function replay(e) {
+  const total = e.ended - e.started, step = 60 * Math.max(1, Math.ceil(total / 60 / 239)), n = Math.floor(total / step) + 1;
+  const k = e.id === 'abc123def456' ? 0 : 1, pit = [], target = [], food = [], at = h => Math.round(e.started + h * 3600);
+  for (let i = 0; i < n; i++) {
+    const h = i * step / 3600; let f = 40 + 122 * (1 - Math.exp(-h / (2 + 0.6 * k)));
+    if (h > 6.2) f = Math.min(203, 158 + (h - 6.2) * 9);
+    pit.push(Math.round((250 - 8 * k + 5 * Math.sin(h * 1.5 + k)) * 10) / 10); target.push(h < 6 ? 250 : 275); food.push(i % 23 ? Math.round(f * 10) / 10 : null);
+  }
+  return { v: 1, start: Math.round(e.started), end: Math.round(e.ended), step, unit: '°F', slot: 1, pit, target, food, kept: true,
+    events: [{ t: at(0.8), k: 'lid', d: 140 }, { t: at(3.1), k: 'stall_start', slot: 1 }, { t: at(4.4), k: 'fuel', v: 80 },
+      { t: at(6.0), k: 'wrap', slot: 1 }, { t: at(6.0), k: 'step', v: 2 }, { t: at(6.2), k: 'stall_end', slot: 1 },
+      { t: at(e.total_h - 0.1), k: 'pulled', slot: 1 }] };
+}
 window.__smHass = {
   fetchWithAuth: (path, opt) => { window.calls.push(['api', path, opt && opt.method]);
+    if (path.startsWith('/api/smoker/photo/')) return Promise.resolve(new Response(new Blob([PHOTO], { type: 'image/png' }), { headers: { 'Content-Type': 'image/png' } }));
+    const rp = new RegExp('^/api/smoker/journal/([0-9a-f]+)/replay$').exec(path), re = rp && JOURNAL.entries.find(x => x.id === rp[1]);
+    if (re) return Promise.resolve(new Response(JSON.stringify(replay(re)), { headers: { 'Content-Type': 'application/json' } }));
     const body = path === '/api/smoker/journal' ? JOURNAL : path === '/api/smoker/draft' ? JOURNAL.draft
       : path.startsWith('/api/smoker/sharing') ? SHARE : {};
     return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })); },
@@ -204,7 +232,7 @@ def presets():
 
 def shared_blocks_match():
     """page.html and the device page's ui.js carry the same shared blocks (cook program editor, page sections)."""
-    for name in ("cook program editor", "page sections", "cook plan"):
+    for name in ("cook program editor", "page sections", "cook plan", "serve together", "cook replay"):
         b, e = f"// ==== BEGIN {name} (shared block) ====", f"// ==== END {name} (shared block) ===="
         out = []
         for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
@@ -466,17 +494,136 @@ def editor_on_phone(pg, fr):
     return fails
 
 
+def tiny_png(w=64, h=48, rgb=(200, 120, 80)):
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)  # noqa: E731
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def set_state(pg, eid, state):
+    pg.evaluate("""([k, v]) => { const st = window.__smHass.states;
+        st[k] = Object.assign({}, st[k], {state: v});
+        window.__smHass = Object.assign({}, window.__smHass, {states: Object.assign({}, st)});
+        document.getElementById('f').contentWindow.__smOnHass(); }""", [eid, state])
+    time.sleep(0.5)
+
+
+def serve_together(pg, fr, tag):
+    """Plan: with a serve time, when each food goes on (and when to light the grill) so everything is ready together."""
+    fails = []
+    keep = STATES["input_datetime.smoker_serve_time"]["state"]
+    set_state(pg, "input_datetime.smoker_serve_time", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + 14 * 3600)))
+    steps = fr.evaluate("[...document.querySelectorAll('#plancard .stt li .stt-w')].map(e => e.textContent)")
+    if steps != ["Light the grill", "Pork shoulder on", "Poultry on", "Serve"]:
+        fails.append(f"serve together: steps {steps}")
+    # Minutes before the serve time: the light-up 45 min before the first; each food its estimate plus the 45 min rest.
+    mins = fr.evaluate("""(() => { const p = servePlan(val(byName('Smoker serve by', ['input_datetime'])));
+        return [p.light, ...p.foods.map(f => f.on)].map(t => Math.round((p.serve - t) / 60000)); })()""")
+    if mins != [760 + 45 + 45, 760 + 45, 300 + 45]:
+        fails.append(f"serve together: minutes before serving {mins}")
+    line = fr.evaluate("serveLine(servePlan(val(byName('Smoker serve by', ['input_datetime']))))")
+    if not (" light the grill · " in line and " pork shoulder on · " in line and " poultry on · " in line and line.endswith(" serve")):
+        fails.append(f"serve together: one line {line!r}")
+    txt = fr.inner_text("#plancard")
+    if "Ready together" not in txt or "when each food should go on" not in txt or "5 h on the grill, 45 min rest" not in txt:
+        fails.append(f"serve together: card text {txt[-300:]!r}")
+    wide = fr.evaluate("""() => [...document.querySelectorAll('#plancard .stt *')].filter(e => e.getBoundingClientRect().right >
+        document.getElementById('plancard').getBoundingClientRect().right + 1).length""")
+    if wide:
+        fails.append(f"serve together: {wide} parts of the timeline stick out of the card")
+    if EDITOR_SHOTS:
+        fr.locator("#plancard").screenshot(path=os.path.join(EDITOR_SHOTS, f"ha-serve-{tag}.png"))
+    set_state(pg, "input_datetime.smoker_serve_time", keep)
+    if fr.locator("#plancard .stt").count():
+        fails.append("serve together: still shown with the serve time in the past")
+    return fails
+
+
+def replay_and_picture(pg, fr, tag, dark):
+    """Journal: replay a cook (curves, scrubber, play, events, compare) and its picture (PNG) to share."""
+    fails = []
+    fr.evaluate("document.querySelector('[data-act=replay][data-a=abc123def456]').click()")
+    try:
+        fr.wait_for_selector("#rp:not([hidden]) #rp-chart svg", timeout=6000)
+    except Exception:
+        return [f"replay didn't open ({fr.inner_text('#toast')!r})"]
+    if fr.locator("#rp-chart svg path").count() < 3:
+        fails.append("replay: pit, pit target and food curves not drawn")
+    evs = fr.inner_text("#rp-evs")
+    for w in ("Lid open 2 min", "Stall began (Food 1)", "Charcoal topped up to 80%", "Wrapped (Food 1)", "Program step 2",
+              "Stall ended (Food 1)", "Off the grill (Food 1)"):
+        if w not in evs:
+            fails.append(f"replay: event {w!r} missing from {evs!r}")
+    if fr.locator("#rp-chart .rp-mk").count() != 7 or fr.locator("#rp-chart svg rect").count() < 1:
+        fails.append("replay: a marker for each event and the stall shaded")
+    cy = fr.evaluate("[...document.querySelectorAll('#rp-chart .rp-mk circle')].map(c => c.getAttribute('cy') + ':' + Math.round(c.getAttribute('cx')))")
+    if len(set(cy)) != len(cy):
+        fails.append(f"replay: event markers drawn on top of each other {cy}")
+    # (the fixture's cook ran 12 h from start to end)
+    fr.evaluate("() => { const r = document.getElementById('rp-pos'); r.value = 250; r.dispatchEvent(new Event('input', { bubbles: true })); }")
+    rd = fr.inner_text("#rp-read")
+    if not (rd.startswith("3 h 00 min in") and "Latest: Lid open 2 min, 2 h 12 min before" in rd and "Pit 2" in rd and "Pit target 250°F" in rd and "Food 1 1" in rd):
+        fails.append(f"replay: the scrubber's readout {rd!r}")
+    fr.click("#rp-evs button:has-text('Stall began')")
+    if not fr.inner_text("#rp-read").startswith("3 h 06 min in") or "Latest: Stall began (Food 1)" not in fr.inner_text("#rp-read"):
+        fails.append(f"replay: an event jumps there ({fr.inner_text('#rp-read')[:80]!r})")
+    fr.click("#rp-play")
+    time.sleep(0.8)
+    st = fr.evaluate("RP.state().pos")
+    if not 0.26 < st < 0.5 or fr.inner_text("#rp-play") != "Pause":
+        fails.append(f"replay: Play from 3 h 06 min ({st:.3f}, {fr.inner_text('#rp-play')!r})")
+    fr.click("#rp-play")
+    fr.select_option("#rp-cmp", "fed987654321")
+    try:
+        fr.wait_for_function("RP.state().cmp === 'fed987654321'", timeout=4000)
+    except Exception:
+        fails.append("replay: compare didn't load the other cook")
+    if fr.locator("#rp-chart svg path[stroke-dasharray='6 5']").count() < 2 or "Other food 1" not in fr.inner_text("#rp-read"):
+        fails.append("replay: the other cook isn't overlaid (dashed), or its temperature not shown")
+    if fr.evaluate("(() => { const d = document.getElementById('rp'); return d.scrollWidth - d.clientWidth; })()") > 1:
+        fails.append("replay: wider than the screen")
+    pg.screenshot(path=os.path.join(OUT, f"replay-{tag}.png"))
+    # Share image from the replay: no Web Share in this browser, so a download.
+    with pg.expect_download(timeout=15000) as dl:
+        fr.click("#rp [data-rp=png]")
+    data = open(dl.value.path(), "rb").read()
+    import struct
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", data[16:24]) != (1080, 1350):
+        fails.append("Share image: not a 1080 x 1350 PNG")
+    fr.press("#rp-play", "Escape")
+    if not fr.evaluate("document.getElementById('rp').hidden"):
+        fails.append("replay: Escape didn't close it")
+    # The picture of the earlier cook (it has a photo): the page's colours, the photo on it, the stars.
+    info = fr.evaluate("""async () => { const c = await replayCook('fed987654321'), b = await RP.png(c), i = await createImageBitmap(b);
+        const cv = document.createElement('canvas'); cv.width = i.width; cv.height = i.height; const x = cv.getContext('2d'); x.drawImage(i, 0, 0);
+        const px = (a, y) => [...x.getImageData(a, y, 1, 1).data].slice(0, 3);
+        return { w: i.width, h: i.height, type: b.type, photo: !!c.photo && c.photo.startsWith('blob:'), bg: px(20, 1000), mid: px(540, 480) }; }""")
+    bg = [19, 27, 36] if dark else [255, 255, 255]
+    if info["w"] != 1080 or info["h"] != 1350 or info["type"] != "image/png" or not info["photo"] or info["bg"] != bg \
+            or max(abs(a - b) for a, b in zip(info["mid"], (200, 120, 80))) > 6:
+        fails.append(f"the cook's picture: {info}")
+    with pg.expect_download(timeout=15000) as dl:
+        fr.evaluate("document.querySelector('[data-act=shareImg][data-a=fed987654321]').click()")
+    open(os.path.join(OUT, f"cook-card-{tag}.png"), "wb").write(open(dl.value.path(), "rb").read())
+    return fails
+
+
 def main():
     from playwright.sync_api import sync_playwright
 
     os.makedirs(OUT, exist_ok=True)
     page_html = build_page()
-    harness = HARNESS.replace("%STATES%", json.dumps(STATES)).replace("%PAGE%", json.dumps(page_html).replace("</", "<\\/"))
+    import base64
+    harness = HARNESS.replace("%STATES%", json.dumps(STATES)).replace("%PHOTO%", base64.b64encode(tiny_png()).decode()) \
+        .replace("%PAGE%", json.dumps(page_html).replace("</", "<\\/"))
     hp = os.path.join(OUT, "harness.html")
     open(hp, "w").write(harness)
     failures = []
     if not shared_blocks_match():
-        failures.append("the shared blocks (program editor, page sections) in page.html and ui.js differ")
+        failures.append("the shared blocks (program editor, page sections, cook plan, serve together, cook replay) in page.html and ui.js differ")
     with sync_playwright() as p:
         exe = os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1243/chrome-linux64/chrome")
         b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
@@ -826,6 +973,11 @@ def main():
                     r = fr.evaluate("window.hdHA.call('switch','turn_on','switch.kitchen_lights').then(()=>'ok',e=>e.message)")
                     if "not a smoker entity" not in r:
                         failures.append("shim allowed a non-smoker switch")
+                n_err = len(errors)
+                failures += [f"{scheme}/{name}: {f}" for f in serve_together(pg, fr, f"{name}-{scheme}")]
+                failures += [f"{scheme}/{name}: {f}" for f in replay_and_picture(pg, fr, f"{name}-{scheme}", scheme == "dark")]
+                if errors[n_err:]:
+                    failures.append(f"{scheme}/{name}: JS errors in serve together / replay {errors[n_err:]}")
                 ctx.close()
         b.close()
     for f in failures:
