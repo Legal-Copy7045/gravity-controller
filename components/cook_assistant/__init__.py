@@ -193,6 +193,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("wind_speed_unit", default="mph"): cv.one_of("mph", "km/h", "m/s", lower=True),
         # The grill's accepted pit range (programs outside it are refused). Default: the stock controller, 200-700 °F.
         cv.Optional("pit_min", default=93.333): cv.float_,
+        # How long the pit must read cold (no program running) before the cook session ends. 20 min; the test build
+        # uses less so its scenarios don't wait.
+        cv.Optional("cook_end_after", default="20min"): cv.All(cv.positive_time_period_minutes, cv.Range(min=cv.TimePeriod(minutes=1))),
         cv.Optional("pit_max", default=371.111): cv.float_,
         cv.Optional(CONF_TIME_ID): _time_schema(),
         cv.Required(CONF_PROBES): cv.All(cv.ensure_list(PROBE_SCHEMA), cv.Length(min=1, max=8)),
@@ -271,6 +274,7 @@ async def to_code(config):
     cg.add(var.set_ambient_fahrenheit(amb == "F"))
     cg.add(var.set_wind_to_kmh({"mph": 1.609344, "km/h": 1.0, "m/s": 3.6}[config["wind_speed_unit"]]))
     cg.add(var.set_pit_range(config["pit_min"], config["pit_max"]))
+    cg.add(var.set_cook_end_min(config["cook_end_after"].total_minutes))
     if "fan" in config:
         cg.add(var.set_fan(await cg.get_variable(config["fan"])))
     cg.add(var.set_hopper_capacity_kg(config["hopper_capacity"]))

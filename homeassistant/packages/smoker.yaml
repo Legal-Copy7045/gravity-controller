@@ -620,6 +620,7 @@ script:
       program: {description: The program text}
       explanation: {description: Text shown with it (checked for links)}
       max_pit: {description: "The hottest pit allowed, in °F"}
+      keep_ok: {description: "Keep steps allowed (the controller's own AI check limits them)"}
     sequence:
       - variables:
           refused: >
@@ -640,7 +641,9 @@ script:
               {% elif s.startswith('name:') %}
                 {% if ns.steps %}{% set ns.why = "'name:' must come first" %}
                 {% elif not (s[5:] | trim) is match('^[\\w .,&()/+°-]{0,40}$') %}{% set ns.why = 'the name is too long or odd' %}{% endif %}
-              {% elif not s is match('(pit|hold|set|notify|alert|shutdown|stop|off|then)\\b') %}
+              {% elif s is search('(?<![a-z0-9_])keep(?![a-z0-9_])') and not (keep_ok | default(false) | bool) %}
+                {% set ns.why = "it uses keep (only the controller's own check, firmware 1.4.4 or later, can limit the pit a keep step asks for)" %}
+              {% elif not s is match('(pit|hold|set|notify|alert|shutdown|stop|off|then|keep)\\b') %}
                 {% set ns.why = 'a step starts with "' ~ (s.split(' ')[0])[:20] ~ '", not an action' %}
               {% elif s is search('(?<![a-z0-9_])turbo(?![a-z0-9_])') %}
                 {% set ns.why = "it uses Turbo (an AI plan can't: the fan flat out takes the pit past the AI max pit)" %}
@@ -764,12 +767,19 @@ script:
       - variables:
           program: "{{ (plan.data.program | default('') | string | trim) }}"
           explanation: "{{ (plan.data.explanation | default('') | string | trim)[:500] }}"
-      # Checked before the controller sees it (script.smoker_check_program above).
+      # Loaded through the controller's own AI check (firmware 1.4.4+: its unit, its AI max pit, keep steps limited)?
+      - variables:
+          via_controller: >
+            {{ version(state_attr('update.smoker_firmware', 'installed_version') | default('0', true) | string)
+               >= '1.4.4' }}
+      # Checked before the controller sees it (script.smoker_check_program above). Without the controller's check,
+      # keep steps are refused here (the pit they ask for isn't a number this check can cap).
       - action: script.smoker_check_program
         data:
           program: "{{ program }}"
           explanation: "{{ explanation }}"
           max_pit: "{{ max_pit }}"
+          keep_ok: "{{ via_controller }}"
         response_variable: check
       - variables:
           refused: "{{ check.refused | default('the check did not answer') | string }}"
@@ -786,10 +796,6 @@ script:
               tag: plan
           - stop: The AI's program was refused
       # From controller 1.4.4 through its own AI check too (its unit, its AI max pit); older firmware: as before.
-      - variables:
-          via_controller: >
-            {{ version(state_attr('update.smoker_firmware', 'installed_version') | default('0', true) | string)
-               >= '1.4.4' }}
       - if: "{{ via_controller }}"
         then:
           - action: esphome.gravity980_load_ai_program
@@ -838,7 +844,8 @@ script:
           - action: esphome.gravity980_load_program
             continue_on_error: true
             data:
-              program: "name: AI plan refused; hold {{ lo }}"
+              # (with its unit: lo is in Home Assistant's unit, which may not be the controller's)
+              program: "name: AI plan refused; hold {{ lo }}{{ 'C' if cel else 'F' }}"
           - action: input_text.set_value
             target: {entity_id: input_text.smoker_ai_plan}
             data:

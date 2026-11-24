@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.6] - 2026-11-24
+
+- **AI plans in Home Assistant without the controller's check** (controller firmware older than 1.4.4, or its update
+  entity renamed): keep steps are refused, since only the controller can limit the pit a keep step asks for. The
+  safe "hold at the lowest pit" that replaces a plan that changed on the way now carries its unit.
+- The dashboard bridge recognises the smoker controller by its model only (not by a device named "Smoker...").
+- An answer from the internet longer than 64 KB is dropped whole on the controller, never kept with a piece missing.
+- Docs: what "64 KB, no redirects" covers (the controller's requests, not the integration's); AI plans are loaded,
+  never started; comments no longer call the event secret a barrier against Home Assistant's own users.
+- New option `cook_end_after` (cook_assistant, default 20 min): how long the pit reads cold before the cook session
+  ends (the test build uses 2 min).
+- Tests: scenario 12 (your Start while power-cut recovery reconnects wins), scenario 13 (a keep-warm program ends with
+  the cook), keep steps in Home Assistant's plan check on both routes.
+
 ## [1.4.5] - 2026-11-24
 
 - **Plan with AI in Home Assistant works with controller 1.4.4+:** the package compared the controller's rewritten

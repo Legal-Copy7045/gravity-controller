@@ -360,6 +360,46 @@ async def main():
         await dev.action("load_ai_program", program='pit 250 notify "see www.example.test"')
         check(await dev.wait(lambda: "couldn't be loaded" in (v("program_error") or ""), 10, "ai refused"),
               f"an AI plan from Home Assistant with a link is refused ({v('program_error')!r})")
+
+        print("scenario 12: your Start while power-cut recovery reconnects wins (recovery doesn't put the old step back)")
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_program", program="name: Old; pit 260 until after 1m; pit 270 until after 10h")
+        await asyncio.sleep(1)
+        await dev.action("start_program")
+        dev.cli.switch_command(dev.by_id["resume_after_a_power_cut"].key, True)
+        check(await dev.wait(lambda: (v("program_status") or "").startswith("Step 2/2"), 150, "step 2"),
+              f"the old program reached step 2 ({v('program_status')!r})")
+        await asyncio.sleep(130)  # (a recovery record saved)
+        grill({"silent": True})  # the grill's link stays down after the restart: recovery waits for it
+        await dev.stop()
+        await asyncio.sleep(2)
+        await dev.start()
+        await asyncio.sleep(5)
+        await dev.action("load_program", program="name: New; pit 240 until after 10h")
+        await asyncio.sleep(1)
+        await dev.action("start_program")
+        check(await dev.wait(lambda: (v("program_status") or "").startswith("Step 1/1"), 20, "new program"),
+              f"the new program runs ({v('program_status')!r})")
+        grill({"silent": False})
+        check(await dev.wait(lambda: v("grill_connected") is True, 60, "link back"), "the grill's link is back")
+        await asyncio.sleep(90)  # (recovery has done its targets step by now)
+        check((v("program_status") or "").startswith("Step 1/1") and "260" not in (v("program_status") or "")
+              and "270" not in (v("program_status") or ""),
+              f"recovery left your program alone ({v('program_status')!r}; before 1.4.4 it put the old step back)")
+
+        print("scenario 13: a keep-warm program ends with the cook")
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_program", program="name: Keep end; keep food1 at 140")
+        await asyncio.sleep(1)
+        await dev.action("start_program")
+        check(await dev.wait(lambda: v("program_state") == "Finished", 20, "keeping"), "the keep program runs")
+        grill({"pit_f": 80})  # the fire is out: the pit reads cold
+        check(await dev.wait(lambda: v("cook_active") is False, 300, "cook ended"), "the cook session ends")
+        check(await dev.wait(lambda: v("program_state") == "Idle", 30, "keep ended"),
+              f"the keep program ended with it ({v('program_state')!r})")
+        grill({"pit_f": None})
         await dev.stop()
     finally:
         if dev.proc and dev.proc.poll() is None:

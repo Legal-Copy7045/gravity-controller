@@ -763,9 +763,9 @@ static bool same_secret(const std::string &a, const std::string &b) {
 }
 
 bool Standalone::ha_secret_ok(const std::string &given) const {
-  // Only the Smoker integration knows the event secret: any other Home Assistant user calling the controller's raw
-  // action (non-admins can call every ESPHome action) doesn't. No secret yet (an integration older than 1.4.1, or
-  // none): Home Assistant's API key is all there is.
+  // The Smoker integration sends its event secret along. Not a barrier against Home Assistant's users (they're trusted,
+  // docs/security.md, and can set the secret themselves): it keeps a stray or mistyped call from changing the PIN. No
+  // secret yet: Home Assistant's API key is all there is.
   return this->event_secret_.empty() || same_secret(given, this->event_secret_);
 }
 
@@ -1015,8 +1015,14 @@ void Standalone::worker_() { this->worker_lane_(0); }
 static esp_err_t collect_(esp_http_client_event_t *e) {
   if (e->event_id == HTTP_EVENT_ON_DATA && e->user_data != nullptr) {
     auto *s = static_cast<std::string *>(e->user_data);
-    if (s->size() + e->data_len <= 65536)  // an AI answer can be long (PSRAM)
+    // An AI answer can be long (PSRAM), up to 64 KB. Longer: dropped whole (marked with a \x01 the JSON parser
+    // refuses), never kept with a piece missing from the middle.
+    if (!s->empty() && (*s)[0] == '\x01')
+      return ESP_OK;
+    if (s->size() + e->data_len <= 65536)
       s->append(static_cast<const char *>(e->data), e->data_len);
+    else
+      s->assign(1, '\x01');
   }
   return ESP_OK;
 }

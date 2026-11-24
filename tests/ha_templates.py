@@ -157,6 +157,12 @@ async def main():
                       ('pit 225 notify "turbo is fun" until after 1h', "")]:
         got = str(render(pv, program=prog, explanation="Fine.", max_pit=400.0) or "")
         check((bad in got) if bad else got == "", f"plan check {prog!r} -> {got!r}")
+    # Keep steps: only through the controller's own check (keep_ok), which limits the pit they ask for.
+    for prog, ok, bad in [("pit 200 keep food1 203", False, "uses keep"), ("pit 200 keep food1 203", True, ""),
+                          ("name: Warm; pit 225 until food1 >= 195; keep food1 at 140", True, ""),
+                          ("name: Warm; pit 225 until food1 >= 195; keep food1 at 140", False, "uses keep")]:
+        got = str(render(pv, program=prog, explanation="Fine.", max_pit=225.0, keep_ok=ok) or "")
+        check((bad in got) if bad else got == "", f"plan check {prog!r}, controller's check {ok} -> {got!r}")
     hass.states.async_set("number.smoker_pit_target", "107", {"unit_of_measurement": "°C", "min": 93, "max": 371})
     check("above" in str(render(pv, program="pit 250", explanation="", max_pit=400.0)), "°C controller: pit 250 is 482°F")
     check(str(render(pv, program="pit 120", explanation="", max_pit=400.0) or "") == "", "°C controller: pit 120 is fine")

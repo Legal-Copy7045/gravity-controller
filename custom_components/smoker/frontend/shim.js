@@ -21,14 +21,16 @@
                         'gravity980_fuel_level', 'gravity980_fuel_refilled', 'gravity980_fuel_added', 'gravity980_fuel_end'],
               script: ['smoker_plan_cook', 'smoker_ai_advise'] };
   var idxFor = null, idx = {};
-  // A smoker entity: one of the smoker controller's own (by its device in Home Assistant's registry, so renamed ones
-  // count), or one of the package's helpers (their ids start with smoker_). No registry (older Home Assistant): the id.
+  // A smoker entity: one of the smoker controller's own (by its device's model in Home Assistant's registry, so renamed
+  // ones count), or a device-less helper of the package (ids starting smoker_). No registry (older Home Assistant): the
+  // id. (A renamed Factory reset button would pass, but the page never presses it, and a page that's been tampered
+  // with could reach Home Assistant directly anyway: this bridge is a guard rail, not a security boundary.)
   function isSmoker(h, eid) {
     var obj = String(eid).split('.')[1] || '';
     var reg = h && h.entities && h.entities[eid];
     if (reg && reg.device_id && h.devices) {
       var dev = h.devices[reg.device_id] || {};
-      return /gravity980/i.test(String(dev.model || '')) || /^smoker\b/i.test(String(dev.name_by_user || dev.name || ''));
+      return /gravity980/i.test(String(dev.model || ''));  // the controller itself (by model: a name proves nothing)
     }
     if (h && h.entities) return obj.indexOf('smoker_') === 0;
     return String(eid).indexOf('smoker') >= 0;

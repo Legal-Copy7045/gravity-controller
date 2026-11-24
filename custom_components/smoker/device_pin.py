@@ -1,9 +1,10 @@
 """smoker.set_device_pin: set, replace or clear the controller's device page PIN from Home Assistant.
 
-On the controller's own page the first PIN can only be set within 15 minutes of powering it on (so someone else on
-the Wi-Fi can't claim the page first), and changing it needs the current one. Home Assistant holds the controller's
-API encryption key, so it's trusted to set or replace the PIN at any time: this action calls the controller's
-set_device_pin action (firmware 0.2.x and later). An empty PIN clears it. Admin only.
+On the controller's own page the first PIN can be set whenever none is set, and changing it needs the current one.
+Home Assistant holds the controller's API encryption key, so it's trusted to set or replace the PIN at any time: this
+action calls the controller's set_device_pin action with the event secret. An empty PIN clears it. The action is
+registered for admins, but Home Assistant's users are trusted (docs/security.md): anyone with a login can also reach
+the controller's own actions, so this isn't a barrier between them.
 
 The PIN follows the controller's rules (6 to 32 characters, not 123456 or 111111): checked here first so a mistake is
 shown straight away, and again on the controller. It is never logged, and never put in an error message: Home

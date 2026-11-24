@@ -140,6 +140,7 @@ number:
     food1_target: {id: grill_food1_target, name: Grill probe 1 target}
 cook_assistant:
   id: smoker
+  cook_end_after: 2min   # (20 min on the controller: the scenarios would wait that long)
   temperature_unit: F
   pit_temperature: pit_temp
   pit_setpoint: pit_target_reported

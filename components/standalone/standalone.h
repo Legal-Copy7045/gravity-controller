@@ -217,7 +217,8 @@ class Standalone : public Component {
   // controller fires (smoker_notify, smoker_context, smoker_cook_complete): so a forged event is told apart. Stored
   // in flash, never shown in an entity, /local/ or the log. "" = none (the events then carry no secret).
   bool set_event_secret(const std::string &secret, const std::string &old = "");
-  /// The call carries the event secret (or none is set yet): it comes from the Smoker integration.
+  /// The call carries the event secret (or none is set yet): normally the Smoker integration (not a barrier against
+  /// Home Assistant's own users, who are trusted).
   bool ha_secret_ok(const std::string &given) const;
   const std::string &event_secret() const { return this->event_secret_; }
 

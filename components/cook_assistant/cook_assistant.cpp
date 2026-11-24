@@ -800,7 +800,7 @@ void CookAssistant::update_cook_session_() {
   if (!program && cold) {
     if (this->cool_since_min_ < 0)
       this->cool_since_min_ = now;
-    if (now - this->cool_since_min_ > 20) {
+    if (now - this->cool_since_min_ > this->cook_end_min_) {
       this->cook_active_ = false;
       ESP_LOGI(TAG, "Cook session ended after %.0f min", now - this->cook_start_min_);
       // A program that finished on `keep` ends with the cook: it never comes back days later to move the pit.
