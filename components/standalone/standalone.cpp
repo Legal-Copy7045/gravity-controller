@@ -33,6 +33,7 @@
 #include "../cook_assistant/cook_assistant.h"
 
 #ifdef USE_ESP32
+#include "esp_sntp.h"
 #include <esp_crt_bundle.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -343,6 +344,7 @@ static void fill_random(uint8_t *b, size_t n) {
 }
 
 void Standalone::setup() {
+  this->guard_setup_();
   this->pref_ = global_preferences->make_preference<Settings>(fnv1_hash("standalone_settings_v1"), true);
   this->pin_pref_ = global_preferences->make_preference<pinauth::Stored>(fnv1_hash("standalone_pin_v1"), true);
   Settings loaded{};
@@ -455,6 +457,8 @@ void Standalone::loop() {
   const uint32_t now = millis();
   this->loop_cook_(now);
   this->loop_ha_watch_(now);
+  this->loop_watch_(now);
+  this->loop_guard_(now);
   if (this->clear_pin_pending_) this->clear_pin();
   // Home Assistant's PIN: hashed on the API task. The queue holds one request: if it's busy, try again next loop.
   if (this->ha_pin_pending_) {
@@ -930,7 +934,47 @@ void Standalone::fetch_weather_() {
 
 // ---------------------------------------------------------------- the HTTP worker
 
+bool Standalone::is_local_url(const std::string &url) {
+  size_t a = url.find("://");
+  if (a == std::string::npos)
+    return false;
+  a += 3;
+  size_t b = url.find_first_of(":/?#", a);
+  std::string host = url.substr(a, b == std::string::npos ? std::string::npos : b - a);
+  if (host.find('@') != std::string::npos || host.empty() || host[0] == '[')
+    return false;  // credentials in the URL, or IPv6: not treated as local
+  for (auto &ch : host)
+    ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  unsigned o[4];
+  char tail;
+  if (std::sscanf(host.c_str(), "%u.%u.%u.%u%c", &o[0], &o[1], &o[2], &o[3], &tail) == 4) {
+    if (o[0] > 255 || o[1] > 255 || o[2] > 255 || o[3] > 255)
+      return false;
+    return o[0] == 10 || o[0] == 127 || (o[0] == 172 && o[1] >= 16 && o[1] <= 31) || (o[0] == 192 && o[1] == 168) ||
+           (o[0] == 169 && o[1] == 254);
+  }
+  if (host.find('.') == std::string::npos)
+    return true;  // a bare name on the home network ("nas")
+  for (const char *suf : {".local", ".lan", ".home", ".internal", ".home.arpa"}) {
+    const size_t n = std::strlen(suf);
+    if (host.size() > n && host.compare(host.size() - n, n, suf) == 0)
+      return true;
+  }
+  return false;
+}
+
 void Standalone::queue_(Job j) {
+  if (this->local_only_ && !is_local_url(j.url)) {
+    ESP_LOGI(TAG, "%s: not sent (local only: no internet)", j.what.c_str());
+    if (j.what == "ntfy") this->last_result_[0] = "not sent: local only";
+    else if (j.what == "pushover") this->last_result_[1] = "not sent: local only";
+    else if (j.what == "telegram") this->last_result_[2] = "not sent: local only";
+    if (j.what.rfind("ai:", 0) == 0 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0) {
+      std::lock_guard<std::mutex> r(this->results_lock_);
+      this->done_.push_back({j.what, 0, std::string()});
+    }
+    return;
+  }
 #ifdef USE_ESP32
   {
     const int lane = j.lane ? 1 : 0;
@@ -1030,6 +1074,10 @@ void Standalone::worker_lane_(int lane) {
                                                 : "refused (HTTP %d)",
                     code);
     ESP_LOGI(TAG, "%s: %s", j.what.c_str(), result);
+    if (!is_local_url(j.url)) {  // for the watchdog's "Internet" line
+      const uint32_t t = millis();
+      (err == ESP_OK && code > 0 ? this->net_ok_at_ : this->net_fail_at_) = t ? t : 1;
+    }
     std::lock_guard<std::mutex> g(this->results_lock_);
     if (j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0 || j.what == "aggregates" ||
         j.what.rfind("ai:", 0) == 0) {

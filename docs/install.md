@@ -58,6 +58,18 @@ collide. A second one needs its own build with a different `name`, and then a Ho
   configuration) or on the controller's page (Setup → This controller). A new release is then installed only after
   the controller has been idle for an hour: grill not connected, no cook active, no program running or paused. You
   get a "Controller updated" notification when it's back.
+- **Automatic rollback (from 1.4.0):** a new firmware is on trial until it has held its Wi-Fi for a minute. If it
+  crashes or hangs in its first 15 minutes, or can't stay on the network for 10, the controller goes back to the
+  version it had and tells you; automatic updates then skip that version (you can still install it by hand).
+- **Local only (from 1.4.0, off by default):** *Local only (no internet)* (Setup → This controller) stops every
+  internet connection the controller makes, and what the integration does on its behalf: weather, the AI, Pushover,
+  Telegram, Open Pitmaster, update checks and the internet clock. Home Assistant and a notification server on your own
+  network (a self-hosted ntfy at an address like `192.168.1.20` or `nas.local`) still work. Without Home Assistant,
+  clock times (`at 17:30`, the serve-by planner) need the internet clock, so they stop too.
+- **Connectivity:** one line (Setup → This controller) shows the grill link, the controller's Wi-Fi, Home Assistant
+  and the internet. During a cook you're told if Home Assistant goes away (alerts then come straight to your phone,
+  if a direct route is set up) and, when the controller's Wi-Fi comes back, how long it was offline. A Wi-Fi that
+  stays stuck for 15 minutes with no cook restarts the controller (at most every 6 hours, never during a cook).
 
 **Logs.** The controller's page doesn't show its log. Use the web installer's **Logs & console** over USB (click
 **Install**, connect, then *Logs & console*), the ESPHome dashboard's *Logs* if you build it yourself, or the

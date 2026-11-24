@@ -25,6 +25,12 @@
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
+#ifdef USE_TEXT_SENSOR
+#include "esphome/components/text_sensor/text_sensor.h"
+#endif
 
 #include "pin_auth.h"
 
@@ -116,6 +122,28 @@ class Standalone : public Component {
 #endif
   /// A finished cook (the cook assistant's on_cook_complete JSON): into the journal.
   void add_cook(const std::string &summary_json);
+
+  // --- the connectivity watchdog (standalone_watch.cpp) ---
+#ifdef USE_BINARY_SENSOR
+  void set_grill_connected(binary_sensor::BinarySensor *b) { this->grill_link_ = b; }
+#endif
+#ifdef USE_TEXT_SENSOR
+  void set_connectivity_text_sensor(text_sensor::TextSensor *t) { this->conn_ts_ = t; }
+#endif
+  /// One line: "Grill: Bluetooth · Wi-Fi: -61 dBm · Home Assistant: connected · Internet: OK (3 min ago)".
+  std::string connectivity_text() const { return this->conn_text_; }
+
+  // --- automatic rollback after a bad update (standalone_update_guard.cpp) ---
+  /// A version that was rolled back: automatic updates skip it ("" = none).
+  const std::string &skip_version() const { return this->skip_version_; }
+
+  // --- local only: no internet (the "Local only" switch) ---
+  /// When on, every request to the internet is refused before it's made: only hosts on the home network (an IP
+  /// address in a private range, a name ending .local/.lan/.home/.internal/.home.arpa, or a name without a dot) can
+  /// be reached, e.g. a self-hosted ntfy. Weather, AI, Pushover, Telegram and sharing stop.
+  void set_local_only(bool on) { this->local_only_ = on; }
+  bool local_only() const { return this->local_only_; }
+  static bool is_local_url(const std::string &url);
 
   // --- notifications (called from the cook assistant's on_notify) ---
   /// Should this notification also go out as a Home Assistant event?
@@ -250,6 +278,30 @@ class Standalone : public Component {
   // results handed back to the main loop
   std::mutex results_lock_;
   std::string last_result_[3];  // ntfy, pushover, telegram
+  std::atomic<bool> local_only_{false};
+  // connectivity watchdog
+  void loop_watch_(uint32_t now);
+#ifdef USE_BINARY_SENSOR
+  binary_sensor::BinarySensor *grill_link_{nullptr};
+#endif
+#ifdef USE_TEXT_SENSOR
+  text_sensor::TextSensor *conn_ts_{nullptr};
+#endif
+  std::string conn_text_;
+  uint32_t watch_at_{0};
+  std::atomic<uint32_t> net_ok_at_{0}, net_fail_at_{0};  // the last internet request that worked / failed
+  uint32_t wifi_down_at_{0}, wifi_reboot_at_{0};
+  bool wifi_down_in_cook_{false};
+  uint32_t ha_down_at_{0};
+  bool ha_down_told_{false};
+  bool sntp_stopped_{false};
+  // update guard
+  void guard_setup_();
+  void loop_guard_(uint32_t now);
+  ESPPreferenceObject guard_pref_;
+  std::string skip_version_, rollback_notice_;
+  bool on_trial_{false};
+  uint32_t trial_wifi_since_{0};
   bool wx_ready_{false};
   float wx_t_{NAN}, wx_h_{NAN}, wx_w_{NAN};
   std::vector<float> fc_min_, fc_t_;

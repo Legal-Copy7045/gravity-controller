@@ -165,6 +165,20 @@ struct FoodProbe {
 class NotifyTrigger;
 class SetPitTrigger;
 class CookCompleteTrigger;
+class PowerOnTrigger;
+class TurboTrigger;
+
+// What the controller writes during a cook so it can pick the cook up again after a power cut (cook_assistant_recovery.cpp).
+struct RecoveryBlob {
+  uint8_t version{1};
+  uint8_t cook_active{0};
+  uint8_t grill_on{0};     // the grill was on (as it last reported)
+  uint8_t reserved{0};
+  uint32_t heartbeat{0};   // epoch of this save (0 = the clock wasn't set)
+  uint32_t cook_start{0};  // epoch the cook started (0 = unknown)
+  float pit_sp_c{NAN};     // the pit target the grill reported
+  float cook_min{0};       // minutes into the cook at this save
+};
 
 class CookAssistant : public Component {
  public:
@@ -176,6 +190,12 @@ class CookAssistant : public Component {
   void set_lid(binary_sensor::BinarySensor *b) { this->lid_ = b; }
   void set_link(binary_sensor::BinarySensor *b) { this->link_ = b; }
   void set_fan(binary_sensor::BinarySensor *b) { this->fan_ = b; }
+  /// The grill's own on/off flag: power-cut recovery turns the grill back on only if it was on before the cut.
+  void set_grill_on(binary_sensor::BinarySensor *b) { this->grill_on_ = b; }
+  void set_resume_switch(CASwitch *s) { this->resume_switch_ = s; }
+  void set_last_lid_text_sensor(text_sensor::TextSensor *t) { this->last_lid_ts_ = t; }
+  void set_stability_text_sensor(text_sensor::TextSensor *t) { this->stability_ts_ = t; }
+  void set_stability_sensor(sensor::Sensor *s) { this->stability_pct_ = s; }
   // fuel gauge entities
   void set_fuel_level_sensor(sensor::Sensor *s) { this->fuel_level_ = s; }
   void set_fuel_left_sensor(sensor::Sensor *s) { this->fuel_left_ = s; }
@@ -214,6 +234,8 @@ class CookAssistant : public Component {
   void add_notify_trigger(NotifyTrigger *t) { this->notify_triggers_.push_back(t); }
   void add_set_pit_trigger(SetPitTrigger *t) { this->set_pit_triggers_.push_back(t); }
   void add_cook_complete_trigger(CookCompleteTrigger *t) { this->complete_triggers_.push_back(t); }
+  void add_power_on_trigger(PowerOnTrigger *t) { this->power_on_triggers_.push_back(t); }
+  void add_turbo_trigger(TurboTrigger *t) { this->turbo_triggers_.push_back(t); }
 
   void setup() override;
   void loop() override;
@@ -303,6 +325,80 @@ class CookAssistant : public Component {
   void update_cook_session_();
   void check_alerts_();
 
+  // ---- keep a food at a temperature (cook_assistant_keep.cpp) ----
+  void keep_tick_(const cook::RunnerInputs &in);
+  int keep_probe_active_{-1};
+  float keep_target_c_{NAN};
+  float keep_i_{0};
+  uint32_t keep_last_ms_{0};
+  uint32_t keep_low_since_{0};
+  bool keep_warned_{false};
+
+  // ---- lid-open cost and pit stability (cook_assistant_stats.cpp) ----
+  void track_lid_(bool lid_open, double now, float pit, float sp);
+  void track_stability_(bool lid_open, double now, float pit, float sp);
+  void reset_cook_stats_();
+  std::string stability_text_() const;
+  std::string fmt_temp_delta_(float dc) const;
+  float earliest_finish_min_();  // absolute (now_min_ scale) finish of the soonest food, NAN if none
+  double lid_closed_at_{-1};
+  double runaway_since_{-1};
+  bool runaway_notified_{false};
+  // the lid opening being measured
+  double lid_opened_at_{-1};
+  float lid_finish_before_{NAN};
+  float lid_open_min_{0};
+  bool lid_measuring_{false};
+  // this cook's totals
+  uint16_t lid_count_{0};
+  float lid_cost_total_{0};
+  std::string last_lid_;
+  text_sensor::TextSensor *last_lid_ts_{nullptr};
+  text_sensor::TextSensor *stability_ts_{nullptr};
+  sensor::Sensor *stability_pct_{nullptr};
+  uint32_t st_n_{0}, st_in_{0};
+  float st_abs_sum_{0}, st_max_over_{0}, st_max_under_{0};
+  double st_last_min_{-1};
+
+  // ---- power-cut recovery (cook_assistant_recovery.cpp) ----
+  enum class Rec : uint8_t { NONE, WAIT_LINK, CHECK, POWERING, TARGETS };
+  void recovery_setup_();
+  void recovery_tick_();       // once a second
+  void recovery_save_(bool force = false);
+  void begin_recovery_(bool controller, float outage_min, bool grill_was_on, float pit_c);
+  void finish_recovery_(int priority, const std::string &problem);
+  bool resume_enabled_() const { return this->resume_switch_ == nullptr || this->resume_switch_->state; }
+  bool grill_reports_on_() const { return this->grill_on_ != nullptr && this->grill_on_->has_state() && this->grill_on_->state; }
+  bool link_up_() const { return this->link_ == nullptr || (this->link_->has_state() && this->link_->state); }
+  uint32_t epoch_now_();
+  binary_sensor::BinarySensor *grill_on_{nullptr};
+  CASwitch *resume_switch_{nullptr};
+  ESPPreferenceObject recovery_pref_;
+  RecoveryBlob rec_boot_{};          // what was saved before this boot
+  bool rec_boot_pending_{false};     // deciding about rec_boot_ (waits up to 3 min for the clock)
+  uint32_t rec_saved_ms_{0};
+  RecoveryBlob rec_last_{};          // the last write (to skip identical ones)
+  Rec rec_{Rec::NONE};
+  bool rec_controller_{false};       // the controller itself restarted (else: only the grill's link dropped)
+  bool rec_grill_was_on_{false};
+  bool rec_turned_on_{false};
+  bool rec_pit_changed_{false};
+  uint8_t rec_power_tries_{0};
+  uint8_t rec_food_sent_{0};
+  float rec_outage_min_{NAN};
+  float rec_pit_c_{NAN};
+  float rec_pre_sp_c_{NAN};    // the grill's reported target before the link dropped
+  float rec_sp_at_link_{NAN};   // ...and the first one after it came back (a rebooted grill reports its default)
+  uint32_t rec_since_ms_{0}, rec_step_ms_{0};
+  uint32_t override_hold_until_{0};  // ignore "the pit target changed outside the program" until (a rebooted grill)
+  bool grill_was_on_{false};         // live: the grill reported on while connected
+  uint32_t link_down_ms_{0};         // live: the grill link dropped during a cook at (0 = up)
+  // The program as restored at boot (paused); recovery resumes it, counting the time the controller was off.
+  bool prog_restored_{false};
+  uint8_t prog_restored_step_{0};
+  float prog_restored_elapsed_{0};
+  bool prog_restored_running_{false};
+
   bool fahrenheit_{true};
   sensor::Sensor *pit_temp_{nullptr};
   sensor::Sensor *pit_setpoint_{nullptr};
@@ -357,6 +453,8 @@ class CookAssistant : public Component {
   std::vector<NotifyTrigger *> notify_triggers_;
   std::vector<SetPitTrigger *> set_pit_triggers_;
   std::vector<CookCompleteTrigger *> complete_triggers_;
+  std::vector<PowerOnTrigger *> power_on_triggers_;
+  std::vector<TurboTrigger *> turbo_triggers_;
 
   cook::CookHistory history_;
   cook::ProgramRunner runner_;
@@ -408,6 +506,16 @@ class SetPitTrigger : public Trigger<float> {
 class CookCompleteTrigger : public Trigger<std::string> {
  public:
   explicit CookCompleteTrigger(CookAssistant *parent) { parent->add_cook_complete_trigger(this); }
+};
+/// Turn the grill on (power-cut recovery only: the grill was on, the power was cut, it came back off).
+class PowerOnTrigger : public Trigger<> {
+ public:
+  explicit PowerOnTrigger(CookAssistant *parent) { parent->add_power_on_trigger(this); }
+};
+/// Turbo on/off (a program's `turbo on` / `turbo off`).
+class TurboTrigger : public Trigger<bool> {
+ public:
+  explicit TurboTrigger(CookAssistant *parent) { parent->add_turbo_trigger(this); }
 };
 
 }  // namespace cook_assistant

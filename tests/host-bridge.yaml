@@ -61,8 +61,13 @@ sensor:
     unit_of_measurement: "°C"
     lambda: return 57.5f;  # 135.5 °F: a value the fake grill (whole °F) never reports
     update_interval: 2s
+time:
+  - platform: host
+    id: host_time
+
 binary_sensor:
   - platform: template
+    id: grill_on
     name: Grill on
     lambda: return id(grill).grill_on();
   - platform: gravity980
@@ -113,6 +118,18 @@ cook_assistant:
   lid: lid_open
   link: grill_connected
   fan: grill_fan
+  grill_on: grill_on
+  time_id: host_time
+  resume_after_power_cut: {name: Resume after a power cut}
+  cook_active: {name: Cook active}
+  pit_stability: {name: Pit stability}
+  last_lid_opening: {name: Last lid opening}
+  on_power_on:
+    - lambda: |-
+        if (id(grill).power_press(true) == "armed")
+          id(grill).power_press(true);
+  on_turbo:
+    - lambda: id(grill).set_turbo(x);
   fuel_level: {name: Charcoal level}
   fuel_hours_left: {name: Charcoal hours left}
   fuel_empty_at: {name: Charcoal empty at}

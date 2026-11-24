@@ -1301,6 +1301,8 @@ function renderPit() {
     <div class="row"><span>Pit now</span><span class="r">${fmt(num(E('Pit temperature', ['sensor'])))}${esc(TU())}</span></div>
     <div class="row"><span>Lid</span><span class="r">${val(E('Lid', ['binary_sensor'])) === 'on' ? 'open' : 'closed'}</span></div>
     <div class="row"><span>Fan</span><span class="r">${val(E('Fan', ['binary_sensor'])) === 'on' ? 'on' : 'off'}</span></div>
+    ${(t => t && !/^(unknown|unavailable)$/.test(t) ? `<div class="row"><span>Held steady</span><span class="r" style="white-space:normal">${esc(t)}</span></div>` : '')(val(E('Pit stability', ['sensor'])))}
+    ${(t => t && !/^(unknown|unavailable)$/.test(t) ? `<div class="row"><span>Last lid opening</span><span class="r" style="white-space:normal">${esc(t)}</span></div>` : '')(val(E('Last lid opening', ['sensor'])))}
     ${controlRow()}
     <p class="muted small" style="margin:8px 0 0">The stock controller only accepts new targets while it is cooking (started from its panel).</p>`);
 }
@@ -1863,6 +1865,12 @@ function renderDiag() {
     (E('Restart', ['button']) ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn" onclick="act.restart(this)">${restartArmed ? 'Tap again to restart' : 'Restart'}</button></div>` : '') +
     (fs ? `<div class="row"><span>Controller firmware</span><span class="r">${fs.state === 'on' ? 'update available: ' + esc(fs.attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : '') +
+    // Resume after a power cut, local only (firmware 1.4.0+), and the connectivity line.
+    (rp => rp ? `<div class="row"><span>Resume after a power cut<br><span class="muted small">After a cut during a cook (up to an hour): turns the grill back on if it was on, sends the targets again and resumes the program, then tells you.</span></span>
+      <button class="tg ${val(rp) === 'on' ? 'on' : ''}" role="switch" aria-checked="${val(rp) === 'on'}" data-act="toggle" data-a="${esc(rp)}" aria-label="Resume after a power cut"></button></div>` : '')(E('Resume after a power cut', ['switch'])) +
+    (lo => lo ? `<div class="row"><span>Local only (no internet)<br><span class="muted small">The controller and this integration make no internet connections: no weather, AI, sharing, internet notifications or update checks.</span></span>
+      <button class="tg ${val(lo) === 'on' ? 'on' : ''}" role="switch" aria-checked="${val(lo) === 'on'}" data-act="toggle" data-a="${esc(lo)}" aria-label="Local only"></button></div>` : '')(E('Local only (no internet)', ['switch'])) +
+    (c => c && !/^(unknown|unavailable)$/.test(c) ? `<div class="row"><span>Connectivity</span><span class="r" style="white-space:normal">${esc(c)}</span></div>` : '')(val(E('Connectivity', ['sensor']))) +
     // The controller's own automatic updates (firmware 1.2.0+): it installs a release only while idle.
     (au => au ? `<div class="row"><span>Automatic updates<br><span class="muted small">The controller installs a new release by itself, only while the grill is off and no cook or program is running (idle for an hour).</span></span>
       <button class="tg ${val(au) === 'on' ? 'on' : ''}" role="switch" aria-checked="${val(au) === 'on'}" data-act="toggle" data-a="${esc(au)}" aria-label="Automatic updates"></button></div>` : '')(E('Automatic updates', ['switch'])));

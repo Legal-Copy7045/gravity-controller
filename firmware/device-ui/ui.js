@@ -615,6 +615,8 @@ function renderPit(u, pit, tgt) {
       <div class="kpi"><span class="l">Grill reports</span><span class="v">${fmt(S('Pit target (reported)') ?? S('Pit target reported'))}<small>${esc(u)}</small></span></div>
       ${fan ? `<div class="kpi"><span class="l">Fan</span><span class="v">${on(fan) ? 'On' : 'Off'}${on(E('binary_sensor', 'Fan turbo')) ? '<small>turbo</small>' : ''}</span></div>` : ''}
       <div class="kpi"><span class="l">Lid</span><span class="v">${on(E('binary_sensor', 'Lid')) ? 'Open' : 'Closed'}</span></div></div>
+    ${T('Pit stability') ? row('Held steady', esc(T('Pit stability'))) : ''}
+    ${T('Last lid opening') ? row('Last lid opening', esc(T('Last lid opening'))) : ''}
     <p class="note">The grill only takes a new target while it is cooking (started from its own panel).</p>`);
 }
 
@@ -1356,6 +1358,9 @@ function renderSetup(u) {
     ${row('Cooks learned', fmt(S('Cooks learned')))}
     ${fwRow()}
     ${tog('Automatic updates', 'Automatic updates', 'Installs a new release only while the grill is off and no cook or program is running (idle for an hour).')}
+    ${tog('Resume after a power cut', 'Resume after a power cut', 'After a cut during a cook (up to an hour): turns the grill back on if it was on, sends the targets again and resumes the program, then tells you.')}
+    ${tog('Local only (no internet)', 'Local only (no internet)', 'No internet connections at all: no weather, AI, sharing, internet notifications or update checks. A notification server on your own network still works.')}
+    ${T('Connectivity') ? row('Connectivity', esc(T('Connectivity'))) : ''}
     ${tog('Log raw grill data', 'Log raw grill data', 'For support: every byte from the grill goes to the controller\'s log (USB, or the ESPHome dashboard).')}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn${armed['Restart'] ? ' arm' : ''}" data-a="press" data-n="Restart" data-confirm="1">${armed['Restart'] ? 'Tap again to restart' : 'Restart'}</button></div>` : ''}

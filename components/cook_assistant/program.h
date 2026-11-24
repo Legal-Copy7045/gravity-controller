@@ -14,6 +14,8 @@
 //              notify "text"  send a notification when the step starts; written after the conditions
 //                             (`pit 275 until food1 >= 165 notify "Wrap it"`), when they're met
 //              shutdown       end the cook (pit target cleared, fan off on the replacement controller)
+//              keep foodN T   keep that food at T by moving the pit target (and stay here, like hold)
+//              turbo on|off   the grill's Turbo (full fan), e.g. for a sear
 // Conditions:  <probe> >= N [for N(m|h)]     (also <=; probe names: pit, food1, food2, ...)
 //              <probe> done                  probe reached its own target
 //              after N(m|h)                  time spent in this step
@@ -43,6 +45,9 @@ struct Step {
   float pit_c{NAN};
   bool hold{false};
   bool shutdown{false};
+  int keep_probe{-1};   // `keep foodN T`: the probe (index in the probe list; 0 is the pit), -1 = none
+  float keep_c{NAN};
+  int8_t turbo{-1};     // `turbo on` 1 / `turbo off` 0 / -1 = leave it
   std::string notify;
   std::string notify_done;  // `... until <conditions> notify "text"`: sent when the conditions are met (the step ends)
   std::vector<Condition> until;
@@ -76,6 +81,7 @@ struct RunnerOutputs {
   std::vector<std::string> notifications;
   bool step_changed{false};
   bool finished{false};
+  int8_t turbo{-1};  // the step entered says `turbo on` (1) / `turbo off` (0)
 };
 
 class ProgramRunner {
@@ -103,6 +109,13 @@ class ProgramRunner {
   const std::string &pause_reason() const { return pause_reason_; }
   /// Commanded pit target of the current step (NAN if none).
   float commanded_pit() const { return commanded_pit_; }
+  /// A `keep` step is current (running, or the program finished on it): the probe and its temperature, else -1.
+  int keep_probe() const {
+    if (!loaded() || step_ >= prog_.steps.size() || (state_ != State::RUNNING && state_ != State::FINISHED))
+      return -1;
+    return prog_.steps[step_].keep_probe;
+  }
+  float keep_c() const { return keep_probe() >= 0 ? prog_.steps[step_].keep_c : NAN; }
 
   /// Human-readable progress, e.g. "Step 2/3: food1 158/165°F, held 0/30 min".
   std::string describe(double now_min, const RunnerInputs &in, const std::vector<std::string> &probes,

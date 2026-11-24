@@ -2,7 +2,7 @@
 zone. See docs/standalone.md."""
 
 import esphome.codegen as cg
-from esphome.components import sensor
+from esphome.components import binary_sensor, sensor, text_sensor
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
@@ -26,6 +26,9 @@ CONFIG_SCHEMA = cv.Schema(
         # For the device page's chart.
         cv.Optional("pit_temperature"): cv.use_id(sensor.Sensor),
         cv.Optional("pit_target"): cv.use_id(sensor.Sensor),
+        # The connectivity watchdog: the grill's link, and one line of status (grill, Wi-Fi, Home Assistant, internet).
+        cv.Optional("grill_connected"): cv.use_id(binary_sensor.BinarySensor),
+        cv.Optional("connectivity"): text_sensor.text_sensor_schema(icon="mdi:lan-check"),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -42,5 +45,9 @@ async def to_code(config):
     if "pit_temperature" in config and "pit_target" in config:
         cg.add(var.set_pit_sensors(await cg.get_variable(config["pit_temperature"]),
                                    await cg.get_variable(config["pit_target"])))
+    if "grill_connected" in config:
+        cg.add(var.set_grill_connected(await cg.get_variable(config["grill_connected"])))
+    if "connectivity" in config:
+        cg.add(var.set_connectivity_text_sensor(await text_sensor.new_text_sensor(config["connectivity"])))
     if "cook_assistant" in config:
         cg.add(var.set_cook_assistant(await cg.get_variable(config["cook_assistant"])))

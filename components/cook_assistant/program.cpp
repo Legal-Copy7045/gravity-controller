@@ -193,6 +193,28 @@ bool parse_step(const std::string &text, const std::vector<std::string> &probes,
       }
       step.notify = t[i].text;
       i++;
+    } else if (w == "keep") {
+      i++;
+      if (t[i].kind != Tok::WORD || (step.keep_probe = probe_idx(t[i].text, probes)) < 1) {
+        err = "keep needs a food probe and a temperature, e.g. keep food1 150";
+        return false;
+      }
+      i++;
+      if (t[i].kind == Tok::WORD && t[i].text == "at")
+        i++;
+      if (!need_num("keep"))
+        return false;
+      step.keep_c = temp_value(t[i], f);
+      step.hold = true;
+      i++;
+    } else if (w == "turbo") {
+      i++;
+      if (t[i].kind != Tok::WORD || (t[i].text != "on" && t[i].text != "off")) {
+        err = "turbo needs on or off";
+        return false;
+      }
+      step.turbo = t[i].text == "on" ? 1 : 0;
+      i++;
     } else if (w == "shutdown" || w == "stop" || w == "off") {
       step.shutdown = true;
       i++;
@@ -206,7 +228,7 @@ bool parse_step(const std::string &text, const std::vector<std::string> &probes,
     any_action = true;
   }
   if (!any_action) {
-    err = "step has no action (pit / hold / notify / shutdown)";
+    err = "step has no action (pit / hold / keep / turbo / notify / shutdown)";
     return false;
   }
   if (t[i].kind == Tok::END)
@@ -401,7 +423,13 @@ std::string format_program(const Program &p, const std::vector<std::string> &pro
   for (const auto &st : p.steps) {
     std::string line;
     if (!std::isnan(st.pit_c))
-      line += std::string(st.hold ? "hold " : "pit ") + fmt_temp(st.pit_c, f);
+      line += std::string(st.hold && st.keep_probe < 0 ? "hold " : "pit ") + fmt_temp(st.pit_c, f);
+    if (st.keep_probe >= 0) {
+      std::string pn = size_t(st.keep_probe) < probes.size() ? probes[st.keep_probe] : "?";
+      line += std::string(line.empty() ? "" : " ") + "keep " + pn + " " + fmt_temp(st.keep_c, f);
+    }
+    if (st.turbo >= 0)
+      line += std::string(line.empty() ? "" : " ") + (st.turbo ? "turbo on" : "turbo off");
     if (!st.notify.empty()) {  // quoted with whichever quote the text doesn't contain (the parser takes both), so it reads back
       const char q = st.notify.find('"') == std::string::npos ? '"' : '\'';
       std::string n = st.notify;
@@ -501,6 +529,10 @@ RunnerOutputs ProgramRunner::enter_step_(size_t idx, double now_min) {
     }
     if (!s.notify.empty())
       out.notifications.push_back(s.notify);
+    if (s.turbo >= 0)
+      out.turbo = s.turbo;
+    if (s.keep_probe >= 0 && std::isnan(s.pit_c))
+      commanded_pit_ = NAN;  // the controller moves the pit to keep the food (cook_assistant: keep)
     if (s.shutdown) {
       out.shutdown = true;
       commanded_pit_ = NAN;
@@ -695,6 +727,12 @@ std::string ProgramRunner::describe(double now_min, const RunnerInputs &in, cons
   if (state_ == State::IDLE)
     return "Ready: " + (prog_.name.empty() ? std::string("program") : prog_.name) + " (" +
            std::to_string(prog_.steps.size()) + " steps)";
+  if (state_ == State::FINISHED && keep_probe() >= 1) {
+    std::string pn = size_t(keep_probe()) < probes.size() ? probes[keep_probe()] : "?";
+    float t = size_t(keep_probe()) < in.temp_c.size() ? in.temp_c[keep_probe()] : NAN;
+    return "Keeping " + pn + " at " + fmt_temp(keep_c(), f) + unit + " (now " +
+           (std::isnan(t) ? std::string("--") : fmt_temp(t, f) + unit) + ")";
+  }
   if (state_ == State::FINISHED)
     return std::isnan(commanded_pit_) ? "Finished" : "Finished, holding " + fmt_temp(commanded_pit_, f) + unit;
   std::snprintf(buf, sizeof(buf), "Step %u/%u", unsigned(step_ + 1), unsigned(prog_.steps.size()));
@@ -704,6 +742,10 @@ std::string ProgramRunner::describe(double now_min, const RunnerInputs &in, cons
   const Step &st = prog_.steps[step_];
   if (!std::isnan(st.pit_c))
     s += ", pit " + fmt_temp(st.pit_c, f) + unit;
+  if (st.keep_probe >= 1) {
+    std::string pn = size_t(st.keep_probe) < probes.size() ? probes[st.keep_probe] : "?";
+    s += ", keeping " + pn + " at " + fmt_temp(st.keep_c, f) + unit;
+  }
   for (size_t i = 0; i < st.until.size(); i++) {
     const auto &c = st.until[i];
     s += i == 0 ? ", until " : " or ";
@@ -749,6 +791,8 @@ std::vector<PlanSegment> ProgramRunner::plan_for_probe(int probe, double now_min
     const Step &st = prog_.steps[i];
     PlanSegment seg;
     seg.pit_c = st.pit_c;
+    if (std::isnan(seg.pit_c) && st.keep_probe >= 0)
+      seg.pit_c = st.keep_c + 10.0f;  // keeping a food: roughly where the pit will sit (the grill's minimum, often)
     if (i == step_) {
       if (std::isnan(seg.pit_c))
         seg.pit_c = commanded_pit_;

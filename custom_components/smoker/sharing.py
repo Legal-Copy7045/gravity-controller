@@ -29,6 +29,8 @@ from aiohttp import ClientError, ClientTimeout, web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .local_only import MESSAGE as LOCAL_ONLY_MESSAGE, local_only
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -215,7 +217,7 @@ class Sharing:
     async def share_ready(self) -> int:
         """Send the cooks waiting to be shared automatically, one per pass: a backlog drains one cook a minute (the
         service's limit), and a busy or full service leaves the rest queued for later."""
-        if not (self.data["enabled"] and self.data["auto"]):
+        if not (self.data["enabled"] and self.data["auto"]) or local_only(self.hass):
             return 0
         todo = self._ready_to_send()
         if not todo:
@@ -294,6 +296,8 @@ class Sharing:
         self.hass.async_create_task(self.share_ready())
 
     async def share(self, entry_id: str) -> dict:
+        if local_only(self.hass):
+            raise ValueError(LOCAL_ONLY_MESSAGE)
         if not self.data["enabled"]:
             raise ValueError("sharing is off: turn it on in Setup first")
         entry = next((e for e in self.journal.data["entries"] if e["id"] == entry_id), None)
@@ -343,6 +347,8 @@ class Sharing:
 
     async def check(self) -> dict:
         """Is the sharing service reachable and accepting the format? Sends a test record, which it never stores."""
+        if local_only(self.hass):
+            raise ValueError(LOCAL_ONLY_MESSAGE)
         rec = anonymise({"total_h": 10.0, "profile": "Pork shoulder"}, self.version, 40.0)
         body = {"record": rec, "key_hash": hashlib.sha256(secrets.token_hex(8).encode()).hexdigest(), "test": True}
         try:
@@ -363,6 +369,8 @@ class Sharing:
         that id; 429 when asked too often (the rest wait: run it again in a minute). A cook it accepted (201) but
         says it never stored is counted as "missing" and logged, not as removed: it isn't there to delete, and that
         shouldn't happen."""
+        if local_only(self.hass):
+            raise ValueError(LOCAL_ONLY_MESSAGE)
         gone, failed, missing, later = 0, 0, 0, 0
         session = async_get_clientsession(self.hass)
 
@@ -425,6 +433,8 @@ class Sharing:
         return [r for e in self.journal.data["entries"] if (r := anonymise(e, self.version, lat))]
 
     async def _refresh_community(self, _now=None) -> None:
+        if local_only(self.hass):
+            return
         try:
             async with async_get_clientsession(self.hass).get(AGGREGATES_URL, timeout=TIMEOUT) as r:
                 if r.status != 200:

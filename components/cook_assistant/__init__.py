@@ -38,6 +38,8 @@ NotifyTrigger = ca_ns.class_(
     "NotifyTrigger", automation.Trigger.template(cg.std_string, cg.std_string, cg.int_, cg.std_string)
 )
 SetPitTrigger = ca_ns.class_("SetPitTrigger", automation.Trigger.template(cg.float_))
+PowerOnTrigger = ca_ns.class_("PowerOnTrigger", automation.Trigger.template())
+TurboTrigger = ca_ns.class_("TurboTrigger", automation.Trigger.template(cg.bool_))
 CookCompleteTrigger = ca_ns.class_("CookCompleteTrigger", automation.Trigger.template(cg.std_string))
 
 PROFILES = ["Auto", "Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", "Fish"]
@@ -166,6 +168,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("lid"): _ref(binary_sensor.BinarySensor),
         cv.Optional("link"): _ref(binary_sensor.BinarySensor),
         cv.Optional("fan"): _ref(binary_sensor.BinarySensor),
+        cv.Optional("grill_on"): _ref(binary_sensor.BinarySensor),
         # fuel gauge
         cv.Optional("hopper_capacity", default=7.26): cv.positive_float,  # kg (Gravity 980: 16 lb)
         cv.Optional("fuel_level"): sensor.sensor_schema(
@@ -197,6 +200,12 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("on_set_pit"): automation.validate_automation(
             {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(SetPitTrigger)}
         ),
+        cv.Optional("on_power_on"): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(PowerOnTrigger)}
+        ),
+        cv.Optional("on_turbo"): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(TurboTrigger)}
+        ),
         cv.Optional("on_notify"): automation.validate_automation(
             {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(NotifyTrigger)}
         ),
@@ -225,6 +234,15 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("alerts_enabled"): switch.switch_schema(
             CASwitch, icon="mdi:bell", entity_category=ENTITY_CATEGORY_CONFIG, default_restore_mode="RESTORE_DEFAULT_ON"
         ).extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("last_lid_opening"): text_sensor.text_sensor_schema(icon="mdi:grill-outline"),
+        cv.Optional("pit_stability"): text_sensor.text_sensor_schema(icon="mdi:chart-bell-curve"),
+        cv.Optional("pit_stability_score"): sensor.sensor_schema(
+            unit_of_measurement="%", accuracy_decimals=0, icon="mdi:target", state_class=STATE_CLASS_MEASUREMENT
+        ),
+        cv.Optional("resume_after_power_cut"): switch.switch_schema(
+            CASwitch, icon="mdi:power-plug-outline", entity_category=ENTITY_CATEGORY_CONFIG,
+            default_restore_mode="RESTORE_DEFAULT_ON"
+        ).extend(cv.COMPONENT_SCHEMA),
         **{cv.Optional(b): button.button_schema(CAButton, icon=BUTTON_ICONS[b]) for b in BUTTONS},
     }
 ).extend(cv.COMPONENT_SCHEMA)
@@ -242,6 +260,7 @@ async def to_code(config):
         ("pit_setpoint", "set_pit_setpoint"),
         ("lid", "set_lid"),
         ("link", "set_link"),
+        ("grill_on", "set_grill_on"),
         ("ambient_temperature", "set_ambient_temperature"),
         ("ambient_humidity", "set_ambient_humidity"),
         ("wind_speed", "set_wind_speed"),
@@ -414,6 +433,22 @@ async def to_code(config):
             btn = await button.new_button(config[b])
             cg.add(btn.set_on_press(cg.RawExpression(f"[]() {{ {var}->{b}(); }}")))
 
+    if "last_lid_opening" in config:
+        cg.add(var.set_last_lid_text_sensor(await text_sensor.new_text_sensor(config["last_lid_opening"])))
+    if "pit_stability" in config:
+        cg.add(var.set_stability_text_sensor(await text_sensor.new_text_sensor(config["pit_stability"])))
+    if "pit_stability_score" in config:
+        cg.add(var.set_stability_sensor(await sensor.new_sensor(config["pit_stability_score"])))
+    if "resume_after_power_cut" in config:
+        s = await switch.new_switch(config["resume_after_power_cut"])
+        await cg.register_component(s, config["resume_after_power_cut"])
+        cg.add(var.set_resume_switch(s))
+    for conf in config.get("on_power_on", []):
+        trig = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trig, [], conf)
+    for conf in config.get("on_turbo", []):
+        trig = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trig, [(cg.bool_, "x")], conf)
     for conf in config.get("on_set_pit", []):
         trig = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trig, [(cg.float_, "x")], conf)

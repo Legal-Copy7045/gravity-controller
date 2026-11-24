@@ -14,14 +14,19 @@ from a Govee H5198 nearby, or from Home Assistant.
 | Temperatures | The pit probe and the two food probes **plugged into the grill's controller**; a Govee H5198 read directly over Bluetooth; any temperature sensor in Home Assistant. Six food slots, each reading one of these |
 | Predictions | Finish time per food (warming → stall → finishing) with an early/late range, learned from your past cooks, weather-aware; stall detection and stall remaining |
 | Cook programs | Multi-step programs run on the controller (`pit 250 until food1 >= 165 for 30m; ...`), presets, manual override and resume, restore after a restart |
-| Alerts | Done/almost done, stall, probe slipped out, pit off target, fire may be out, lid open, connection lost, low charcoal; through Home Assistant, ntfy, Pushover or Telegram |
+| Alerts | Done/almost done, stall, probe slipped out, pit off target, pit running away (grease fire or air getting in), fire dying or out (told apart from a lid opening), charcoal stuck in the chute, lid open, connection lost, low charcoal; through Home Assistant, ntfy, Pushover or Telegram |
+| Power cuts | A cut during a cook (up to an hour): reconnects, turns the grill back on if it was on, sends the targets again and resumes the program, then says what happened |
+| Watchdog | Grill link, Wi-Fi, Home Assistant and internet in one status line; recovers stuck links; tells you what was missed while offline |
+| Local only | One switch stops every internet connection (weather, AI, sharing, internet notifications, update checks) |
+| Pit report | How steadily the pit held its target each cook, and what each lid opening cost in finish time |
+| Hold mode | `keep food1 150`: the pit moves to keep a food at a temperature |
 | Charcoal | A fuel gauge from what you tell it (levels, top-ups), learning your burn rate |
 | Planning | "Ready by" planner, pull-temperature and rest coach, kitchen timer |
 | AI (optional) | Plan a cook from a sentence, a second-opinion estimate, recommendations, a review after the cook (Home Assistant's AI task, or Gemini/Claude/OpenAI from the controller) |
 | Journal | Every cook saved with ratings, notes, photos read by AI, curve comparison, sharing |
 | Pages | The controller's own page (works without Home Assistant or the internet, optional PIN for changes) and the Home Assistant dashboard; Basic and Advanced modes |
 | Voice | Assist: "when is the brisket done?", "set the smoker to 275" |
-| Updates | Signed over-the-air updates from this project's releases, optionally automatic while idle; web installer for the first flash |
+| Updates | Signed over-the-air updates from this project's releases, optionally automatic while idle; a new firmware that crashes or can't stay on the network rolls itself back; web installer for the first flash |
 
 Details: [features-0.2.md](features-0.2.md), [cook-programs.md](cook-programs.md), [standalone.md](standalone.md).
 

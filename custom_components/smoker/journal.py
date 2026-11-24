@@ -326,6 +326,10 @@ class Journal:
     async def identify(self, images: list[tuple[str, bytes]], ai_entity: str | None, context=None) -> list[dict]:
         if not images:
             raise ValueError("no photos")
+        from .local_only import MESSAGE, local_only
+
+        if local_only(self.hass):
+            raise ValueError(MESSAGE)
         entity = await self.pick_ai_entity(ai_entity)  # before saving anything: say early if there's no AI
         media_dirs = self.hass.config.media_dirs or {}
         media_key = "local" if "local" in media_dirs else next(iter(media_dirs), None)

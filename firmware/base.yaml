@@ -29,6 +29,12 @@ esphome:
   on_boot:
     priority: -100
     then:
+      # Local only, as restored: no update checks (the switch's own action may have run before the updater started).
+      - lambda: |-
+          if (id(local_only).state) {
+            id(local).set_local_only(true);
+            id(firmware_update).stop_poller();
+          }
       # Upgrade: the ntfy topic moves from a (readable) text entity into the controller's write-only secrets. The old
       # field is emptied whatever happens (a topic too long to move is dropped: set it again on the device page).
       - lambda: |-
@@ -54,6 +60,12 @@ psram:
 
 logger:
   level: INFO
+
+# A new firmware is on trial until it's confirmed: a crash or hang before then sends the controller back to the
+# previous one (ESP-IDF app rollback). Confirmed after 15 min here, or as soon as it has held its Wi-Fi for a minute
+# (components/standalone/standalone_update_guard.cpp, which also rolls back one that can't stay on the network).
+safe_mode:
+  boot_is_good_after: 15min
 
 ota:
   # Updates come from this project's GitHub release only (http_request, the Firmware update entity): the manifest and
@@ -140,6 +152,10 @@ standalone:
   outdoor_humidity: outdoor_humidity
   wind_speed: outdoor_wind
   cook_assistant: smoker
+  grill_connected: grill_connected
+  connectivity:
+    name: Connectivity
+    entity_category: diagnostic
   pit_temperature: pit_temp
   pit_target: pit_target_reported
 
@@ -336,6 +352,7 @@ sensor:
 binary_sensor:
   # The grill's "on" flag (byte 14 bit 4): clears when it's turned off, sets when it's turned on.
   - platform: template
+    id: grill_on
     name: Grill on
     icon: mdi:power
     lambda: return id(grill).grill_on();
@@ -468,11 +485,14 @@ interval:
                                 ESPHOME_PROJECT_VERSION + ".", 0, "update");
             id(booted_version) = h;
           }
-          const bool idle = !id(grill_connected).state && !id(smoker).cook_active() && !id(smoker).program_in_progress();
+          const bool idle = !id(grill_connected).state && !id(smoker).cook_active() && !id(smoker).program_in_progress() &&
+                            !id(local).local_only();
           if (!id(auto_update).state || !idle) { idle_since = 0; return; }
           if (idle_since == 0) { idle_since = now ? now : 1; return; }
           if (now - idle_since < 3600000UL) return;
           if (id(firmware_update).state != update::UPDATE_STATE_AVAILABLE) return;
+          if (!id(local).skip_version().empty() && id(firmware_update).update_info.latest_version == id(local).skip_version())
+            return;  // rolled back once (standalone_update_guard.cpp): only by hand
           if (last_try != 0 && now - last_try < 6UL * 3600000UL) return;
           last_try = now ? now : 1;
           ESP_LOGI("auto_update", "Idle for an hour with %s available: installing it",
@@ -638,6 +658,25 @@ switch:
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
   # changes nothing). Only pit/food targets, Turbo and power on/off (two presses) are ever sent. Wi-Fi is used
   # instead whenever it's connected.
+  # Local only (off unless you turn it on): the controller makes no internet connections at all. Only hosts on your
+  # own network can be reached (a self-hosted ntfy, say); weather, the AI, Pushover, Telegram, sharing, the internet
+  # clock and update checks stop. Home Assistant (on your network) keeps working, and its integration honours this
+  # switch for what it does on the controller's behalf (sharing, AI).
+  - platform: template
+    name: Local only (no internet)
+    id: local_only
+    icon: mdi:lan-disconnect
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - lambda: |-
+          id(local).set_local_only(true);
+          id(firmware_update).stop_poller();
+    on_turn_off:
+      - lambda: |-
+          id(local).set_local_only(false);
+          id(firmware_update).start_poller();
   # Automatic updates: see the update: section. Off unless you turn it on.
   - platform: template
     name: Automatic updates
@@ -725,6 +764,26 @@ cook_assistant:
   lid: lid_open
   link: grill_connected
   fan: grill_fan
+  grill_on: grill_on
+  # Power-cut recovery (on unless turned off): after a cut during a cook (up to an hour), the controller reconnects,
+  # turns the grill back on if it was on before (the only time it does without a second press), sends the targets
+  # again and resumes the program, then says what happened. A grill turned off with its button isn't turned back on.
+  resume_after_power_cut:
+    name: Resume after a power cut
+  # Per cook: what the last lid opening cost, and how steadily the grill held its target.
+  last_lid_opening:
+    name: Last lid opening
+  pit_stability:
+    name: Pit stability
+  pit_stability_score:
+    name: Pit held on target
+  on_power_on:
+    # Both presses of the power safety net at once: only power-cut recovery fires this.
+    - lambda: |-
+        if (id(grill).power_press(true) == "armed")
+          id(grill).power_press(true);
+  on_turbo:
+    - lambda: id(grill).set_turbo(x);
   hopper_capacity: 7.26   # kg; Gravity 980 hopper = 16 lb
   fuel_level:
     name: Charcoal level
@@ -767,6 +826,21 @@ cook_assistant:
       program: "name: Chicken; pit 325 until food1 >= 160; hold 200 notify \"Chicken is done\""
     - name: Hold warm
       program: "name: Hold warm; hold 200"
+    # Reverse sear: smoke low to 10-15 °F under the pull temperature, then the hottest pit with Turbo (full fan) for
+    # the sear; pulled a few degrees under the final doneness (it carries over while it rests).
+    - name: Steak, reverse sear (rare)
+      program: "name: Steak (rare); pit 225 until food1 >= 105; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 118; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+    - name: Steak, reverse sear (medium-rare)
+      program: "name: Steak (medium-rare); pit 225 until food1 >= 115; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 128; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+    - name: Steak, reverse sear (medium)
+      program: "name: Steak (medium); pit 225 until food1 >= 125; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 137; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+    - name: Steak, reverse sear (medium-well)
+      program: "name: Steak (medium-well); pit 225 until food1 >= 135; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 145; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+    - name: Burgers (hot & fast)
+      program: "name: Burgers; pit 450 turbo on until food1 >= 155; turbo off hold 200 notify \"Burgers are done (160°F after resting)\""
+    # Hold mode: the pit moves to keep Food 1 at 150 °F (the grill's lowest pit is 200 °F, so it creeps up slowly).
+    - name: Keep Food 1 warm (150°F)
+      program: "name: Keep warm; keep food1 150 notify \"Keeping Food 1 at 150°F\""
   probes:
     - key: food1
       name: Food 1

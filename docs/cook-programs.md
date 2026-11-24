@@ -17,6 +17,8 @@ hold 200 notify "Pork is done - rest it"
 | `hold N` | set the pit target and stay (final step). The stock controller's pit range is 200–700 °F, so the lowest hold is 200 |
 | `notify "text"` | send a notification when the step starts. Written **after** the conditions, it's sent when they're met (the step ends): `pit 275 until food1 >= 165 notify "Wrap it"` |
 | `shutdown` | end the program |
+| `keep food1 150` | **hold mode**: keep that food at 150 by moving the pit target (and stay, like `hold`). The pit can't go below the grill's 200 °F, so a food held under about 190 °F still creeps up slowly; you're told if it can't be held that low |
+| `turbo on` / `turbo off` | the grill's Turbo (full fan), e.g. for a sear |
 
 | Conditions | |
 |---|---|
@@ -33,8 +35,13 @@ Temperatures use the device unit (°F by default); add `F` or `C` to be explicit
 program keeps retrying every minute and tells you if the grill still hasn't taken its target after a few tries.
 
 **Manual changes:** if the pit target is changed outside the program (dashboard, phone, grill panel), the program
-**pauses**; resume it to go back to the program's target. After a controller restart, a running program is restored
-**paused** at the same step, and you get a notification.
+**pauses**; resume it to go back to the program's target.
+
+**Power cuts:** with *Resume after a power cut* on (the default), a cut during a cook of up to an hour is picked up
+again: the controller reconnects, turns the grill back on if it was on before the cut, sends the pit target again and
+carries on with the program at the same step (a timed step counts the time the power was off), then tells you what
+happened. A grill turned off with its own button stays off. Longer cuts, or with the setting off, the program comes
+back **paused** at the same step and you get an urgent notification to check the grill and the food.
 
 **Step editor:** the Cook program card on the Home Assistant panel and on the controller's own page shows the program
 as steps: an action (*Set pit to*, *Hold at*, *Notify only*, *Shut down*), the conditions that end the step (*until* …
@@ -47,5 +54,7 @@ runs it. The editor checks the obvious things first (a missing temperature, a pi
 The controller's page loads programs through its **Program** text, so they must fit in 255 characters there; load
 longer ones from Home Assistant.
 
-**Presets** (in `firmware/base.yaml`): Pork shoulder (Texas crutch), Brisket, Ribs, Chicken (hot & fast), Hold warm.
+**Presets** (in `firmware/base.yaml`): Pork shoulder (Texas crutch), Brisket, Ribs, Chicken (hot & fast), Hold warm,
+Steak reverse sear (rare, medium-rare, medium, medium-well: smoke at 225 °F, then sear at 700 °F with Turbo; pulled a
+few degrees under the final doneness), Burgers (hot & fast, with Turbo), Keep Food 1 warm (150 °F, hold mode).
 Pick one with **Program preset**, or type your own in **Program**, or ask the AI (`script.smoker_plan_cook`).

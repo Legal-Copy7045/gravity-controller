@@ -41,6 +41,7 @@ class Grill:
         self.sim_h = 0.0
         self.silent = False
         self.drop = False
+        self.pit_override = None  # tests: hold the pit at this °F (a runaway, a dip)
 
     def step(self, dt_h):
         with self.lock:
@@ -49,6 +50,9 @@ class Grill:
             # Pit: first-order approach to setpoint (+ steady bias); the displayed value adds a slow wobble.
             self.pit_c += (sp_c - self.pit_c) * min(1.0, dt_h * 2.0)
             self.pit_f = self.pit_c * 9 / 5 + 32 + 3 * math.sin(self.sim_h * 3)
+            if self.pit_override is not None:
+                self.pit_f = float(self.pit_override)
+                self.pit_c = (self.pit_f - 32) * 5 / 9
             pit_c = self.pit_c
             for f in self.food:
                 if not f["present"]:
@@ -142,8 +146,29 @@ def control(g, port):
                     g.silent = bool(cmd["silent"])
                 if "drop" in cmd:
                     g.drop = True
+                if "power_cut" in cmd:
+                    # The grill loses power for N seconds: silent and disconnected, then back with its targets reset,
+                    # off unless "back_on" (what a real 980 does after a cut isn't known yet: tests try both).
+                    secs, back_on = float(cmd["power_cut"]), bool(cmd.get("back_on", False))
+                    g.silent = True
+                    g.drop = True
+
+                    def restore(secs=secs, back_on=back_on):
+                        time.sleep(secs)
+                        with g.lock:
+                            g.targets = {0: 225, 2: NO_TARGET, 3: NO_TARGET}
+                            g.on = back_on
+                            g.turbo = False
+                            g.silent = False
+                        print(f"  power back ({'on' if back_on else 'off'}, targets reset)")
+
+                    threading.Thread(target=restore, daemon=True).start()
                 if "food1_f" in cmd:
                     g.food[0]["core"] = g.food[0]["surf"] = (float(cmd["food1_f"]) - 32) * 5 / 9
+                if "door" in cmd:
+                    g.door = bool(cmd["door"])
+                if "pit_f" in cmd:
+                    g.pit_override = None if cmd["pit_f"] is None else float(cmd["pit_f"])
             print(f"  control: {cmd}")
             c.sendall(b"ok\n")
 

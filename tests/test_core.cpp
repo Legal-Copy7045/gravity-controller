@@ -521,6 +521,36 @@ static void test_regressions() {
     o = r.tick(3, in);
     CHECK(o.finished && o.notifications.size() == 1 && o.notifications[0] == "Done");
   }
+  {  // keep (hold mode) and turbo: parse, read back, run
+    cook::Program k, k2;
+    CHECK(cook::parse_program("pit 225 until food1 >= 115; pit 700 turbo on until food1 >= 128; turbo off keep food1 at 140",
+                              probes, true, k, err));
+    CHECK(k.steps.size() == 3 && k.steps[1].turbo == 1 && k.steps[2].turbo == 0);
+    CHECK(k.steps[2].keep_probe == 1 && k.steps[2].hold && std::isnan(k.steps[2].pit_c));
+    NEAR(k.steps[2].keep_c, 60.0f, 0.01f);
+    std::string kt = cook::format_program(k, probes, true);
+    CHECK(kt.find("keep food1 140") != std::string::npos && kt.find("turbo on") != std::string::npos);
+    CHECK(cook::parse_program(kt, probes, true, k2, err));
+    CHECK(k2.steps.size() == 3 && k2.steps[2].keep_probe == 1 && k2.steps[1].turbo == 1);
+    CHECK(!cook::parse_program("keep pit 150", probes, true, k2, err));
+    CHECK(!cook::parse_program("keep food1", probes, true, k2, err));
+    CHECK(!cook::parse_program("turbo max", probes, true, k2, err));
+    cook::ProgramRunner r;
+    r.load(k);
+    auto o = r.start(0);
+    CHECK(o.turbo == -1 && r.keep_probe() == -1);
+    cook::RunnerInputs in;
+    in.temp_c = {107.0f, 47.0f};
+    in.done = {false, false};
+    in.stall_started = {false, false};
+    in.stall_ended = {false, false};
+    o = r.tick(1, in);
+    CHECK(o.step_changed && o.turbo == 1 && r.step() == 1);
+    in.temp_c[1] = 54.0f;
+    o = r.tick(2, in);
+    CHECK(o.turbo == 0 && r.keep_probe() == 1 && std::isnan(r.commanded_pit()));
+    NEAR(r.keep_c(), 60.0f, 0.01f);
+  }
 
   // Briefly stepping the target below the current temperature doesn't record a cook.
   {
