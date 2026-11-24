@@ -302,6 +302,38 @@ async def main():
         dlog.flush()
         check(await dev.wait(lambda: "goes on keeping the food" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
                              60, "notice"), "a notice says it goes on keeping the food")
+
+        print("scenario 11: Resume turns a sear's Turbo back on; the AI plan check (links, Turbo-only steps)")
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_program", program="name: Sear 2; pit 300 turbo on until after 5h; hold 225 turbo off")
+        await asyncio.sleep(1)
+        await dev.action("start_program")
+        check(await dev.wait(lambda: v("turbo") is True, 20, "turbo on"), "the sear turned Turbo on")
+        await dev.action("pause_program")
+        check(await dev.wait(lambda: v("turbo") is False, 20, "turbo off"), "pause turned Turbo off")
+        await dev.action("resume_program")
+        check(await dev.wait(lambda: v("turbo") is True, 20, "turbo on again"),
+              f"resume turned Turbo back on (before 1.4.3 it stayed off; turbo {v('turbo')!r})")
+        await dev.action("stop_program")
+        check(await dev.wait(lambda: v("turbo") is False, 20, "turbo off"), "stop turned Turbo off")
+
+        def fit(prog):
+            dlog.flush()
+            before = open(os.path.join(HERE, "e2e-scen-device.log")).read().count("FIT ok=")
+            return before
+        async def fit_result(prog):
+            n = fit(prog)
+            await dev.action("fit_program", program=prog)
+            ok = await dev.wait(lambda: open(os.path.join(HERE, "e2e-scen-device.log")).read().count("FIT ok=") > n, 10, "fit")
+            dlog.flush()
+            lines = [ln for ln in open(os.path.join(HERE, "e2e-scen-device.log")).read().splitlines() if "FIT ok=" in ln]
+            return lines[-1] if ok and lines else ""
+        r = await fit_result('pit 250 until food1 >= 160 notify "see https://example.test/x"; hold 200')
+        check("ok=0" in r and "link" in r, f"an AI plan with a link is refused ({r[-120:]!r})")
+        r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off; hold 200")
+        check("ok=1" in r and "turbo" not in r.split("note=")[0].lower() and "Turbo left out" in r,
+              f"Turbo taken out of an AI plan leaves a program the controller can read ({r[-160:]!r})")
         await dev.stop()
     finally:
         if dev.proc and dev.proc.poll() is None:

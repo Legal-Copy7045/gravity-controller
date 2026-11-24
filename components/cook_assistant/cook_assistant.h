@@ -348,7 +348,8 @@ class CookAssistant : public Component {
   bool turbo_commanded_{false};  // a program step turned Turbo on (and hasn't turned it off)
   double turbo_on_at_{-1e9};
   void turbo_off_();  // a program's Turbo, off (stop/pause): cook_assistant.cpp
-  void restore_turbo_(bool running);  // after a restart: the program's Turbo back on (running) or off (paused)
+  void restore_turbo_(bool running);
+  void turbo_off_any_();  // the program's Turbo off, also when only the program (not RAM) says it's on  // after a restart: the program's Turbo back on (running) or off (paused)
   bool runaway_notified_{false};
   // the lid opening being measured
   double lid_opened_at_{-1};

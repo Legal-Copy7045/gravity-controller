@@ -22,6 +22,19 @@ api:
     - action: stop_program
       then:
         - lambda: id(smoker).stop_program();
+    - action: pause_program
+      then:
+        - lambda: id(smoker).pause_program();
+    # The AI plan check (fit_program), as the controller's Plan with AI runs it: the result goes to the log.
+    - action: fit_program
+      variables:
+        program: string
+      then:
+        - lambda: |-
+            std::string fixed, note, why;
+            bool ok = id(smoker).fit_program(program, fixed, note, why);
+            for (auto &c : fixed) if (c == '\n') c = '|';
+            ESP_LOGI("fittest", "FIT ok=%d fixed=[%s] note=[%s] why=[%s]", ok ? 1 : 0, fixed.c_str(), note.c_str(), why.c_str());
     - action: fuel_level
       variables: {percent: float}
       then:

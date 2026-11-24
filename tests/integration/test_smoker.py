@@ -456,8 +456,18 @@ async def test_controller_events_checked_and_signed(hass: HomeAssistant, tmp_pat
     # The controller sends the secret: passed on without it, and from now on it's required.
     await fire({"device_id": smoker_device_id, "secret": c.secret})
     assert len(got) == 2 and "secret" not in got[1] and c.confirmed
+    await hass.async_block_till_done()
+    c._repaired_at = -1e9  # (the wrong secret above was handed over too; start the minute afresh)
+    n_pushed = len(pushed)
     await fire({"device_id": smoker_device_id})
     assert len(got) == 2
+    # ...and the controller evidently lost the secret (a reset): it's handed over again, once a minute at most.
+    assert len(pushed) == n_pushed + 1 and pushed[-1] == c.secret
+    await fire({"device_id": smoker_device_id})
+    assert len(pushed) == n_pushed + 1
+    c._repaired_at = -1e9
+    await fire({"device_id": smoker_device_id, "secret": "1" * 32})  # a wrong secret: also handed over again
+    assert len(got) == 2 and len(pushed) == n_pushed + 2
     # The journal takes finished cooks from the checked event only.
     j = hass.data[DATA]
     n = len(j.data["entries"])
@@ -472,10 +482,11 @@ async def test_controller_events_checked_and_signed(hass: HomeAssistant, tmp_pat
     await hass.async_block_till_done()
     assert len(j.data["entries"]) == n + 1
     # The secret is pushed again whenever the controller (re)connects and registers its actions.
+    n_pushed = len(pushed)
     hass.services.async_remove("esphome", "gravity980_set_event_secret")
     hass.services.async_register("esphome", "gravity980_set_event_secret", set_secret)
     await hass.async_block_till_done()
-    assert pushed == [c.secret, c.secret]
+    assert len(pushed) == n_pushed + 1 and set(pushed) == {c.secret}
     # 1.4.1 firmware: the current secret goes along as "old" (the controller replaces a secret only with it);
     # older firmware's action has no "old" and gets the secret alone.
     import voluptuous as vol

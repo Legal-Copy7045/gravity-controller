@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.4.3] - 2026-11-24
+
+Fixes for the second regression run's findings (regression/RUNS.md).
+
+- **Alerts after a forgotten PIN:** holding BOOT to clear the device page PIN no longer clears Home Assistant's event
+  secret (from 1.4.1 that silenced the controller's alerts in Home Assistant until it restarted). The integration
+  also hands the secret over again by itself whenever the controller's events arrive without it or with an old one
+  (a factory reset, or a reinstalled integration), so the two always pair up again.
+- **Keep warm ends with the cook:** a program finished on a keep step stops when the cook session ends, instead of
+  coming back after every later restart and moving the pit in the next cook.
+- **Power-cut recovery** no longer brings back a program you stopped, paused, skipped or replaced while it was still
+  reconnecting.
+- **Turbo:** Resume turns a sear's Turbo back on; Pause and Stop turn it off even right after a restart.
+- **AI plans on the controller:** taking Turbo out never leaves a step the controller can't read (a Turbo-only step
+  runs at the AI max pit instead); plans with links are refused; a keep step is limited so the pit it needs stays under
+  the AI max pit; the plan is checked once more before Load is offered.
+- The "still keeping the food warm" notice after a restart no longer carries a Resume button that did nothing.
+- Security tidying: the controller page's error replies are built safely (they could read freed memory); place-search
+  results are treated as numbers only; the dashboard bridge never lets a caller swap the smoker entity for another;
+  log lines no longer mention the old 15-minute PIN window.
+- Release signing installs only esptool and its own dependencies, in a fresh environment, before the key is written.
+- Tests: scenario 11 (Resume brings Turbo back; the AI plan check), the integration re-pairing its secret, the
+  restart notice's buttons, the dashboard bridge.
+
 ## [1.4.2] - 2026-11-24
 
 Convenience over lock-down, where the lock-down only guarded against people you already trust (docs/security.md now

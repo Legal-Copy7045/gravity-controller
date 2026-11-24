@@ -332,7 +332,8 @@ const ACT = {
     if (m) return ACT.place({ dataset: { lat: m[1], lon: m[2], n: 'that spot' } });
     try {  // the search goes from this browser to Open-Meteo, not through the controller
       const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=5&name=' + encodeURIComponent(q));
-      geoHits = ((await r.json()).results || []).map(x => ({ n: [x.name, x.admin1, x.country].filter(Boolean).join(', '), lat: x.latitude, lon: x.longitude }));
+      geoHits = ((await r.json()).results || []).map(x => ({ n: [x.name, x.admin1, x.country].filter(Boolean).join(', '), lat: Number(x.latitude), lon: Number(x.longitude) }))
+        .filter(h => Number.isFinite(h.lat) && Number.isFinite(h.lon));  // (numbers only: the answer is outside data)
       if (!geoHits.length) toast('Nothing found: try a nearby town, or type "latitude, longitude"');
     } catch (e) { toast('Search needs internet on this phone; or type "latitude, longitude"'); }
     renderLocal();
@@ -1289,7 +1290,7 @@ function renderLocal() {
     <div class="row"><span>Weather from</span><span class="r">${L.location ? '<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0), for your area' + (L.weather_age_min >= 0 ? ' · ' + mins(L.weather_age_min) + ' ago' : '') : L.ha ? 'Home Assistant' : 'nowhere yet'}</span></div>
     ${L.authed ? `${L.location ? `<div class="row"><span>Area</span><span class="r">${fmt(L.lat, 2)}, ${fmt(L.lon, 2)} <button class="btn" data-a="clearplace">Remove</button></span></div>` : ''}
       <div class="row"><span>${L.location ? 'Move to' : 'Your area'}</span><span class="entry"><input id="geoq" type="search" placeholder="Town or postcode" autocomplete="off" style="width:150px" aria-label="Town or postcode"><button class="btn" data-a="geo">Find</button></span></div>
-      ${geoHits.map(h => `<div class="row"><span class="small">${esc(h.n)}</span><button class="btn" data-a="place" data-lat="${h.lat}" data-lon="${h.lon}" data-n="${esc(h.n)}">Use</button></div>`).join('')}
+      ${geoHits.map(h => `<div class="row"><span class="small">${esc(h.n)}</span><button class="btn" data-a="place" data-lat="${esc(h.lat)}" data-lon="${esc(h.lon)}" data-n="${esc(h.n)}">Use</button></div>`).join('')}
       <p class="note">Stored on the controller, rounded to about 1 km, and only sent to Open-Meteo for the forecast. Searching asks Open-Meteo from this phone.</p>
       <div class="row"><span>Time zone<br><span class="muted small">${L.tz ? 'set' : L.ha ? 'from Home Assistant' : 'not set: clock times are UTC'}</span></span><button class="btn" data-a="tz">Use this phone's (${esc((Intl.DateTimeFormat().resolvedOptions().timeZone || '').replace(/_/g, ' '))})</button></div>`
     : '<p class="note">Unlock this page to set your area (for the weather) and time zone. <button class="btn" data-a="unlock">Unlock</button></p>'}`);

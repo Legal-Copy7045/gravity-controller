@@ -46,7 +46,9 @@
       if (String(eid).split('.')[0] !== domain || !CTRL[domain] || CTRL[domain].indexOf(service) < 0) return Promise.reject(new Error('not allowed: ' + domain + '.' + service));
       if (String(eid).indexOf('smoker') < 0) return Promise.reject(new Error('not a smoker entity: ' + eid));
       if (domain === 'button' && NOPRESS.test(eid)) return Promise.reject(new Error('not allowed from this page: ' + eid));
-      var d = { entity_id: eid }; for (var k in (data || {})) d[k] = data[k];
+      // The checked entity always wins: a caller's entity_id / target / device_id / area_id never widens the call.
+      var d = {}; for (var k in (data || {})) if (['entity_id', 'target', 'device_id', 'area_id', 'label_id', 'floor_id'].indexOf(k) < 0) d[k] = data[k];
+      d.entity_id = eid;
       return h.callService(domain, service, d);
     },
     service: function (domain, service, data, resp) {

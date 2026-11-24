@@ -33,10 +33,10 @@ power station's standards.
 | Home Assistant's API | Encrypted once Home Assistant adopts the controller. Before that, open for 15 minutes after power-on (to add it), and closed straight away when a device-page PIN is set. |
 | The device page | Serves only its own files (nothing loaded from the internet); refuses requests from other websites; parses input with size limits; no file uploads stored. |
 | Outgoing requests | HTTPS with certificate checks, no redirects followed, answers capped at 64 KB and parsed as JSON only. |
-| AI answers and shared data | Treated as data: shown escaped, never run. An AI's cook program is checked (pit capped at "AI max pit", no Turbo, no links) before it can be loaded, and you load it yourself. |
+| AI answers and shared data | Treated as data: shown escaped, never run. An AI's cook program is checked, by the controller and by Home Assistant (pit capped at "AI max pit", including what a keep step can ask for; no Turbo; no links), before it can be loaded, and you load it yourself. |
 | The Home Assistant integration | Admin-only for installing the package and setting the PIN; photo uploads checked as images; no paths taken from requests; the dashboard's bridge only touches the smoker's own entities. |
 | Notification buttons | A one-time code per notification, valid only for that notification's buttons. |
-| Build pipeline | Actions pinned to commit SHAs, Python packages hash-pinned, release jobs separated, provenance attested. |
+| Build pipeline | Actions pinned to commit SHAs; the build and signing jobs' Python packages hash-pinned (the signing job installs only esptool and its own dependencies, in a fresh environment); the test jobs' packages version-pinned (they hold no secrets and publish nothing); release jobs separated; provenance attested. |
 
 ## Convenience choices (deliberately relaxed)
 

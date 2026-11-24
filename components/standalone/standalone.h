@@ -1,7 +1,7 @@
 #pragma once
 // Everything the controller needs to run without Home Assistant (docs/standalone.md):
 //  - the device page's PIN (pin_auth.h): once set, every change made through the device page needs it. The first one
-//    can only be set within 15 minutes of a restart or of clearing it; without one the page stays open to changes
+//    can be set whenever none is set (from 1.4.2); without one the page stays open to changes
 //    (the owner's choice), keys and settings included: nothing is locked until a PIN is set;
 //  - write-only secrets (notification keys, AI key): stored in flash, never sent back out, only "set / not set";
 //  - notifications straight to a phone (ntfy, Pushover, Telegram), routed via Home Assistant, direct, or both;

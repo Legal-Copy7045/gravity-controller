@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "1.4.2"
+  project_version: "1.4.3"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -374,10 +374,7 @@ binary_sensor:
       - min_length: 10s
         max_length: 29900ms
         then:
-          - lambda: |-
-              id(local).clear_pin();
-              // (and Home Assistant's event secret: a reinstalled Smoker integration can then pair again)
-              id(local).set_event_secret("", id(local).event_secret());
+          - lambda: id(local).clear_pin();
       - min_length: 30s
         max_length: 120s
         then:

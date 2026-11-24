@@ -1,6 +1,7 @@
 #include "cook_assistant.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -802,6 +803,11 @@ void CookAssistant::update_cook_session_() {
     if (now - this->cool_since_min_ > 20) {
       this->cook_active_ = false;
       ESP_LOGI(TAG, "Cook session ended after %.0f min", now - this->cook_start_min_);
+      // A program that finished on `keep` ends with the cook: it never comes back days later to move the pit.
+      if (this->runner_.keep_probe() >= 0) {
+        this->runner_.stop();
+        this->save_program_state_();
+      }
       if (this->cook_active_bs_ != nullptr)
         this->cook_active_bs_->publish_state(false);
     }
@@ -1060,27 +1066,70 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
             (pc < to ? " (the lowest the grill holds)" : capped ? " (the AI max pit)" : " (the grill's highest)");
     prog.steps[i].pit_c = to;
   }
-  // An AI's keep step is clamped to a food temperature, and Turbo is never left on where the program stays.
-  bool turbo = false;
+  // No links anywhere: a step's notification text goes straight to the owner's phone.
+  auto has_link = [](std::string t) {
+    for (auto &c : t) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return t.find("http:") != std::string::npos || t.find("https:") != std::string::npos ||
+           t.find("://") != std::string::npos || t.find("www.") != std::string::npos;
+  };
+  if (has_link(prog.name)) {
+    why = "it contains a link";
+    return false;
+  }
+  for (const auto &st : prog.steps)
+    if (has_link(st.notify) || has_link(st.notify_done)) {
+      why = "it contains a link";
+      return false;
+    }
+  // An AI's keep step is clamped to a food temperature low enough that the pit it needs (up to the food + 40 °C) stays
+  // under the AI max pit; Turbo is left out altogether (the fan flat out would undo the AI max pit).
+  const float keep_hi = std::max(40.0f, std::min(95.0f, hi - 40.0f));
+  bool turbo_noted = false;
+  std::vector<cook::Step> kept;
   for (size_t i = 0; i < prog.steps.size(); i++) {
-    auto &st = prog.steps[i];
-    if (st.keep_probe >= 0 && !(st.keep_c >= 40.0f && st.keep_c <= 95.0f)) {
-      const float to = std::max(40.0f, std::min(95.0f, std::isnan(st.keep_c) ? 60.0f : st.keep_c));
+    cook::Step st = prog.steps[i];
+    if (st.keep_probe >= 0 && !(st.keep_c >= 40.0f && st.keep_c <= keep_hi + 0.01f)) {
+      const float to = std::max(40.0f, std::min(keep_hi, std::isnan(st.keep_c) ? 60.0f : st.keep_c));
       note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": keep " +
-              this->fmt_temp_(st.keep_c) + " changed to " + this->fmt_temp_(to);
+              this->fmt_temp_(st.keep_c) + " changed to " + this->fmt_temp_(to) +
+              (to < 95.0f - 0.01f && st.keep_c > to ? " (so the pit it needs stays under the AI max pit)" : "");
       st.keep_c = to;
     }
-    // No Turbo at all: the fan flat out takes the pit past any limit, so it would undo the AI max pit.
-    if (st.turbo == 1 && !turbo) {
-      turbo = true;
+    if (st.turbo == 1 && !turbo_noted) {
+      turbo_noted = true;
       note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) +
               ": Turbo left out (an AI's program can't use it: it would take the pit past the AI max pit)";
     }
+    const bool was_turbo = st.turbo >= 0;
     st.turbo = -1;
+    const bool action = !std::isnan(st.pit_c) || st.hold || st.keep_probe >= 0 || !st.notify.empty() || st.shutdown;
+    if (was_turbo && !action) {
+      if (st.until.empty())
+        continue;  // a bare `turbo on|off`: nothing left of it
+      // `turbo on until pit >= 600` (a sear): as hot as an AI plan may go instead, and a pit it can reach.
+      st.pit_c = hi;
+      for (auto &c : st.until)
+        if (c.type == cook::Condition::PROBE_GTE && c.probe == 0 && c.value > hi - 5.0f)
+          c.value = hi - 5.0f;
+      note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": the pit set to " +
+              this->fmt_temp_(hi) + " instead";
+    }
+    kept.push_back(st);
+  }
+  prog.steps = kept;
+  if (prog.steps.empty()) {
+    why = "nothing is left once Turbo is taken out";
+    return false;
   }
   fixed = cook::format_program(prog, this->probe_keys(), this->fahrenheit_);
   if (fixed.size() >= PROGRAM_MAX) {
     why = "too long for the controller (" + std::to_string(fixed.size()) + " characters)";
+    return false;
+  }
+  cook::Program check;  // what Load will see: never offer a program the controller would refuse
+  std::string err;
+  if (!cook::parse_program(fixed, this->probe_keys(), this->fahrenheit_, check, err)) {
+    why = "after the changes it can't be read (" + err + ")";
     return false;
   }
   return true;
@@ -1141,6 +1190,7 @@ bool CookAssistant::load_program(const std::string &text, bool persist) {
   if (persist && (this->runner_.state() == cook::ProgramRunner::State::RUNNING ||
                   this->runner_.state() == cook::ProgramRunner::State::PAUSED))
     return fail("a program is running: stop it before loading another");
+  this->prog_restored_ = false;  // a new program: recovery never restores the old one's step onto it
   this->runner_.load(prog);
   this->program_source_ = text;
   if (this->program_error_ != nullptr)
@@ -1183,18 +1233,30 @@ void CookAssistant::start_program() {
   this->save_program_state_();
 }
 void CookAssistant::pause_program() {
-  this->turbo_off_();  // a paused sear doesn't keep the fan flat out
+  this->prog_restored_ = false;  // the user's choice now: power-cut recovery doesn't bring the old state back
+  this->turbo_off_any_();        // a paused sear doesn't keep the fan flat out
   this->runner_.pause(this->now_min_(), "paused by user");
   this->save_program_state_();
 }
 void CookAssistant::resume_program() {
+  this->prog_restored_ = false;
   auto o = this->runner_.resume(this->now_min_());
   this->apply_outputs_(o);
+  // A sear step paused (by the user, an override or a restart) had its Turbo turned off: on again with the step.
+  if (this->runner_.state() == cook::ProgramRunner::State::RUNNING && o.turbo < 0)
+    this->restore_turbo_(true);
   this->save_program_state_();
 }
 void CookAssistant::skip_step() {
+  this->prog_restored_ = false;
   auto o = this->runner_.skip(this->now_min_());
   this->apply_outputs_(o);
+}
+void CookAssistant::turbo_off_any_() {
+  // After a restart turbo_commanded_ is false (RAM only) though the grill may still have the program's Turbo on.
+  if (!this->turbo_commanded_ && this->runner_.turbo_in_effect())
+    this->turbo_commanded_ = true;
+  this->turbo_off_();
 }
 void CookAssistant::restore_turbo_(bool running) {
   // turbo_commanded_ lives in RAM: after a restart, take it from the program (the last `turbo on|off` up to its step).
@@ -1218,7 +1280,8 @@ void CookAssistant::turbo_off_() {
 }
 
 void CookAssistant::stop_program() {
-  this->turbo_off_();
+  this->prog_restored_ = false;
+  this->turbo_off_any_();
   this->runner_.stop();
   this->save_program_state_();
 }
@@ -1228,7 +1291,7 @@ void CookAssistant::save_program_state_(bool sync) {
   auto st = this->runner_.state();
   s.running = st == cook::ProgramRunner::State::RUNNING  ? 1
               : st == cook::ProgramRunner::State::PAUSED ? 2
-              : this->runner_.keep_probe() >= 0          ? 3  // finished on `keep`: it still holds the food
+              : this->runner_.keep_probe() >= 0 && this->cook_active_ ? 3  // finished on `keep`, during the cook
                                                          : 0;
   s.step = uint8_t(this->runner_.step());
   s.step_elapsed_min = float(this->runner_.step_elapsed_min(this->now_min_()));
@@ -1250,7 +1313,8 @@ void CookAssistant::restore_program_state_() {
     this->runner_.restore(s.step, s.step_elapsed_min, this->now_min_(), false, true);
     ESP_LOGW(TAG, "Restored program: still keeping a food at its temperature (step %u)", s.step + 1);
     this->set_timeout(30000, [this]() {
-      this->notify("Controller restarted", "It goes on keeping the food at its temperature (step " +
+      // (Not titled "...restarted": that title gets a Resume button, and there's nothing to resume.)
+      this->notify("Still keeping the food warm", "The controller restarted and goes on keeping the food at its temperature (step " +
                                                std::to_string(this->runner_.step() + 1) + ").",
                    1, "program");
     });

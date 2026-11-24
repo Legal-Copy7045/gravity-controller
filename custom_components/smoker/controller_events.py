@@ -31,6 +31,7 @@ from __future__ import annotations
 import hmac
 import logging
 import secrets
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -64,6 +65,7 @@ class ControllerEvents:
         self.confirmed = False  # the controller has sent the secret at least once: from then on it's required
         self.unsubs: list = []
         self.warned = False
+        self._repaired_at = -1e9
 
     async def async_load(self) -> None:
         stored = await self.store.async_load()
@@ -87,6 +89,7 @@ class ControllerEvents:
         given = event.data.get("secret")
         if isinstance(given, str) and given:
             if not hmac.compare_digest(given.encode(), self.secret.encode()):
+                self._repair()  # e.g. this integration was reinstalled with a new secret: hand it over again
                 return False
             if not self.confirmed:
                 self.confirmed = True
@@ -94,12 +97,23 @@ class ControllerEvents:
                 _LOGGER.info("The smoker controller now signs its events: unsigned ones are dropped from now on")
             return True
         if self.confirmed:
+            # The controller forgot the secret (a factory reset, a reflash): hand it over again so the next event counts.
+            self._repair()
             if not self.warned:  # (once per start: e.g. the controller was flashed back to older firmware)
                 self.warned = True
                 _LOGGER.warning("Dropped a smoker event without the event secret (the controller used to send it); "
                                 "if the controller's firmware was downgraded, update it again")
             return False
         return True  # firmware without event secrets yet
+
+    @callback
+    def _repair(self) -> None:
+        """Send the secret to the controller again (at most once a minute)."""
+        now = time.monotonic()
+        if now - self._repaired_at < 60:
+            return
+        self._repaired_at = now
+        self.hass.async_create_task(self.async_push_secret())
 
     @callback
     def handle(self, event: Event) -> None:

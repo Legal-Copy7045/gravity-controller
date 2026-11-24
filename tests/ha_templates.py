@@ -85,7 +85,8 @@ async def main():
             self.data = {"title": title, "tag": tag}
     for title, tag, n in [("Food 1 is done", "done_food1", 2), ("Pit temperature off", "pit_band", 2),
                           ("Program paused", "program", 1), ("Controller restarted", "program", 1),
-                          ("Food 6 stall", "stall_food6", 1), ("Food 1 stall over", "stall_food1", 0)]:
+                          ("Food 6 stall", "stall_food6", 1), ("Food 1 stall over", "stall_food1", 0),
+                          ("Still keeping the food warm", "program", 0)]:
         b = render(fwd["buttons"], tag=tag, trigger={"event": Ev(title, tag)})
         check(isinstance(b, list) and len(b) == n, f"buttons for {title!r}: {b!r}")
 

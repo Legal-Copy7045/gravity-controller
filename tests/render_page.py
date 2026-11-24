@@ -1086,6 +1086,12 @@ def main():
                     r = fr.evaluate("window.hdHA.call('lock','unlock','lock.front_door').then(()=>'ok',e=>e.message)")
                     if "not allowed" not in r:
                         failures.append("shim allowed lock.unlock")
+                    n0 = len(pg.evaluate("window.calls"))
+                    fr.evaluate("window.hdHA.call('switch','turn_on','switch.smoker_turbo',{entity_id:'switch.front_door', target:{entity_id:'lock.front_door'}})")
+                    time.sleep(0.2)
+                    last = [c for c in pg.evaluate("window.calls")[n0:] if c[0] == 'switch']
+                    if not last or last[-1][2].get('entity_id') != 'switch.smoker_turbo' or 'target' in last[-1][2]:
+                        failures.append(f"shim allowed a caller's entity_id/target to replace the smoker entity: {last}")
                     r = fr.evaluate("window.hdHA.call('switch','turn_on','switch.kitchen_lights').then(()=>'ok',e=>e.message)")
                     if "not a smoker entity" not in r:
                         failures.append("shim allowed a non-smoker switch")

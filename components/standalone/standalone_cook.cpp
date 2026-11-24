@@ -606,9 +606,11 @@ void Standalone::put_on_reminders_(uint32_t t) {
 // ---------------------------------------------------------------- API: /local/history, journal, plan, share, community
 
 std::string Standalone::api_cook_(const std::string &path, JsonDocument &in, bool authed, int &status) {
-  auto err = [&](int code, const char *m) {
+  // (-> std::string: build_json's buffer is a temporary, so the text is copied before it goes; a bare `auto` here
+  // returned a pointer into it.)
+  auto err = [&](int code, const char *m) -> std::string {
     status = code;
-    return json::build_json([&](JsonObject o) { o["error"] = m; if (code == 401) o["pin"] = true; }).c_str();
+    return std::string(json::build_json([&](JsonObject o) { o["error"] = m; if (code == 401) o["pin"] = true; }).c_str());
   };
   if (path == "plan") {
     if (in["serve_by"].is<uint32_t>() || in["serve_by"].is<int>()) {

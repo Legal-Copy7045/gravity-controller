@@ -646,7 +646,7 @@ void Standalone::clear_pin() {
     this->guard_->clear();
   }
   this->pin_cached_ = false;
-  ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page within 15 minutes");
+  ESP_LOGW(TAG, "Device page PIN cleared: set a new one on the device page whenever you like");
   this->save_();
 }
 
@@ -695,7 +695,7 @@ void Standalone::set_pin_work_() {
   }
   this->save_pending_ = true;  // (the main loop saves it, with the sessions it ended)
   if (clearing) {
-    ESP_LOGW(TAG, "Device page PIN cleared by Home Assistant: set a new one on the device page within 15 minutes");
+    ESP_LOGW(TAG, "Device page PIN cleared by Home Assistant: set a new one on the device page whenever you like");
   } else {
     ESP_LOGW(TAG, "Device page PIN set by Home Assistant: every browser has to unlock again");
   }
@@ -770,13 +770,9 @@ bool Standalone::ha_secret_ok(const std::string &given) const {
 }
 
 bool Standalone::set_event_secret(const std::string &secret, const std::string &old) {
-  // Replacing a secret takes the current one (the integration sends it as `old`): otherwise anyone in Home Assistant
-  // could swap it and the integration would drop every alert. Lost it (Home Assistant reinstalled)? Hold BOOT for
-  // 10 s (clears the PIN and this secret) or factory reset.
-  if (!this->event_secret_.empty() && !same_secret(secret, this->event_secret_) && !same_secret(old, this->event_secret_)) {
-    ESP_LOGW(TAG, "Event secret not replaced: the call didn't carry the current one");
-    return false;
-  }
+  // Taken from whoever holds Home Assistant's API key (Home Assistant itself): a reinstalled Smoker integration with a
+  // new secret pairs again on its own. (`old` is accepted for the integration's sake and not required.)
+  (void) old;
   if (secret.size() > 64) {
     ESP_LOGW(TAG, "Event secret refused: longer than 64 characters");
     return false;
@@ -1140,7 +1136,7 @@ std::string Standalone::status_json_(bool authed) {
     o["pin"] = this->req_pin_;
     o["authed"] = authed;
     o["locked"] = this->req_locked_;
-    if (!this->req_pin_) o["first_pin"] = this->req_first_pin_;  // seconds left for the first PIN (0 = power-cycle first)
+    if (!this->req_pin_) o["first_pin"] = this->req_first_pin_;  // none set: 1 = one can be set now (from 1.4.2 always; older firmware: seconds left, 0 = power-cycle first)
     o["ha"] = ha_connected();
     o["route"] = this->s_.route;
     JsonObject set = o["set"].to<JsonObject>();  // secrets: only whether they're there, never their value

@@ -79,7 +79,7 @@ api:
                     secret: !lambda return id(local).event_secret();
     # The Smoker integration's secret (it sets it on every connection): every event the controller fires carries it,
     # so the integration can tell them from forged ones. Kept in flash; never shown or logged. Empty clears it.
-    # Replacing it takes the current one as `old` (so no other Home Assistant user can swap it and silence alerts).
+    # (`old`: sent by the integration, not required: a reinstalled integration pairs again with its new secret.)
     - action: set_event_secret
       variables:
         secret: string
