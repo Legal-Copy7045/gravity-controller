@@ -1115,10 +1115,11 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
         note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": the pit set to " +
                 this->fmt_temp_(hi) + " instead";
       } else {
-        // `turbo off until food1 >= 195`: a wait at the pit the program already had.
+        // `turbo off until food1 >= 195`: a wait at the pit the program itself set last (the AI's own steps, so not
+        // the AI max pit a Turbo-only sear just before was given).
         float prev = NAN;
-        for (auto it = kept.rbegin(); it != kept.rend() && std::isnan(prev); ++it)
-          prev = it->pit_c;
+        for (size_t j = i; j-- > 0 && std::isnan(prev);)
+          prev = prog.steps[j].pit_c;
         st.pit_c = std::isnan(prev) ? std::max(this->pit_min_c_, std::min(hi, 107.2f)) : prev;  // (else 225 °F)
       }
     }
@@ -1204,7 +1205,7 @@ bool CookAssistant::load_program(const std::string &text, bool persist) {
   if (persist && (this->runner_.state() == cook::ProgramRunner::State::RUNNING ||
                   this->runner_.state() == cook::ProgramRunner::State::PAUSED))
     return fail("a program is running: stop it before loading another");
-  this->prog_restored_ = false;  // a new program: recovery never restores the old one's step onto it
+  this->prog_restored_ = this->keep_restored_ = false;  // a new program: recovery never restores the old one onto it
   this->runner_.load(prog);
   this->program_source_ = text;
   if (this->program_error_ != nullptr)
@@ -1238,7 +1239,7 @@ void CookAssistant::select_preset(size_t index) {
 }
 
 void CookAssistant::start_program() {
-  this->prog_restored_ = false;  // the user's choice: power-cut recovery doesn't bring the old state back
+  this->prog_restored_ = this->keep_restored_ = false;  // the user's choice: power-cut recovery doesn't bring the old state back
   if (!this->runner_.loaded()) {
     this->notify("No program", "Load a program or pick a preset first.", 0, "program");
     return;
@@ -1248,13 +1249,13 @@ void CookAssistant::start_program() {
   this->save_program_state_();
 }
 void CookAssistant::pause_program() {
-  this->prog_restored_ = false;  // the user's choice now: power-cut recovery doesn't bring the old state back
+  this->prog_restored_ = this->keep_restored_ = false;  // the user's choice now: power-cut recovery doesn't bring the old state back
   this->turbo_off_any_();        // a paused sear doesn't keep the fan flat out
   this->runner_.pause(this->now_min_(), "paused by user");
   this->save_program_state_();
 }
 void CookAssistant::resume_program() {
-  this->prog_restored_ = false;
+  this->prog_restored_ = this->keep_restored_ = false;
   auto o = this->runner_.resume(this->now_min_());
   this->apply_outputs_(o);
   // A sear step paused (by the user, an override or a restart) had its Turbo turned off: on again with the step.
@@ -1263,7 +1264,7 @@ void CookAssistant::resume_program() {
   this->save_program_state_();
 }
 void CookAssistant::skip_step() {
-  this->prog_restored_ = false;
+  this->prog_restored_ = this->keep_restored_ = false;
   auto o = this->runner_.skip(this->now_min_());
   this->apply_outputs_(o);
 }
@@ -1295,7 +1296,7 @@ void CookAssistant::turbo_off_() {
 }
 
 void CookAssistant::stop_program() {
-  this->prog_restored_ = false;
+  this->prog_restored_ = this->keep_restored_ = false;
   this->turbo_off_any_();
   this->runner_.stop();
   this->save_program_state_();

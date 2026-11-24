@@ -200,11 +200,23 @@ async def main():
 
     # 5b. Plan with AI loads through the controller's own AI check from firmware 1.4.4 (older firmware: plain load)
     seq = pkg["script"]["smoker_plan_cook"]["sequence"]
-    vt = next(st["if"] for st in seq if isinstance(st, dict) and "if" in st and "version(" in str(st["if"]))
+    vt = next(st["variables"]["via_controller"] for st in seq if isinstance(st, dict) and "via_controller" in st.get("variables", {}))
     for ver, want in (("1.4.4", True), ("1.10.0", True), ("1.4.3", False), (None, False)):
         hass.states.async_set("update.smoker_firmware", "off", {"installed_version": ver} if ver else {})
         got = render(vt)
         check(got is want, f"Plan with AI uses the controller's check with firmware {ver}: {got!r}")
+    # ...and then trusts the controller's rewrite (one step a line, the pit capped): no text comparison, no second
+    # check in Home Assistant's unit (1.4.4 compared the texts and replaced every plan with a safe hold).
+    rb = next(st for st in seq if isinstance(st, dict) and "variables" in st and "same" in st["variables"])["variables"]["same"]
+    replace = next(st["if"] for st in seq if isinstance(st, dict) and "if" in st and "not via_controller" in str(st["if"]))
+    ctl_text, ai_text = "name: AI\npit 400 until after 5h\nhold 225\n", "name: AI; pit 600 until after 5h; hold 225"
+    for via, want_same in ((True, True), (False, False)):
+        got = render(rb, via_controller=via, loaded=ctl_text, cut=False, program=ai_text)
+        check(got is want_same, f"read-back after loading (through the controller: {via}) counts as the same program: {got!r}")
+    got = render(replace, via_controller=True, same=True, recheck={"refused": "it sets the pit to 750°F"})
+    check(got is False, f"through the controller, Home Assistant's second check doesn't replace the plan: {got!r}")
+    got = render(replace, via_controller=False, same=False, recheck={"refused": ""})
+    check(got is True, f"older firmware: a program that changed on the way is still replaced: {got!r}")
     # 6. serve together: when each food goes on, the light-up time, and the "put it on" reminders (once per food)
     import datetime as dtm
     serve = (now + dtm.timedelta(hours=14)).replace(microsecond=0)

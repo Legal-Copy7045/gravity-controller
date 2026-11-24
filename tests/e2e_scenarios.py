@@ -343,6 +343,9 @@ async def main():
         check("ok=0" in r and "link" in r, f"an AI plan with a link is refused ({r[-120:]!r})")
         r = await fit_result("pit 225 until food1 >= 115; turbo off until food1 >= 195; hold 200")
         check("ok=1" in r and "pit 225 until food1 >= 195" in r, f"a `turbo off until` step waits at the same pit ({r[-160:]!r})")
+        r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off until food1 >= 195; hold 200")
+        check("ok=1" in r and "pit 225 until food1 >= 195" in r,
+              f"a `turbo off until` step after a sear goes back to the program's own pit ({r[-200:]!r})")
         r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off; hold 200")
         check("ok=1" in r and "turbo" not in r.split("note=")[0].lower() and "Turbo left out" in r,
               f"Turbo taken out of an AI plan leaves a program the controller can read ({r[-160:]!r})")

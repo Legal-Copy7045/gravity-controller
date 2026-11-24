@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.5] - 2026-11-24
+
+- **Plan with AI in Home Assistant works with controller 1.4.4+:** the package compared the controller's rewritten
+  program (one step a line, the pit capped) with the AI's text, took the difference for tampering and loaded a safe
+  hold instead of every plan. Through the controller's own check, the controller's version is now taken as it is.
+- AI plans: a `turbo off until …` step after a sear goes back to the program's own pit, not the AI max pit the sear
+  was given.
+- A keep-warm program restored at boot no longer outlives your own Load, Start, Stop, Pause, Resume or Skip while
+  power-cut recovery is still deciding.
+- Tests: the whole Plan with AI script through the controller's route (integration test), the read-back rule, a
+  `turbo off` step after a sear.
+
 ## [1.4.4] - 2026-11-24
 
 Fixes for the third regression run's findings (regression/RUNS.md).

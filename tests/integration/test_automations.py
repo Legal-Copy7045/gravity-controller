@@ -377,3 +377,20 @@ async def test_ai_plan_is_checked_before_loading(hass: HomeAssistant):
     assert loads[-1].startswith("name: AI plan refused; hold 200") and ("esphome", "gravity980_stop_program", {}) in calls
     note = [c for c in calls if c[1] == "smoker_notify"][-1][2]
     assert not note.get("actions") and "pit 650" in note["message"]
+
+    # Controller 1.4.4+: through its own AI check (load_ai_program). It rewrites the program (one step a line, the pit
+    # capped at its own AI max pit): Home Assistant takes that as it is (1.4.4 compared the texts, called every plan
+    # "refused after loading" and put a safe hold in its place).
+    holds.pop("override", None)
+
+    async def load_ai(call: ServiceCall):
+        calls.append((call.domain, call.service, dict(call.data)))
+        hass.states.async_set("text.smoker_program", "name: Pork butt\npit 400 until food1 >= 203\nhold 200\n")
+
+    hass.services.async_register("esphome", "gravity980_load_ai_program", load_ai)
+    hass.states.async_set("update.smoker_firmware", "off", {"installed_version": "1.4.5"})
+    got = await plan("name: Pork butt; pit 450 until food1 >= 203; hold 200")
+    assert got == "Low and slow, about 11 h.", got
+    assert [c[1] for c in calls if c[0] == "esphome"] == ["gravity980_load_ai_program"], calls
+    note = [c for c in calls if c[1] == "smoker_notify"][-1][2]
+    assert note["actions"][0]["action"] == "SMOKER_START_PROGRAM", note

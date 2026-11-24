@@ -786,9 +786,11 @@ script:
               tag: plan
           - stop: The AI's program was refused
       # From controller 1.4.4 through its own AI check too (its unit, its AI max pit); older firmware: as before.
-      - if: >
-          {{ version(state_attr('update.smoker_firmware', 'installed_version') | default('0', true) | string)
-             >= '1.4.4' }}
+      - variables:
+          via_controller: >
+            {{ version(state_attr('update.smoker_firmware', 'installed_version') | default('0', true) | string)
+               >= '1.4.4' }}
+      - if: "{{ via_controller }}"
         then:
           - action: esphome.gravity980_load_ai_program
             data:
@@ -812,20 +814,24 @@ script:
               priority: 0
               tag: plan
           - stop: The controller rejected the program
-      # Belt and braces: read back what the controller now holds (its Program text, cut to 252 characters + "..."
-      # when longer) and check that it's the program checked above, and check it again. If not, it's replaced by a
-      # harmless "hold at the lowest pit" program (loaded, not started) and nothing offers to start it.
+      # Belt and braces (older firmware): read back what the controller now holds (its Program text, cut to 252
+      # characters + "..." when longer) and check that it's the program checked above, and check it again. If not,
+      # it's replaced by a harmless "hold at the lowest pit" program (loaded, not started) and nothing offers to start
+      # it. Through the controller's own check (1.4.4+) the controller rewrites the program (one step a line, the pit
+      # capped, Turbo left out) and is the authority: no text comparison, no second check in Home Assistant's unit.
       - variables:
           loaded: "{{ states('text.smoker_program') | string }}"
           cut: "{{ loaded | length == 255 and loaded.endswith('...') }}"
-          same: "{{ (loaded[:252] == (program | string)[:252]) if cut else (loaded | trim == program | string | trim) }}"
+          same: >
+            {{ via_controller or ((loaded[:252] == (program | string)[:252]) if cut
+                                  else (loaded | trim == program | string | trim)) }}
       - action: script.smoker_check_program
         data:
           program: "{{ program if cut else loaded }}"
           explanation: "{{ explanation }}"
           max_pit: "{{ max_pit }}"
         response_variable: recheck
-      - if: "{{ not same or (recheck.refused | default('no answer') | string | length) > 0 }}"
+      - if: "{{ not via_controller and (not same or (recheck.refused | default('no answer') | string | length) > 0) }}"
         then:
           - action: esphome.gravity980_stop_program
             continue_on_error: true
