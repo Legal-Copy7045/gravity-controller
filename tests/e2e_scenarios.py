@@ -218,7 +218,7 @@ async def main():
         grill({"pit_f": None})
         grill({"pit_f": 420})
         check(await dev.wait(lambda: "Pit temperature running away" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
-                             300, "runaway"), "a 'running away' alert within 5 min")
+                             900, "runaway"), "a 'running away' alert (after the 10-min quiet window and 5 min confirmation)")
         grill({"pit_f": 259})  # settled again near the 260 target
         check(await dev.wait(lambda: bool(v("pit_stability")), 900, "stability"),
               f"pit stability reported ({v('pit_stability')!r})")
