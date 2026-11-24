@@ -657,6 +657,13 @@ script:
         description: e.g. "8 lb pork butt, done by 6pm, I'll wrap at the stall"
         selector: {text: {multiline: true}}
     sequence:
+      # "Local only (no internet)" on the controller: the AI isn't asked (it usually lives on the internet).
+      - if:
+          - condition: state
+            entity_id: switch.smoker_local_only_no_internet
+            state: "on"
+        then:
+          - stop: Local only is on
       - if:
           - condition: template
             value_template: "{{ states('sensor.smoker_program_state') in ['Running', 'Paused'] }}"
@@ -833,6 +840,13 @@ script:
     mode: single
     max_exceeded: silent
     sequence:
+      # "Local only (no internet)" on the controller: the AI isn't asked (it usually lives on the internet).
+      - if:
+          - condition: state
+            entity_id: switch.smoker_local_only_no_internet
+            state: "on"
+        then:
+          - stop: Local only is on
       # Only for a cook: one underway, or planned (serve-by within the next two days). Never on an idle grill.
       - if:
           - condition: template
@@ -1802,6 +1816,8 @@ automation:
           - condition: state
             entity_id: input_boolean.smoker_ai_advisor
             state: "on"
+          - condition: template
+            value_template: "{{ not is_state('switch.smoker_local_only_no_internet', 'on') }}"
         then:
           - action: ai_task.generate_data
             response_variable: review

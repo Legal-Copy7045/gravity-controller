@@ -197,6 +197,10 @@ class Journal:
             "stall_h": _num(s.get("stall_h"), 0, 72),
             "total_h": total_h,
             "ambient_c": _num(s.get("ambient_c"), -60, 70),
+            # How steadily the pit held its target, and the lid openings (firmware 1.4.0+; None from older ones).
+            "pit_held_pct": _num(s.get("pit_held_pct"), 0, 100),
+            "lid_opens": int(_num(s.get("lid_opens"), 0, 500) or 0) if s.get("lid_opens") is not None else None,
+            "lid_cost_min": _num(s.get("lid_cost_min"), 0, 1440),
             "items": mine,
             "photos": list(self.data["draft"].get("photos", [])) if mine else [],
             "notes": "",

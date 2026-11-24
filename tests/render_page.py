@@ -11,6 +11,7 @@ disallowed one is refused, and saves screenshots (light/dark, phone/desktop).
 
 import importlib.util
 import json
+import re
 import os
 import sys
 import time
@@ -286,6 +287,10 @@ def program_editor(pg, fr):
     # Presets: text -> steps -> text is stable, through the page (the controller's text changes as after a preset).
     for t in presets():
         set_program(pg, fr, t)
+        if re.search(r"\b(keep|turbo)\b", t):  # not shown as steps (yet): opens as text, unchanged
+            if fr.locator("#progedit .pe-step").count() or fr.input_value("#progtext") != t:
+                fails.append(f"editor: a keep/turbo preset should open as text, unchanged: {t!r}")
+            continue
         if editor_text(fr) != t or fr.locator("#progedit .pe-step").count() != t.count(";"):
             fails.append(f"editor: preset not shown as steps or changed: {t!r} -> {editor_text(fr)!r}")
         fr.click("#pe-totext")

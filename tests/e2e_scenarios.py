@@ -200,8 +200,10 @@ async def main():
         grill({"pit_f": 420})
         check(await dev.wait(lambda: "Pit temperature running away" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
                              300, "runaway"), "a 'running away' alert within 5 min")
+        grill({"pit_f": 259})  # settled again near the 260 target
+        check(await dev.wait(lambda: bool(v("pit_stability")), 900, "stability"),
+              f"pit stability reported ({v('pit_stability')!r})")
         grill({"pit_f": None})
-        check(bool(v("pit_stability")), f"pit stability reported ({v('pit_stability')!r})")
 
         print("scenario 5: food reaches its target, then the probe is pulled: one 'done' alert")
         grill({"food1_f": 205})

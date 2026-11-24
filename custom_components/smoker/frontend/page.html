@@ -1731,7 +1731,7 @@ function renderJournal(force) {
     const d = new Date(e.ended * 1000), w = e.weight_kg ? (isF() ? fmt(e.weight_kg * 2.2046, 1) + ' lb' : fmt(e.weight_kg, 1) + ' kg') : '';
     return `<div class="je"><div class="h"><span class="t">${esc(e.profile || 'Cook')}${w ? ' · ' + w : ''}</span>
         <span class="small muted">${dayLabel(d)} · ${esc(e.probe_name || '')}</span></div>
-      <div class="chips"><span class="chip">${fmt(e.total_h, 1)} h total</span>${e.stall_h ? `<span class="chip warn">stall ${fmt(e.stall_h, 1)} h</span>` : ''}
+      <div class="chips"><span class="chip">${fmt(e.total_h, 1)} h total</span>${e.stall_h ? `<span class="chip warn">stall ${fmt(e.stall_h, 1)} h</span>` : ''}${e.pit_held_pct != null ? `<span class="chip" title="Pit within 10°F of its target">pit held ${fmt(e.pit_held_pct)}%</span>` : ''}${e.lid_opens ? `<span class="chip">lid ${e.lid_opens}×${e.lid_cost_min >= 1 ? ' (+' + fmt(e.lid_cost_min) + ' min)' : ''}</span>` : ''}
         ${e.pit_c != null ? `<span class="chip hot">pit ${fmt(cToU(e.pit_c))}${esc(TU())}</span>` : ''}${e.ambient_c != null ? `<span class="chip">outside ${fmt(cToU(e.ambient_c))}${esc(TU())}</span>` : ''}
         ${e.wrapped ? '<span class="chip">wrapped</span>' : ''}${(s => s && s.status === 'shared' ? '<span class="chip ok">shared</span>' : s && share.enabled && s.status === 'declined' ? `<button class="btn" style="min-height:26px;padding:2px 8px" data-act="shareOne" data-a="${esc(e.id)}">Share</button>` : '')(shareFor(e.id))}</div>
       ${(e.items || []).length ? `<div class="small">${e.items.map(i => esc(i.name) + (i.weight_lb ? ' (' + fmt(i.weight_lb, 1) + ' lb)' : '')).join(' · ')}</div>` : ''}
