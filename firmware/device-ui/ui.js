@@ -27,16 +27,22 @@ function start() {
   const app = doc.querySelector('esp-app'); if (app) app.remove();
   doc.body.insertAdjacentHTML('afterbegin', ICONS + `<div class="wrap">
   <div class="topbar" id="topbar" role="status" aria-live="polite"></div>
-  <header class="hero wide"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
+  <header class="hero wide" id="s-pit"><div class="htxt" id="hero"></div><div class="pic grillpic" id="grillpic" aria-label="The grill, live"></div></header>
   <section class="sect" id="s-start" hidden><div class="card" id="start"></div></section>
-  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-now">${ic('now')}Now</a><a href="#s-food">${ic('food')}Food</a><a href="#s-pit">${ic('grill')}Pit &amp; program</a><a href="#s-fuel">${ic('hopper')}Charcoal</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-ai" id="ainav" hidden>${ic('flame')}AI</a><a href="#s-plan">${ic('plan')}Plan</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
+  <nav class="secbar" id="secbar" aria-label="Sections"><a href="#s-now">${ic('now')}Now</a><a href="#s-food">${ic('food')}Food</a><a href="#s-fuel">${ic('hopper')}Charcoal</a><a href="#s-chart">${ic('chart')}Chart</a><a href="#s-ai" id="ainav" hidden>${ic('flame')}AI</a><a href="#s-cook">${ic('plan')}Cook</a><a href="#s-journal">${ic('book')}Journal</a><a href="#s-setup">${ic('setup')}Setup</a></nav>
   <section class="sect" id="s-now" data-sect="now"><div class="kpis" id="kpis"></div></section>
   <section class="sect" id="s-food" data-sect="food"><h2 class="sec">${ic('food')}Food <small id="foodsub"></small></h2><div class="grid" id="food"></div></section>
-  <section class="sect" id="s-pit" data-sect="pit"><h2 class="sec">${ic('grill')}Pit &amp; program</h2><div class="grid g-1-2"><div class="card" id="pit"></div><div class="card" id="prog"></div></div></section>
   <section class="sect" id="s-fuel" data-sect="charcoal"><h2 class="sec">${ic('hopper')}Charcoal</h2><div class="card" id="fuel"></div></section>
   <section class="sect" id="s-chart" data-sect="chart"><h2 class="sec">${ic('chart')}Temperatures <span class="seg" id="range"></span></h2><div class="card"><div class="chart" id="chart"></div><div class="legend" id="legend"></div></div></section>
   <section class="sect" id="s-ai" data-sect="ai" hidden><h2 class="sec">${ic('flame')}AI pitmaster <small id="aisub"></small></h2><div class="card" id="aiadv"></div></section>
-  <section class="sect" id="s-plan" data-sect="plan"><h2 class="sec">${ic('plan')}Plan</h2><div class="grid g-pair"><div class="card"><div id="plan"></div><div id="aiplan"></div></div><div class="card" id="ailabel" hidden></div></div>
+  <section class="sect" id="s-cook" data-sect="cook"><h2 class="sec">${ic('plan')}Cook <small id="cooksub"></small></h2><div class="cookgrid">
+    <div class="card ck-what" id="cookfood"><h3><span><span class="ck-n" aria-hidden="true">1</span>What's cooking</span></h3><div id="ailabel"></div><div class="slots" id="ckslots"></div></div>
+    <div class="card ck-build" id="prog"><h3 id="proghead"></h3>
+      <div class="ctabs" role="tablist" aria-label="How to build the cook"><button type="button" role="tab" id="ctab-ai" aria-controls="aiplan" data-a="cooktab" data-t="ai">Plan with AI</button><button type="button" role="tab" id="ctab-build" aria-controls="cookbuild" data-a="cooktab" data-t="build">Build it yourself</button></div>
+      <div id="aiplan" role="tabpanel" aria-labelledby="ctab-ai"></div>
+      <div id="cookbuild" role="tabpanel" aria-labelledby="ctab-build"><div id="progfrom"></div><div id="progpreset"></div><div id="progedit" class="pe"></div></div>
+      <div id="progstat" class="ck-stat"></div><div id="progbtns"></div></div>
+    <div class="card ck-when" id="plan"></div></div>
     <input id="aicam" type="file" accept="image/*" capture="environment" hidden><input id="aifile" type="file" accept="image/*" hidden></section>
   <section class="sect" id="s-journal" data-sect="journal"><h2 class="sec">${ic('book')}Cook journal</h2><div class="grid g-2-1"><div class="card" id="journal"></div><div class="card" id="share"></div></div></section>
   <section class="sect" id="s-setup" data-sect="setup"><h2 class="sec">${ic('setup')}Setup</h2><h3 class="sub">Grill connection</h3><div class="grid g-pair"><div class="card" id="conn"></div><div class="card" id="sources"></div></div>
@@ -197,7 +203,6 @@ function stepOf(name, dflt) { const e = E('number', name), s = e && parseFloat(e
 const armed = {};
 const ACT = {
   pit(el) { const c = cur('Pit target'); if (c == null) return toast('Pit target not known yet'); setNum('Pit target', c + Number(el.dataset.d) * stepOf('Pit target', isF() ? 5 : 2)); },
-  pitset() { const v = parseFloat($('pitin').value); if (!Number.isFinite(v)) return toast('Type a temperature'); delete $('pitin').dataset.dirty; setNum('Pit target', v); },
   power(el) {
     const want = el.dataset.on === '1', now = Date.now();
     const second = powerArm && powerArm.on === want && now - powerArm.t < 10000;
@@ -261,6 +266,9 @@ const ACT = {
     if (await aiPost('ai/plan', { request: q })) delete f.dataset.dirty;
   },
   // The controller loads it in its main loop: ask again a moment later for what happened.
+  cooktab(el) { showTab(el.dataset.t); const t = $('ctab-' + el.dataset.t); if (t) t.focus({ preventScroll: true }); },
+  // The AI's program in the step editor, to check or change before Load (nothing is sent yet).
+  aiedit() { const pl = AI && AI.plan; if (!pl || !pl.program) return; fromAI = true; progEd.open(pl.program, true); showTab('build', true); },
   async aiload() {
     if (!await aiPost('ai/load-program', { at: (AI && AI.plan && AI.plan.at) || 0 })) return;
     toast('Loading the program…');
@@ -270,7 +278,8 @@ const ACT = {
       if (AI.load && AI.load !== 'loading') break;
     }
     renderAI();
-    toast(AI && AI.load === 'loaded' ? 'Program loaded: check it under Pit & program, then Start' : (AI && AI.load && AI.load !== 'loading' ? AI.load : 'No answer from the controller yet'));
+    if (AI && AI.load === 'loaded') { fromAI = true; progEd.open(); showTab('build', true); }
+    toast(AI && AI.load === 'loaded' ? 'Program loaded: check the stages, then Start' : (AI && AI.load && AI.load !== 'loading' ? AI.load : 'No answer from the controller yet'));
   },
   async aiassign(el) {
     const sel = $('aip-' + el.dataset.i), n = sel ? sel.value : 1;
@@ -402,7 +411,7 @@ function wire() {
     else if (t.dataset.c === 'number') { delete t.dataset.dirty; setNum(n, parseFloat(t.value)); }
   });
   doc.addEventListener('input', e => { if (e.target.id) e.target.dataset.dirty = '1'; });
-  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { pitin: 'pitset', heropit: 'heroset', timerin: 'timer', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
+  doc.addEventListener('keydown', e => { if (e.key !== 'Enter') return; const k = { heropit: 'heroset', timerin: 'timer', ipin: 'ip', pinin: 'login', pin2: 'pinset', geoq: 'geo', aimodel: 'aimodel' }[e.target.id]; if (k) ACT[k](); });
   doc.addEventListener('focusout', () => setTimeout(render, 0));  // redraw what was held back while a field had focus
   // (the section bar marks the section in view: SECT)
 }
@@ -443,7 +452,17 @@ function heroTarget(u, tgt, L) {
     <button class="btn pri" data-a="heroset"${dis}>Set</button>
     ${E('switch', 'Turbo') ? `<button class="btn turbo${on(E('switch', 'Turbo')) ? ' on' : ''}" data-a="toggle" data-n="Turbo" aria-pressed="${on(E('switch', 'Turbo'))}" title="The panel's Turbo: the fan runs flat out"${dis}>Turbo</button>` : ''}
     ${powerBtn(dis)}
-    ${T('Grill power') ? `<p class="small hero-msg warn-text" role="status">${esc(T('Grill power'))}</p>` : ''}</div>`;
+    ${T('Grill power') ? `<p class="small hero-msg warn-text" role="status">${esc(T('Grill power'))}</p>` : ''}
+</div>`;
+}
+// What the old "Pit & program" card added: the target the grill reports, how steady the pit held and the last lid
+// opening; and, while it isn't cooking, that the grill takes a new target only then. One line (it wraps on phones).
+function heroFacts(u, tgt, active) {
+  const rep = S('Pit target (reported)') ?? S('Pit target reported'), f = [];
+  if (rep != null) f.push(`<span class="hf"><span class="muted">The grill reports</span> ${fmt(rep)}${esc(u)}${active ? '' : ' <span class="muted">(it takes a new target only while it\'s cooking)</span>'}</span>`);
+  if (T('Pit stability')) f.push(`<span class="hf adv"><span class="muted">Held steady</span> ${esc(T('Pit stability'))}</span>`);
+  if (T('Last lid opening')) f.push(`<span class="hf adv"><span class="muted">Last lid opening</span> ${esc(T('Last lid opening'))}</span>`);
+  return f.length ? `<p class="small hero-facts">${f.join('')}</p>` : '';
 }
 // Turn the grill on/off: never one tap. The first tap arms it (the controller waits 10 s for a second press of the
 // same button), the button then says so, and a second tap does it.
@@ -468,7 +487,9 @@ function render() {
       ${on(E('binary_sensor', 'Lid')) ? '<span class="chip warn">Lid open</span>' : ''}
       ${on(E('binary_sensor', 'Grill alarm')) ? '<span class="chip bad">Grill alarm</span>' : ''}</div>
     ${L.why ? `<p class="why">${esc(L.why)}</p>` : ''}
-    ${heroTarget(u, tgt, L)}`);
+    ${heroTarget(u, tgt, L)}
+    ${T('Program status') ? `<p class="small hero-st adv">${esc(T('Program status'))}</p>` : ''}
+    ${heroFacts(u, tgt, active)}`);
   // Status strip, first on the page: connected? controlling? anything wrong?
   const conn = on(E('binary_sensor', 'Grill connected')), via = T('Grill link');
   const al = [], add = (c, t) => al.push(`<span class="chip ${c}">${esc(t)}</span>`);
@@ -488,7 +509,7 @@ function render() {
   if (tb) tb.className = 'topbar' + (!ok || al.some(x => /chip bad/.test(x)) ? ' bad' : L.cls !== 'ok' || al.length ? ' warn' : '');
   put('topbar', `<span class="conn"><i class="dot ${!ok ? 'off' : L.cls === 'ok' ? 'on' : 'stale'}"></i>${!ok ? ic('off') : bothLinks() ? ic('wifi') + ic('bt') : ic(via === 'wifi' ? 'wifi' : via === 'bluetooth' ? 'bt' : 'grill')}${head}</span>
     <span class="alerts">${al.join('') || (ok ? '<span class="chip ok">All good</span>' : '')}</span>`);
-  renderGrill(u, pit, tgt); renderPit(u, pit, tgt); renderFood(u); renderFuel(); renderProg(); renderSetup(u); renderKpis();
+  renderGrill(u, pit, tgt); renderFood(u); renderFuel(); renderProg(); renderSlots(); renderSetup(u); renderKpis();
   placeSections();
 }
 // Right now: the numbers that aren't on the picture or the food cards (as on Home Assistant's page).
@@ -549,12 +570,12 @@ function renderGrill(u0, pit, tgt) {
   if (photo && /^https?:\/\//i.test(photo) && photoOk(photo) && !photoBad[photo]) {
     const pin = (x, y, go, html, cls) => `<a class="pin ${cls || ''}" style="left:${x}%;top:${y}%" data-go="${go}" tabindex="0" role="link">${html}</a>`;
     put('grillpic', `<div class="gphoto"><img src="${esc(photo)}" alt="The grill" onerror="window.__gxPhotoBad(this.getAttribute('src'))">
-      ${pin(50, 17, foods.length ? 's-food' : 's-pit', `<span class="m">${fmt(pit)}${deg}${esc(u)}</span>${tgt != null ? `<small>→ ${fmt(tgt)}${deg}</small>` : ''}`, 'big')}
-      ${lid ? pin(50, 6, 's-pit', 'Lid open', 'warn') : ''}
-      ${pin(14.5, 35, 's-pit', `<span class="m">${tgt != null ? fmt(tgt) + deg : '---'}</span> <span style="color:${lk[1]}">● ${esc(lk[0].replace('via ', ''))}</span>`)}
+      ${pin(50, 17, foods.length ? 's-food' : 'hero', `<span class="m">${fmt(pit)}${deg}${esc(u)}</span>${tgt != null ? `<small>→ ${fmt(tgt)}${deg}</small>` : ''}`, 'big')}
+      ${lid ? pin(50, 6, 'hero', 'Lid open', 'warn') : ''}
+      ${pin(14.5, 35, 'hero', `<span class="m">${tgt != null ? fmt(tgt) + deg : '---'}</span> <span style="color:${lk[1]}">● ${esc(lk[0].replace('via ', ''))}</span>`)}
       <span class="shelf">${foods.map(({ i, t }) => `<a class="pin" data-go="s-food" tabindex="0" role="link" style="border-color:${FOODC[i - 1]}"><span class="m">F${i} ${fmt(t)}${deg}</span></a>`).join('')}</span>
       ${pin(82, 30, 's-fuel', `<span class="m">${lvl == null ? '?' : fmt(lvl) + '%'}</span>${hrs != null ? `<small>${fmt(hrs, 1)} h</small>` : ''}`)}
-      ${pin(82, 58, 's-pit', `<span class="${fan ? 'spin' : ''}">✱</span> fan ${fan ? 'on' : 'off'}`)}</div>`);
+      ${pin(82, 58, 'hero', `<span class="${fan ? 'spin' : ''}">✱</span> fan ${fan ? 'on' : 'off'}`)}</div>`);
     return;
   }
   put('grillpic', `<svg viewBox="0 0 1000 640" role="img" aria-label="Grill: pit ${fmt(pit)} degrees, target ${fmt(tgt)}, charcoal ${lvl == null ? 'unknown' : fmt(lvl) + ' percent'}">
@@ -571,7 +592,7 @@ function renderGrill(u0, pit, tgt) {
   <rect x="272" y="512" width="452" height="20" rx="3" fill="var(--steel2)"/><rect x="272" y="512" width="452" height="20" fill="url(#mesh)"/>
   <rect x="262" y="578" width="40" height="10" rx="3" fill="var(--steel2)"/><circle cx="282" cy="600" r="12" fill="var(--steel)"/>
   <circle cx="718" cy="586" r="36" fill="var(--steel)"/><circle cx="718" cy="586" r="24" fill="none" stroke="var(--steel2)" stroke-width="4"/><circle cx="718" cy="586" r="7" fill="var(--steel2)"/>
-  <g class="hot" tabindex="0" role="link" data-go="s-pit" aria-label="Controller: pit target ${fmt(tgt)}">
+  <g class="hot" tabindex="0" role="link" data-go="hero" aria-label="Controller: pit target ${fmt(tgt)}">
     <rect class="hl" x="40" y="230" width="210" height="58" rx="4" fill="var(--steel)" stroke="transparent"/>
     <rect x="40" y="222" width="210" height="12" fill="var(--steel2)"/><rect x="40" y="222" width="210" height="12" fill="url(#mesh)"/>
     <rect x="62" y="238" width="166" height="42" rx="4" fill="var(--panel)"/>
@@ -580,7 +601,7 @@ function renderGrill(u0, pit, tgt) {
     <text x="168" y="266" text-anchor="middle" font-size="20" font-weight="600" fill="#7dfca0">${tgt != null ? fmt(tgt) : '---'}</text>
     <text x="145" y="318" text-anchor="middle" font-size="22" class="lbl" fill="${lk[1]}" font-weight="700">● ${lk[0]}</text>
   </g>
-  <g class="hot" tabindex="0" role="link" data-go="${foods.length ? 's-food' : 's-pit'}" aria-label="Pit ${fmt(pit)} degrees">
+  <g class="hot" tabindex="0" role="link" data-go="${foods.length ? 's-food' : 'hero'}" aria-label="Pit ${fmt(pit)} degrees">
     <rect class="hl" x="245" y="66" width="525" height="190" rx="95" fill="var(--steel)" stroke="transparent"/>
     <rect x="300" y="150" width="415" height="100" fill="url(#heat)" opacity="${(0.15 + 0.75 * heat).toFixed(2)}"/>
     <rect x="270" y="58" width="475" height="150" rx="72" fill="var(--lid)"/>
@@ -605,29 +626,13 @@ function renderGrill(u0, pit, tgt) {
   </g>
   <rect x="785" y="414" width="120" height="132" rx="5" fill="var(--steel)"/>
   <text x="845" y="494" text-anchor="middle" font-size="34" font-weight="800" fill="none" stroke="var(--steel2)" stroke-width="2" class="lbl">980</text>
-  <g class="hot" tabindex="0" role="link" data-go="s-pit" aria-label="Fan ${fan ? 'running' : 'off'}">
+  <g class="hot" tabindex="0" role="link" data-go="hero" aria-label="Fan ${fan ? 'running' : 'off'}">
     <rect class="hl" x="905" y="446" width="50" height="70" rx="5" fill="var(--steel2)" stroke="transparent"/>
     <g class="fan${fan ? ' on' : ''}"><circle cx="930" cy="481" r="17" fill="var(--steel)"/>
       <path d="M930 481 L930 466 A15 15 0 0 1 943 474 Z M930 481 L945 486 A15 15 0 0 1 936 496 Z M930 481 L920 492 A15 15 0 0 1 916 474 Z" fill="${fan ? 'var(--page)' : 'var(--muted)'}"/></g>
     <text x="930" y="544" text-anchor="middle" font-size="20" class="lbl" fill="var(--ink-2)" font-weight="600">fan ${fan ? 'on' : 'off'}</text>
   </g>
 </svg>`);
-}
-
-function renderPit(u, pit, tgt) {
-  const n = E('number', 'Pit target');
-  const fan = E('binary_sensor', 'Fan');
-  put('pit', `${n ? `<div class="step big-step"><button class="btn" data-a="pit" data-d="-1" aria-label="Lower pit target">−</button>
-      <span class="val" id="pitval">${fmt(tgt)}${esc(u)}</span><button class="btn" data-a="pit" data-d="1" aria-label="Raise pit target">+</button></div>
-    <div class="row"><span>Set the pit to</span><span class="entry"><input id="pitin" type="number" inputmode="numeric" min="${esc(n.min_value || '')}" max="${esc(n.max_value || '')}" step="${esc(n.step || 1)}" placeholder="${fmt(tgt)}" aria-label="Pit target"><span class="muted">${esc(u)}</span><button class="btn pri" data-a="pitset">Set</button></span></div>` : '<p class="note">This controller has no pit target to set.</p>'}
-    <div class="kpis" style="margin-top:10px">
-      <div class="kpi"><span class="l">Pit now</span><span class="v">${fmt(pit)}<small>${esc(u)}</small></span></div>
-      <div class="kpi"><span class="l">Grill reports</span><span class="v">${fmt(S('Pit target (reported)') ?? S('Pit target reported'))}<small>${esc(u)}</small></span></div>
-      ${fan ? `<div class="kpi"><span class="l">Fan</span><span class="v">${on(fan) ? 'On' : 'Off'}${on(E('binary_sensor', 'Fan turbo')) ? '<small>turbo</small>' : ''}</span></div>` : ''}
-      <div class="kpi"><span class="l">Lid</span><span class="v">${on(E('binary_sensor', 'Lid')) ? 'Open' : 'Closed'}</span></div></div>
-    ${T('Pit stability') ? row('Held steady', esc(T('Pit stability'))) : ''}
-    ${T('Last lid opening') ? row('Last lid opening', esc(T('Last lid opening'))) : ''}
-    <p class="note">The grill only takes a new target while it is cooking (started from its own panel).</p>`);
 }
 
 // The kitchen timer (the Char-Griller app's timer): set minutes and Start; a notification says when it's done.
@@ -736,7 +741,7 @@ const PG = (() => {
     return Math.round(f ? t.n * 9 / 5 + 32 : (t.n - 32) * 5 / 9);
   }
   function step(text, f) {
-    const t = tokenize(text); let i = 0, pit = null, hold = false, shut = false, note = '', any = false;
+    const t = tokenize(text); let i = 0, pit = null, hold = false, shut = false, note = '', any = false, keep = null, turbo = null;
     while (t[i].k === 'W' && t[i].t !== 'until') {
       const w = t[i].t;
       if (w === 'pit' || w === 'hold' || w === 'set') {
@@ -746,16 +751,28 @@ const PG = (() => {
       } else if (w === 'notify' || w === 'alert') {
         i++; if (t[i].k !== 'S') throw 'notify needs a quoted message';
         note = t[i].t; i++;
+      } else if (w === 'keep') {  // keep foodN T: the controller moves the pit to keep that food at T (and stays, like hold)
+        i++; const p = food(t[i]); if (p == null) throw 'keep needs a food probe and a temperature, e.g. keep food1 150';
+        i++; if (t[i].k === 'W' && t[i].t === 'at') i++;
+        const v = temp(t[i], f); if (v == null) throw "expected a temperature after 'keep'";
+        keep = { probe: p, temp: v }; i++;
+      } else if (w === 'turbo') {
+        i++; if (!(t[i].k === 'W' && (t[i].t === 'on' || t[i].t === 'off'))) throw 'turbo needs on or off';
+        turbo = t[i].t === 'on'; i++;
       } else if (w === 'shutdown' || w === 'stop' || w === 'off') { shut = true; i++; } else if (w === 'then') { i++; continue; } else throw "unknown action '" + w + "'";
       any = true;
     }
-    if (!any) throw 'step has no action (pit / hold / notify / shutdown)';
+    if (!any) throw 'step has no action (pit / hold / keep / turbo / notify / shutdown)';
     if (note.includes('"')) throw U('a notification with double quotes');
     if (shut && pit != null) throw U('a pit temperature and shutdown in one step');
-    const st = { kind: shut ? 'shutdown' : hold ? 'hold' : pit != null ? 'pit' : 'notify', temp: pit == null ? '' : String(pit), notify: note, until: [] };
+    if (keep && (pit != null || shut)) throw U("'keep' with a pit temperature or shutdown in one step");
+    // turbo: on during this step or not (parse() checks 'turbo on/off' against the step before: the text says only changes)
+    const st = { kind: shut ? 'shutdown' : keep ? 'keep' : hold ? 'hold' : pit != null ? 'pit' : 'notify', temp: keep ? String(keep.temp) : pit == null ? '' : String(pit),
+      probe: keep ? keep.probe : 1, turbo: false, notify: note, done: '', until: [] };
+    if (turbo != null) st.tset = turbo;
     if (t[i].k === 'E') return st;
     if (!(t[i].k === 'W' && t[i].t === 'until')) throw "expected 'until'";
-    if (st.kind === 'hold' || st.kind === 'shutdown') throw U("'until' on a " + (hold ? 'hold' : 'shutdown') + ' step');
+    if (st.kind === 'hold' || st.kind === 'shutdown' || st.kind === 'keep') throw U("'until' on a " + st.kind + ' step');
     i++;
     for (;;) {
       if (t[i].k !== 'W') throw "expected a condition after 'until'/'or'";
@@ -795,11 +812,11 @@ const PG = (() => {
       if (t[i].k === 'W' && t[i].t === 'or') { i++; continue; }
       break;
     }
-    // A notification after the conditions ("until food1 >= 165 notify ..."): sent when they're met. The controller
-    // runs it; the step editor can't show it, so such a program opens as text.
+    // A notification after the conditions ("until food1 >= 165 notify ..."): sent when they're met (the step ends).
     if (t[i].k === 'W' && (t[i].t === 'notify' || t[i].t === 'alert')) {
       i++; if (t[i].k !== 'S') throw 'notify needs a quoted message';
-      i++; if (t[i].k === 'E') throw U('a notification when a step ends');
+      st.done = t[i].t; i++;
+      if (st.done.includes('"')) throw U('a notification with double quotes');
     }
     if (t[i].k !== 'E') throw "unexpected '" + t[i].t + "' at end of step";
     return st;
@@ -822,6 +839,16 @@ const PG = (() => {
       n++;
       try { prog.steps.push(step(s, f)); } catch (e) { return e && e.u ? { unsupported: 'step ' + n + ': ' + e.u } : { error: 'step ' + n + ': ' + e }; }
     }
+    // Turbo stays as the last 'turbo on/off' left it: each step shows whether it's on (a repeat isn't shown as steps).
+    let on = false;
+    for (let k = 0; k < prog.steps.length; k++) {
+      const s = prog.steps[k];
+      if ('tset' in s) {
+        if (s.tset === on) return { unsupported: 'step ' + (k + 1) + ": 'turbo " + (on ? 'on' : 'off') + "' when it already is" };
+        on = s.tset; delete s.tset;
+      }
+      s.turbo = on;
+    }
     return prog.steps.length ? { prog } : { error: 'program has no steps' };
   }
   const numTxt = v => { const n = parseFloat(v); return Number.isFinite(n) ? String(n) : '?'; };
@@ -834,15 +861,20 @@ const PG = (() => {
     const h = parseFloat(c.held);
     return s + (HELD[c.type] && h > 0 ? ' for ' + durTxt(h) : '');
   }
-  // Steps -> text, in the presets' style ("name: X; pit 250 until food1 >= 165 for 30m; hold 200 notify \"Done\"").
+  // Steps -> text, in the presets' style ("name: X; pit 250 until food1 >= 165 for 30m; hold 200 notify \"Done\"") and the
+  // controller's order (format_program): pit/hold, keep, turbo (only where it changes), notify, shutdown, until, notify.
   function format(p, sep) {
     const out = []; if ((p.name || '').trim()) out.push('name: ' + p.name.trim());
+    let on = false;
     p.steps.forEach(s => {
-      const a = [];
+      const a = [], conds = (s.kind === 'pit' || s.kind === 'notify') && s.until.length;
       if (s.kind === 'pit' || s.kind === 'hold') a.push(s.kind + ' ' + numTxt(s.temp));
+      if (s.kind === 'keep') a.push('keep food' + (s.probe || 1) + ' ' + numTxt(s.temp));
+      if (!!s.turbo !== on) { on = !!s.turbo; a.push(on ? 'turbo on' : 'turbo off'); }
       if ((s.notify || '').trim()) a.push('notify "' + s.notify.trim() + '"');
       if (s.kind === 'shutdown') a.push('shutdown');
-      if (s.kind === 'pit' || s.kind === 'notify') s.until.forEach((c, k) => a.push((k ? 'or ' : 'until ') + cond(c)));
+      if (conds) s.until.forEach((c, k) => a.push((k ? 'or ' : 'until ') + cond(c)));
+      if (conds && (s.done || '').trim()) a.push('notify "' + s.done.trim() + '"');
       out.push(a.join(' '));
     });
     return out.join(sep || '; ');
@@ -859,10 +891,13 @@ const PG = (() => {
         const v = parseFloat(s.temp);
         if (!Number.isFinite(v)) add('set the pit temperature'); else if (v < lo || v > hi) add('the pit range is ' + lo + '–' + hi + u);
       }
+      if (s.kind === 'keep' && !Number.isFinite(parseFloat(s.temp))) add('set the food temperature to keep');
       if (s.kind === 'hold' && !last) add('"Hold at" must be the last step (the program stays there)');
+      if (s.kind === 'keep' && !last) add('"Keep food at" must be the last step (the program stays there)');
       if (s.kind === 'shutdown' && !last) add('"Shut down" ends the program: the steps after it never run');
-      if (s.kind === 'notify' && !(s.notify || '').trim()) add('write the notification');
-      if ((s.notify || '').includes('"')) add("the notification can't contain double quotes");
+      const turboChange = !!s.turbo !== !!(i && p.steps[i - 1].turbo);
+      if (s.kind === 'notify' && !(s.notify || '').trim() && !turboChange && !(s.until.length && (s.done || '').trim())) add('write the notification');
+      if ((s.notify || '').includes('"') || (s.done || '').includes('"')) add("the notification can't contain double quotes");
       if (s.kind === 'pit' || s.kind === 'notify') s.until.forEach(c => {
         const v = parseFloat(c.value);
         if (TEMP[c.type] && !Number.isFinite(v)) add('a condition needs a temperature');
@@ -876,7 +911,7 @@ const PG = (() => {
 
   // ---- the step editor. env: el() container, isF(), unit(), labels() [6 probe names], text() the controller's
   // program text (null = unknown), max() text limit (0 = none), load(text) -> Promise (false = failed), toast(msg).
-  const KINDS = [['pit', 'Set pit to'], ['hold', 'Hold at'], ['notify', 'Notify only'], ['shutdown', 'Shut down']];
+  const KINDS = [['pit', 'Set pit to'], ['hold', 'Hold at'], ['keep', 'Keep food at'], ['notify', 'Notify only'], ['shutdown', 'Shut down']];
   const CONDS = [['gte', 'Food probe reaches'], ['lte', 'Food probe drops to'], ['pit', 'Pit reaches'], ['done', 'Probe done'],
     ['after', 'Time in step'], ['at', 'Clock time'], ['stall_start', 'Stall starts'], ['stall_end', 'Stall ends']];
   const h = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -966,17 +1001,21 @@ const PG = (() => {
           <button type="button" class="btn pe-x" data-pe-act="del-cond"${at} aria-label="${h('Remove ' + CN.toLowerCase())}">×</button></div>`;
       }).join('') : '';
       const hint = s.kind === 'hold' ? 'Stays at this temperature until you stop the program.' : s.kind === 'shutdown' ? 'Ends the program.'
+        : s.kind === 'keep' ? 'The controller moves the pit to keep this food at the temperature, until you stop the program.'
         : !s.until.length ? (i === n - 1 ? 'No condition: the program ends here and the pit stays at this temperature.' : 'No condition: moves straight on to the next step.') : '';
       return `<li class="pe-step" role="group" aria-label="${N}">
         <div class="pe-sh"><span class="pe-n" aria-hidden="true">${i + 1}</span>
           <select id="${id}-kind" data-pe="kind" data-i="${i}" aria-label="${N} action">${opt(KINDS, s.kind)}</select>
           ${s.kind === 'pit' || s.kind === 'hold' ? tempIn('temp', s.temp, N + ' pit temperature', ` min="${lo}" max="${hi}" step="${f ? 5 : 1}"`) : ''}
+          ${s.kind === 'keep' ? `<select id="${id}-kp" data-pe="kprobe" data-i="${i}" aria-label="${N} food to keep">${opt(labels.map((l, j) => [j + 1, l]), s.probe || 1)}</select><span class="pe-at">at</span>${tempIn('temp', s.temp, N + ' food temperature', ' min="0" step="1"')}` : ''}
+          ${s.kind !== 'shutdown' || s.turbo ? `<label class="pe-turbo" title="The grill's Turbo: the fan runs flat out (a sear, a fast heat-up)"><input id="${id}-turbo" type="checkbox" data-pe="turbo" data-i="${i}"${s.turbo ? ' checked' : ''}>Turbo (full fan)</label>` : ''}
 </div>
         ${cs}
         <div class="pe-sf">${conds ? `<button type="button" class="btn pe-add" id="${id}-addc" data-pe-act="add-cond" data-i="${i}">${s.until.length ? '+ or…' : '+ until…'}</button>` : ''}
           <span class="pe-tools"><button type="button" class="btn pe-x" id="${id}-up" data-pe-act="up" data-i="${i}" aria-label="Move ${N.toLowerCase()} up"${i ? '' : ' disabled'}>↑</button><button type="button" class="btn pe-x" id="${id}-dn" data-pe-act="down" data-i="${i}" aria-label="Move ${N.toLowerCase()} down"${i < n - 1 ? '' : ' disabled'}>↓</button><button type="button" class="btn pe-x" data-pe-act="del-step" data-i="${i}" aria-label="Remove ${N.toLowerCase()}">×</button></span></div>
         ${hint ? `<p class="pe-hint">${h(hint)}</p>` : ''}
-        <input id="${id}-note" class="pe-note" type="text" data-pe="notify" data-i="${i}" value="${h(s.notify)}" maxlength="120" placeholder="${s.kind === 'notify' ? 'Notification text' : 'Notify when this step starts (optional)'}" aria-label="${N} notification"></li>`;
+        <input id="${id}-note" class="pe-note" type="text" data-pe="notify" data-i="${i}" value="${h(s.notify)}" maxlength="120" placeholder="${s.kind === 'notify' ? 'Notification text' : 'Notify when this step starts (optional)'}" aria-label="${N} notification">
+        ${conds && s.until.length ? `<input id="${id}-done" class="pe-note" type="text" data-pe="done" data-i="${i}" value="${h(s.done)}" maxlength="120" placeholder="Notify when it ends (optional)" aria-label="${N} notification when it ends">` : ''}</li>`;
     }
     function simpleHTML() {
       const v = S.simple || (S.simple = preset('pork')), f = env.isF(), u = env.unit(), [lo, hi] = range(f), labels = env.labels();
@@ -991,7 +1030,7 @@ const PG = (() => {
       else stages = line('Smoke at', T('t1', 'Smoke at', 1) + ' until it reaches ' + T('d1', 'Smoke until the meat reaches')) +
         line('Then', `<select id="ps-wrap" data-ps="wrap" aria-label="Wrap">${opt(WRAPS, v.wrap)}</select>`) + line('And finish at', T('t2', 'Finish at', 1) + ' until it reaches ' + T('d2', 'Done at'));
       return `<div class="ps">
-        ${line('What\'s cooking', `<select id="ps-cut" data-ps="cut" aria-label="What's cooking">${opt(COOKS.map(x => [x[0], x[1]]), v.cut)}</select>`)}
+        ${line('Food', `<select id="ps-cut" data-ps="cut" aria-label="Food">${opt(COOKS.map(x => [x[0], x[1]]), v.cut)}</select>`)}
         ${kind === '321' ? '' : line('Probe', `<select id="ps-probe" data-ps="probe" aria-label="Probe">${opt(labels.map((l, j) => [j + 1, l]), v.probe)}</select>`)}
         ${stages}
         ${line('When it\'s done', `<select id="ps-after" data-ps="after" aria-label="When it's done">${opt([['hold', 'Keep it warm at ' + (f ? '200' : '93') + u], ['off', 'Turn the grill off']], v.after)}</select>`)}
@@ -1037,7 +1076,7 @@ const PG = (() => {
         if (t.tagName === 'SELECT') return draw(true, t.id);
         if (t.dataset.pe === 'temp') {  // keep the pit inside the controller's range
           const s = S.prog.steps[+t.dataset.i], v = parseFloat(t.value), [lo, hi] = range(env.isF());
-          if (s && Number.isFinite(v) && (v < lo || v > hi)) { s.temp = t.value = String(Math.min(hi, Math.max(lo, v))); env.toast('The pit range is ' + lo + '–' + hi + env.unit()); }
+          if (s && s.kind !== 'keep' && Number.isFinite(v) && (v < lo || v > hi)) { s.temp = t.value = String(Math.min(hi, Math.max(lo, v))); env.toast('The pit range is ' + lo + '–' + hi + env.unit()); }
         }
         soft();
       });
@@ -1046,7 +1085,12 @@ const PG = (() => {
       const k = t.dataset.pe, s = S.prog.steps[+t.dataset.i], c = s && s.until[+t.dataset.k], v = t.value;
       S.touched = true; S.sent = null;
       if (k === 'raw') S.raw = v; else if (k === 'name') S.prog.name = v;
-      else if (s && k === 'kind') s.kind = v; else if (s && k === 'temp') s.temp = v; else if (s && k === 'notify') s.notify = v;
+      else if (s && k === 'kind') {  // a food temperature for keep, a pit temperature for the others
+        if (v === 'keep' && s.kind !== 'keep') { s.temp = env.isF() ? '150' : '66'; s.probe = s.probe || 1; }
+        else if (s.kind === 'keep' && (v === 'pit' || v === 'hold')) s.temp = env.isF() ? '225' : '107';
+        s.kind = v;
+      } else if (s && k === 'temp') s.temp = v; else if (s && k === 'notify') s.notify = v; else if (s && k === 'done') s.done = v;
+      else if (s && k === 'turbo') s.turbo = !!t.checked; else if (s && k === 'kprobe') s.probe = +v;
       else if (c && k === 'ctype') { const cat = x => TEMP[x] ? 'temp' : x; if (cat(c.type) !== cat(v)) c.value = ''; if (v === 'after' && c.type !== 'after') c.unit = 'h'; c.type = v; }
       else if (c && k === 'cprobe') c.probe = +v; else if (c && k === 'cval') c.value = v; else if (c && k === 'cunit') c.unit = v; else if (c && k === 'cheld') c.held = v;
     }
@@ -1064,7 +1108,7 @@ const PG = (() => {
       S.touched = true; S.sent = null;
       if (a === 'add-step') {
         const lastPit = [...P].reverse().find(s => s.kind === 'pit' && s.temp !== '');
-        const at = P.length && /hold|shutdown/.test(P[P.length - 1].kind) ? P.length - 1 : P.length;
+        const at = P.length && /hold|keep|shutdown/.test(P[P.length - 1].kind) ? P.length - 1 : P.length;
         P.splice(at, 0, { kind: 'pit', temp: lastPit ? lastPit.temp : env.isF() ? '225' : '107', notify: '', until: [{ type: 'gte', probe: 1, value: '', unit: 'h', held: '' }] });
         return draw(true, 'pe-s' + at + '-temp');
       }
@@ -1096,14 +1140,23 @@ const PG = (() => {
       const f = focusId && document.getElementById(focusId);
       if (f && !f.disabled) f.focus({ preventScroll: true });
     }
-    return { render() { sync(); draw(false); }, text, state: S, load };
+    // Show a program as steps: the AI's plan (`edited`: not the controller's yet, Load sends it) or, with no text, the
+    // controller's own (leaving the simple form).
+    function open(t, edited) {
+      if (t == null) { const srv = env.text(); t = srv == null ? (S.src || '') : srv; }
+      S.mode = 'steps'; S.userText = false; adopt(t);
+      S.touched = !!edited; S.sent = null; if (!edited) S.src = t;
+      draw(true);
+    }
+    return { render() { sync(); draw(false); }, text, state: S, load, open };
   }
   return { parse, format, check, editor, range };
 })();
 // ==== END cook program editor (shared block) ====
 
-// Cook program card: status and preset (redrawn live), the step editor (shared block above: its own redraws, so
-// edits survive live updates) and the run buttons. Programs load through the "Program" text (255 characters at most).
+// Cook → "Build the cook": two ways to the same stages. "Plan with AI" (the controller's AI writes a program: renderAI)
+// and "Build it yourself" (presets and the step editor: shared block above, its own redraws, so edits survive live
+// updates). The AI's program opens in the step editor. Programs load through the "Program" text (255 characters at most).
 const progEd = PG.editor({
   el: () => $('progedit'), isF, unit: TU, toast,
   labels: () => [1, 2, 3, 4, 5, 6].map(i => { const pr = str(E('select', 'Food ' + i + ' protein')); return 'Food ' + i + (pr && !/^Auto/i.test(pr) ? ' · ' + pr : ''); }),
@@ -1111,22 +1164,49 @@ const progEd = PG.editor({
   max: () => { const e = E('text', 'Program'); return (e && parseInt(e.max_length, 10)) || 255; },
   load: t => post('text', 'Program', 'set', { value: t }),
 });
+let cookTab = null, fromAI = false;  // the tab picked here (remembered in this browser); the stages came from the AI
+try { cookTab = localStorage.getItem('smoker-cook-tab'); } catch (e) { /* private window: not remembered */ }
+const aiReady = () => !!(AI && LOCAL && AI.provider && AI.key);
+function showTab(t, open) {
+  cookTab = t; try { localStorage.setItem('smoker-cook-tab', t); } catch (e) { /* not remembered */ }
+  if (!open) fromAI = false;
+  renderProg();
+}
 function renderProg() {
   const st = T('Program state') || 'Idle', status = T('Program status'), err = T('Program error'), txt = E('text', 'Program');
   const run = st === 'Running', paused = st === 'Paused', known = !!E('text_sensor', 'Program state');
   const b = (name, label, ok, pri, confirm) => E('button', name) ? `<button class="btn${armed[name] ? ' arm' : pri ? ' pri' : ''}" data-a="press" data-n="${esc(name)}"${confirm ? ' data-confirm="1"' : ''}${known && !ok ? ' disabled' : ''}>${armed[name] ? 'Tap again to ' + label.toLowerCase() : label}</button>` : '';
-  if (!$('progedit')) $('prog').innerHTML = '<h3 id="proghead"></h3><div id="progstat"></div><details class="more" id="progfold"><summary>Edit the program</summary><div id="progedit" class="pe"></div></details><div id="progbtns"></div>';
-  // The editor opens only when there's no program yet; a loaded or running one shows as its status line (as on Home
-  // Assistant's page). "Edit the program" opens it.
-  const fold = $('progfold'), live = run || paused;
-  if (fold && fold._live === undefined) { fold._live = live; fold.open = !live && !str(txt); }
-  else if (fold && fold._live !== live) { fold._live = live; if (live) fold.open = false; }
-  put('proghead', `<span>Cook program</span><span class="chip ${run ? 'hot' : paused ? 'warn' : ''}">${esc(st)}</span>`);
-  put('progstat', `${status ? `<p style="margin:0 0 6px">${esc(status)}</p>` : ''}${err ? `<p class="err" role="alert">The controller says: ${esc(err)}</p>` : ''}
-    ${E('select', 'Program preset') ? `<div class="row"><span>Preset</span>${sel('select', 'Program preset')}</div>` : ''}
+  const tab = cookTab === 'ai' || cookTab === 'build' ? cookTab : aiReady() && !str(txt) && !run && !paused ? 'ai' : 'build';
+  [['ai', 'aiplan'], ['build', 'cookbuild']].forEach(([k, id]) => {
+    const t = $('ctab-' + k); if (t) { t.setAttribute('aria-selected', String(tab === k)); t.tabIndex = tab === k ? 0 : -1; }
+    const pane = $(id); if (pane) pane.hidden = tab !== k;
+  });
+  put('proghead', `<span><span class="ck-n" aria-hidden="true">2</span>Build the cook</span><span class="chip ${run ? 'hot' : paused ? 'warn' : ''}">${esc(st)}</span>`);
+  put('progfrom', fromAI ? '<p class="note ck-from">The AI\'s plan, as stages: change them if you like, then Load and Start. <button class="btn" data-a="cooktab" data-t="ai">See the plan</button></p>' : '');
+  put('progpreset', E('select', 'Program preset') ? `<div class="row ck-preset"><span>Start from a preset</span>${sel('select', 'Program preset')}</div>` : '');
+  put('progstat', `${status ? `<p style="margin:0">${esc(status)}</p>` : ''}${err ? `<p class="err" role="alert">The controller says: ${esc(err)}</p>` : ''}
     ${txt ? '' : '<p class="note">This controller has no "Program" text to load programs into: load them from Home Assistant.</p>'}`);
   if (txt) progEd.render(); else if ($('progedit').innerHTML) { $('progedit').innerHTML = ''; $('progedit')._h = ''; }
   put('progbtns', `<div class="btns">${b('Start program', 'Start', !run && !paused, !progEd.state.touched)}${b('Pause program', 'Pause', run)}${b('Resume program', 'Resume', paused, true)}${b('Skip program step', 'Skip step', run || paused, false, true)}${b('Stop program', 'Stop', run || paused, false, true)}</div>`);
+  const P = LOCAL && LOCAL.plan, sum = [run || paused ? 'program ' + st.toLowerCase() : str(txt) ? 'program loaded' : '',
+    P && P.serve_by && P.serve_by * 1000 > Date.now() ? 'serve by ' + atClock(P.serve_by) : ''].filter(Boolean).join(' · ');
+  const cs = $('cooksub'); if (cs && cs.textContent !== sum) cs.textContent = sum;
+  SECT.want('cook', false, sum || 'plan the next cook');
+}
+// What's cooking: each food slot's probe, protein and weight (as on its Food card). Slots in use first (Food 1, a
+// reading, a protein or a weight); the others fold away.
+function renderSlots() {
+  const used = [], spare = [];
+  for (let i = 1; i <= 6; i++) {
+    const L = 'Food ' + i, protE = E('select', L + ' protein'); if (!protE) continue;
+    const t = S(L + ' temperature'), w = E('number', L + ' weight'), prot = str(protE), src = str(E('select', L + ' probe'));
+    const where = [src, t != null ? fmt(t) + TU() : 'no reading'].filter(Boolean).join(' · ');
+    const row = `<div class="slot"><i class="sw" style="background:${FOODC[i - 1]}" aria-hidden="true"></i>
+      <span class="slot-n"><b>${esc(L)}</b><span class="small muted">${esc(where)}</span></span>
+      <span class="slot-f">${sel('select', L + ' protein')}${w ? `<span class="pe-unit"><input id="cw${i}" type="number" inputmode="decimal" step="0.1" min="0" data-c="number" data-n="${L} weight" value="${num(w) ?? ''}" aria-label="${L} weight"><span>${esc(w.uom || (isF() ? 'lb' : 'kg'))}</span></span>` : ''}</span></div>`;
+    (i === 1 || t != null || (prot && !/^Auto/i.test(prot)) || (num(w) || 0) > 0 ? used : spare).push(row);
+  }
+  put('ckslots', used.join('') + (spare.length ? `<details class="more" data-k="moreslots"><summary>More food slots (${spare.length})</summary>${spare.join('')}</details>` : ''));
 }
 
 // Grill Wi-Fi setup over Bluetooth (the controller sends what the Char-Griller app would). The password is typed
@@ -1647,17 +1727,18 @@ function serveFoods() {
 }
 function renderPlan() {
   const L = LOCAL, P = L && L.plan;
-  if (!P) { put('plan', '<p class="note">Planning needs firmware 0.2.29 or later.</p>'); return; }
+  const head = '<h3><span><span class="ck-n" aria-hidden="true">3</span>When</span>' + (P && P.serve_by ? '<span class="chip ok">planned</span>' : '') + '</h3>';
+  if (!P) { put('plan', head + '<p class="note">Planning needs firmware 0.2.29 or later.</p>'); return; }
   const sv = P.serve_by ? new Date(P.serve_by * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
   const profiles = [1, 2, 3, 4, 5, 6].map(i => T('Food ' + i + ' protein') || str(E('select', 'Food ' + i + ' protein'))).filter(Boolean);
   const like = COMMUNITY && COMMUNITY.groups ? COMMUNITY.groups.filter(g => profiles.includes(g.cut)).slice(0, 3) : [];
   // Serve together: when each food goes on (the controller sends a notification at each).
   const sp = P.serve_by && P.serve_by * 1000 > Date.now() - 3600e3 ? serveTogether(P.serve_by * 1000, P.rest_min, 0, serveFoods()) : null;
-  put('plan', `<h3><span>Plan a cook</span>${P.serve_by ? '<span class="chip ok">planned</span>' : ''}</h3>
+  put('plan', `${head}
     <div class="row"><span>Serve by</span><span class="entry"><input id="servein" type="datetime-local" value="${esc(sv)}" aria-label="Serve by"></span></div>
     <div class="row"><span>Rest</span><span class="entry"><input id="restin" type="number" min="0" max="360" step="5" value="${P.rest_min}" style="width:70px" aria-label="Rest minutes"><span class="muted">min</span></span></div>
     <div class="btns"><button class="btn pri" data-a="plansave">Save</button>${P.serve_by ? '<button class="btn" data-a="planclear">Clear</button>' : ''}</div>
-    ${P.serve_by ? row('Light the grill by', P.light_by ? `${atClock(P.light_by)} <span class="muted small">(${P.light_by <= P.now ? 'now' : 'in ' + mins((P.light_by - P.now) / 60)})</span>` : '<span class="muted small">set the cut and weight on a Food card for an estimate</span>') : ''}
+    ${P.serve_by ? row('Light the grill by', P.light_by ? `${atClock(P.light_by)} <span class="muted small">(${P.light_by <= P.now ? 'now' : 'in ' + mins((P.light_by - P.now) / 60)})</span>` : '<span class="muted small">set the cut and weight (What\'s cooking) for an estimate</span>') : ''}
     ${P.est_min ? row('Cooking time', '~' + mins(P.est_min) + (P.rest_min ? ' + ' + P.rest_min + ' min rest' : '')) : ''}
     ${sp && sp.foods.length ? `<h3 style="margin-top:12px"><span>Ready together</span><span class="muted small">${sp.foods.length} food${sp.foods.length > 1 ? 's' : ''}</span></h3><div id="servetl">${serveHTML(sp, Date.now())}</div>` : ''}
     ${P.serve_by ? `<p class="note">You'll get a notification when it's time to light the grill${sp && sp.foods.length > 1 ? ' and when each food should go on' : ''}.</p>` : '<p class="note">Pick when you want to eat: the controller works out when to light the grill from its estimate and reminds you.</p>'}
@@ -1845,7 +1926,7 @@ function renderStart() {
 }
 
 // ---------------------------------------------------------------- the AI on the controller (stage 3)
-let AI = null, aiPoll = 0;
+let AI = null, aiPoll = 0, aiPlanSeen;  // (the AI plan last seen: undefined until the AI is first read)
 const AI_PROVIDERS = [['', 'Off'], ['gemini', 'Google Gemini'], ['claude', 'Anthropic Claude'], ['openai', 'OpenAI']];
 const AI_KEYS = { gemini: 'aistudio.google.com → Get API key', claude: 'console.anthropic.com → API keys', openai: 'platform.openai.com → API keys' };
 async function loadAI() {
@@ -1877,8 +1958,11 @@ function renderAI() {
   const ready = !!(A && L && A.provider && A.key);
   if (sect) sect.hidden = !ready;
   if (nav) nav.hidden = !ready;
-  const lab = $('ailabel'); if (lab) { lab.hidden = !ready; lab.parentNode.classList.toggle('g-pair', ready); }
-  if (!ready) put('aiplan', '');
+  if (!ready) {
+    const why = !A ? 'needs firmware 0.2.31 or later' : 'needs the AI: set it up under Setup → AI (your own key)';
+    put('aiplan', `<p class="note" style="margin-top:0">Plan with AI ${why}. Or build the cook yourself.</p>`);
+    put('ailabel', `<p class="note" style="margin-top:0">Pick each food's cut and weight below${A ? ' (reading package labels needs the AI: Setup → AI)' : ''}.</p>`);
+  }
   if (!A || !L) { put('aisetup', L ? '<h3>AI pitmaster</h3><p class="note">The AI on the controller needs firmware 0.2.31 or later.</p>' : ''); return; }
   const busy = A.busy || {}, au = L.authed;
   const lockNote = what => `<p class="note">Unlock this page to ${what}. <button class="btn" data-a="unlock">Unlock</button></p>`;
@@ -1903,17 +1987,19 @@ function renderAI() {
     <div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise || A.cook_on === false ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>
     ${au ? `<div class="row"><span>Every ${fmt(A.interval)} min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg${A.auto ? ' on' : ''}" data-a="aiauto" data-v="${A.auto ? 0 : 1}" role="switch" aria-checked="${!!A.auto}" aria-label="Ask the AI every ${fmt(A.interval)} minutes during a cook"></button></div>` : ''}`);
   const pl = A.plan;
-  put('aiplan', `<h3 class="split"><span>Plan with AI</span>${pl ? aiWhen(pl.at) : ''}</h3>
+  // A new plan: its stages open in the step editor (not loaded yet).
+  if (pl && pl.at && pl.program && aiPlanSeen !== undefined && pl.at !== aiPlanSeen) { fromAI = true; progEd.open(pl.program, true); cookTab = 'build'; setTimeout(renderProg, 0); }
+  aiPlanSeen = (pl && pl.at) || aiPlanSeen || 0;
+  put('aiplan', `<p class="note" style="margin-top:0">Say what you're cooking, how much, and when you want to eat. The AI writes the stages; you can change them before you start.${pl ? ' ' + aiWhen(pl.at) : ''}</p>
     <textarea id="aiplanin" rows="2" maxlength="600" style="width:100%;box-sizing:border-box" placeholder="e.g. 9 lb pork shoulder, eating at 6 pm Saturday, 8 people" aria-label="Describe the cook"></textarea>
     <div class="btns"><button class="btn pri" data-a="aiplan"${busy.plan ? ' disabled' : ''}>${busy.plan ? 'Planning…' : 'Plan it'}</button></div>
     ${pl ? `<p style="margin:8px 0 6px">${esc(pl.summary || '')}</p>${pl.light_at ? row('Light the grill', esc(pl.light_at)) : ''}${aiRecs(pl.steps)}
       ${pl.program_note ? `<p class="note">Adjusted for the grill: ${esc(pl.program_note)}.</p>` : ''}${pl.program_error ? `<p class="err">${esc(pl.program_error)}</p>` : ''}
       ${pl.program ? `<details class="more" data-k="aiprog"><summary>Its cook program</summary><pre class="small" style="white-space:pre-wrap;margin:6px 0">${esc(pl.program)}</pre></details>
-        ${au ? '<div class="btns"><button class="btn" data-a="aiload">Load as program</button></div>' : ''}` : ''}` : ''}`);
+        <div class="btns"><button class="btn" data-a="aiedit">Edit the stages</button>${au ? '<button class="btn pri" data-a="aiload">Load as program</button>' : ''}</div>` : ''}` : ''}`);
   const items = (A.labels && Array.isArray(A.labels.items)) ? A.labels.items : [];
   const slots = [1, 2, 3, 4, 5, 6].filter(i => E('select', 'Food ' + i + ' protein'));
-  put('ailabel', `<h3><span>What's cooking</span>${A.labels ? aiWhen(A.labels.at) : ''}</h3>
-    <p class="note" style="margin-top:0">A photo of the package label: the AI reads the cut and weight, and you set them on a Food slot in one tap.</p>
+  put('ailabel', `<p class="note" style="margin-top:0">Scan the package label: the AI reads the cut and weight, and you set them on a food slot in one tap. Or pick them below.${A.labels ? ' ' + aiWhen(A.labels.at) : ''}</p>
     <div class="btns"><button class="btn pri" data-a="aipick" data-k="cam"${busy.label ? ' disabled' : ''}>${busy.label ? 'Reading…' : 'Take a photo'}</button><button class="btn" data-a="aipick" data-k="file"${busy.label ? ' disabled' : ''}>Choose a photo</button></div>
     ${items.map((it, i) => `<div class="row"><span><b>${esc(it.name || it.profile || 'Item')}</b><br><span class="muted small">${esc(it.profile || '')}${typeof it.weight_lb === 'number' ? ' · ' + fmt(it.weight_lb, 1) + ' lb' : ''}</span></span>
       ${au && slots.length ? `<span class="entry"><select id="aip-${i}" aria-label="Food slot for ${esc(it.name || 'this item')}">${slots.map(n => `<option value="${n}"${n === Math.min(i + 1, slots[slots.length - 1]) ? ' selected' : ''}>Food ${n}</option>`).join('')}</select><button class="btn" data-a="aiassign" data-i="${i}">Set</button></span>` : ''}</div>`).join('')}`);
@@ -1936,8 +2022,9 @@ const SECT = (() => {
     const m = localStorage.getItem(MODE_KEY);
     basic = m ? m === 'basic' : !localStorage.getItem(KEY);  // new here: Basic; already using the page: Advanced
   } catch (e) { /* private window: Advanced */ }
-  const IDLE = ['plan', 'now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
-  const COOKING = ['now', 'food', 'pit', 'charcoal', 'chart', 'ai', 'plan', 'journal', 'setup'];
+  // (the pit and the program's status are in the header, above the sections; the cook program is in Cook)
+  const IDLE = ['cook', 'now', 'food', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
+  const COOKING = ['now', 'food', 'cook', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
   let mine = {};
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};

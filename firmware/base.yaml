@@ -830,15 +830,15 @@ cook_assistant:
     # Reverse sear: smoke low to 10-15 °F under the pull temperature, then the hottest pit with Turbo (full fan) for
     # the sear; pulled a few degrees under the final doneness (it carries over while it rests).
     - name: Steak, reverse sear (rare)
-      program: "name: Steak (rare); pit 225 until food1 >= 105; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 118; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+      program: "name: Steak (rare); pit 225 until food1 >= 105; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 118; hold 200 turbo off notify \"Steak is done: pull it and rest 5-10 min\""
     - name: Steak, reverse sear (medium-rare)
-      program: "name: Steak (medium-rare); pit 225 until food1 >= 115; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 128; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+      program: "name: Steak (medium-rare); pit 225 until food1 >= 115; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 128; hold 200 turbo off notify \"Steak is done: pull it and rest 5-10 min\""
     - name: Steak, reverse sear (medium)
-      program: "name: Steak (medium); pit 225 until food1 >= 125; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 137; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+      program: "name: Steak (medium); pit 225 until food1 >= 125; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 137; hold 200 turbo off notify \"Steak is done: pull it and rest 5-10 min\""
     - name: Steak, reverse sear (medium-well)
-      program: "name: Steak (medium-well); pit 225 until food1 >= 135; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 145; turbo off hold 200 notify \"Steak is done: pull it and rest 5-10 min\""
+      program: "name: Steak (medium-well); pit 225 until food1 >= 135; pit 700 turbo on notify \"Sear: keep the lid closed\" until food1 >= 145; hold 200 turbo off notify \"Steak is done: pull it and rest 5-10 min\""
     - name: Burgers (hot & fast)
-      program: "name: Burgers; pit 450 turbo on until food1 >= 155; turbo off hold 200 notify \"Burgers are done (160°F after resting)\""
+      program: "name: Burgers; pit 450 turbo on until food1 >= 155; hold 200 turbo off notify \"Burgers are done (160°F after resting)\""
     # Hold mode: the pit moves to keep Food 1 at 150 °F (the grill's lowest pit is 200 °F, so it creeps up slowly).
     - name: Keep Food 1 warm (150°F)
       program: "name: Keep warm; keep food1 150 notify \"Keeping Food 1 at 150°F\""

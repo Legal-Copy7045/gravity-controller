@@ -58,6 +58,8 @@ STATES = dict([
     st("sensor.smoker_grill_bluetooth_signal", "-67", "Smoker Grill Bluetooth signal", unit_of_measurement="dBm"),
     st("sensor.smoker_grill_wi_fi_signal", "-44", "Smoker Grill Wi-Fi signal", unit_of_measurement="dBm"),
     st("binary_sensor.smoker_lid", "off", "Smoker Lid"),
+    st("sensor.smoker_pit_stability", "Within 10°F of target 92% of the time · average 4°F off · lid opened 1 time (+12 min)", "Smoker Pit stability"),
+    st("sensor.smoker_last_lid_opening", "Open 3 min; pit back after 9 min; about +12 min on the finish", "Smoker Last lid opening"),
     st("binary_sensor.smoker_fan", "on", "Smoker Fan"),
     st("binary_sensor.smoker_grill_alarm", "off", "Smoker Grill alarm"),
     st("binary_sensor.smoker_cook_active", "on", "Smoker Cook active"),
@@ -259,14 +261,13 @@ def editor_text(fr):
 
 
 def program_editor(pg, fr):
-    """The step editor in the Cook program card."""
+    """The step editor in Cook → Build the cook → Build it yourself."""
     fails = []
     fr.evaluate("document.activeElement && document.activeElement.blur()")
-    # The fixture's program is running, so the editor starts folded away: open it.
-    if fr.evaluate("!!document.getElementById('progfold') && !document.getElementById('progfold').open"):
-        fr.click("#progfold > summary")
-    else:
-        fails.append("program editor: expected it folded while the program runs")
+    # A program is loaded (and running): "Build it yourself" is the tab shown.
+    if fr.evaluate("document.getElementById('ctab-build').getAttribute('aria-selected')") != "true" or not fr.is_visible("#progedit"):
+        fails.append("program editor: Build it yourself not shown while a program is loaded")
+        fr.click("#ctab-build")
     fails += simple_form(pg, fr)
     fr.click("#pe-advanced")
     # The fixture's program as steps.
@@ -284,13 +285,13 @@ def program_editor(pg, fr):
         fails.append("editor: program name not shown")
     if "°F" not in fr.inner_text("#progedit .pe-step"):
         fails.append("editor: unit missing")
-    # Presets: text -> steps -> text is stable, through the page (the controller's text changes as after a preset).
-    for t in presets():
+    # Presets: text -> steps -> text is stable, through the page (the controller's text changes as after a preset),
+    # keep (hold mode) and turbo included.
+    ps = presets()
+    if not any(re.search(r"\bkeep food\d", t) for t in ps) or not any("turbo on" in t for t in ps):
+        fails.append("editor: expected keep and turbo presets in firmware/base.yaml")
+    for t in ps:
         set_program(pg, fr, t)
-        if re.search(r"\b(keep|turbo)\b", t):  # not shown as steps (yet): opens as text, unchanged
-            if fr.locator("#progedit .pe-step").count() or fr.input_value("#progtext") != t:
-                fails.append(f"editor: a keep/turbo preset should open as text, unchanged: {t!r}")
-            continue
         if editor_text(fr) != t or fr.locator("#progedit .pe-step").count() != t.count(";"):
             fails.append(f"editor: preset not shown as steps or changed: {t!r} -> {editor_text(fr)!r}")
         fr.click("#pe-totext")
@@ -299,6 +300,7 @@ def program_editor(pg, fr):
         fr.click("#pe-tosteps")
         if editor_text(fr) != t or fr.locator("#progedit .pe-step").count() != t.count(";"):
             fails.append(f"editor: back to steps changed the preset: {editor_text(fr)!r}")
+    fails += keep_turbo_notify(pg, fr)
     # Add a step (it goes before the final hold) and fill it in.
     set_program(pg, fr, FIXTURE_PROGRAM)
     fr.click("#pe-addstep")
@@ -380,6 +382,104 @@ def program_editor(pg, fr):
     return fails
 
 
+def step_fields(fr):
+    return fr.evaluate("""() => [...document.querySelectorAll('#progedit .pe-step')].map(li => [li.querySelector('[data-pe=kind]').value,
+        (li.querySelector('[data-pe=temp]') || {}).value || '', !!(li.querySelector('[data-pe=turbo]') || {}).checked,
+        (li.querySelector('[data-pe=done]') || {}).value || '', (li.querySelector('[data-pe=kprobe]') || {}).value || ''])""")
+
+
+def keep_turbo_notify(pg, fr):
+    """Keep (hold mode), Turbo per step and a notification when a step ends: shown as steps, and text <-> steps exact."""
+    fails = []
+    kt = 'name: Sear; pit 700 turbo on until food1 >= 125 notify "Pull it"; keep food2 140'
+    set_program(pg, fr, kt)
+    # (Turbo stays on into the keep step: the text turns it off only where it says so)
+    if step_fields(fr) != [["pit", "700", True, "Pull it", ""], ["keep", "140", True, "", "2"]] or editor_text(fr) != kt:
+        fails.append(f"keep/turbo: as steps {step_fields(fr)} -> {editor_text(fr)!r}")
+    if "Keep food at" not in fr.inner_text("#pe-s1-kind") or "Turbo (full fan)" not in fr.inner_text("#progedit .pe-step"):
+        fails.append("keep/turbo: the step kind or the Turbo box isn't labelled")
+    fr.uncheck("#pe-s0-turbo")
+    fr.check("#pe-s1-turbo")
+    if editor_text(fr) != 'name: Sear; pit 700 until food1 >= 125 notify "Pull it"; keep food2 140 turbo on':
+        fails.append(f"keep/turbo: Turbo moved to the keep step {editor_text(fr)!r}")
+    fr.check("#pe-s0-turbo")
+    fr.uncheck("#pe-s1-turbo")
+    fr.fill("#pe-s0-done", "Pull it now")
+    fr.select_option("#pe-s1-kp", "1")
+    fr.fill("#pe-s1-temp", "150")
+    fr.evaluate("document.activeElement.blur()")
+    want = 'name: Sear; pit 700 turbo on until food1 >= 125 notify "Pull it now"; keep food1 150 turbo off'
+    if editor_text(fr) != want:
+        fails.append(f"keep/turbo: edited {editor_text(fr)!r}")
+    # The text it writes reads back the same (Edit as text, then back to steps).
+    fr.click("#pe-totext")
+    if fr.input_value("#progtext") != want:
+        fails.append(f"keep/turbo: as text {fr.input_value('#progtext')!r}")
+    fr.click("#pe-tosteps")
+    if editor_text(fr) != want or step_fields(fr)[1] != ["keep", "150", False, "", "1"]:
+        fails.append(f"keep/turbo: back to steps {step_fields(fr)}")
+    # A keep step must be last; a new step goes before it.
+    fr.click("#pe-addstep")
+    if step_fields(fr)[2][0] != "keep" or step_fields(fr)[1][0] != "pit":
+        fails.append(f"keep/turbo: a new step should go before the keep step {step_fields(fr)}")
+    fr.click("#pe-s2-up")
+    errs = fr.inner_text("#progedit .pe-errs") if fr.locator("#progedit .pe-errs").count() else ""
+    if '"Keep food at" must be the last step' not in errs:
+        fails.append(f"keep/turbo: keep not last not flagged: {errs!r}")
+    fr.evaluate("progEd.state.touched = false; progEd.state.sent = null; document.activeElement && document.activeElement.blur()")
+    # Text the editor can't show as steps (a repeated turbo): text, unchanged.
+    set_program(pg, fr, "pit 250 turbo on until after 1h; pit 275 turbo on")
+    if fr.locator("#progtext").count() != 1 or fr.input_value("#progtext") != "pit 250 turbo on until after 1h; pit 275 turbo on":
+        fails.append("keep/turbo: a repeated 'turbo on' should open as text, unchanged")
+    fr.evaluate("progEd.state.touched = false; progEd.state.userText = false")
+    set_program(pg, fr, FIXTURE_PROGRAM)
+    return fails
+
+
+def hero_and_cook(pg, fr):
+    """The header carries what "Pit & program" had (lid, held steady, last lid opening, the program's state and status);
+    that section and Plan are gone; Cook has what's cooking, Plan with AI / Build it yourself and When."""
+    fails = []
+    if fr.locator("[data-sect=pit], [data-sect=plan], #pitcard, #secbar a[href='#plan']").count():
+        fails.append("the old Pit & program / Plan sections are still on the page")
+    hf = fr.inner_text("#herofacts")
+    if "Held steady" not in hf or "Within 10°F of target 92%" not in hf or "Last lid opening" not in hf or "Open 3 min" not in hf:
+        fails.append(f"header: held steady / last lid opening {hf!r}")
+    if "Program running" not in fr.inner_text("#chips") or "Step " not in fr.inner_text("#gstatus"):
+        fails.append(f"header: program state/status {fr.inner_text('#chips')!r} {fr.inner_text('#gstatus')!r}")
+    if "Lid open" in fr.inner_text("#chips"):
+        fails.append("header: lid open while it's closed")
+    set_state(pg, "binary_sensor.smoker_lid", "on")
+    if "Lid open" not in fr.inner_text("#chips"):
+        fails.append("header: no Lid open chip")
+    set_state(pg, "binary_sensor.smoker_lid", "off")
+    # What's cooking: one row per food, with its probe, protein and weight.
+    slots = fr.evaluate("[...document.querySelectorAll('#scancard .slot')].map(e => e.innerText.replace(/\\s+/g, ' '))")
+    if len(slots) != 2 or "Food 1" not in slots[0] or "Grill probe 1" not in slots[0] or "Food 3" not in slots[1] or "Home Assistant" not in slots[1]:
+        fails.append(f"what's cooking: slots {slots}")
+    if fr.evaluate("document.querySelector('#scancard .slot select').value") != "Pork shoulder":
+        fails.append("what's cooking: Food 1's protein not shown")
+    n0 = len(pg.evaluate("window.calls"))
+    fr.evaluate("""() => { const i = document.querySelector('#scancard .slot input[type=number]'); i.value = '9'; i.dispatchEvent(new Event('change', {bubbles: true})); }""")
+    time.sleep(0.3)
+    if not any(c[0] == "number" and c[2].get("entity_id") == "number.smoker_food_1_weight" and c[2].get("value") == 9 for c in pg.evaluate("window.calls")[n0:]):
+        fails.append("what's cooking: the weight isn't set")
+    # Build the cook: Plan with AI and Build it yourself are tabs over one stages list.
+    fr.click("#ctab-ai")
+    if not fr.is_visible("#plantext") or fr.is_visible("#progedit") or fr.evaluate("document.getElementById('ctab-ai').getAttribute('aria-selected')") != "true":
+        fails.append("build the cook: the Plan with AI tab doesn't show the request box")
+    fr.click("#aiplanbox button:has-text('Edit the stages')")
+    time.sleep(0.2)
+    if not fr.is_visible("#progedit") or fr.locator("#progedit .pe-step").count() != 3 or fr.is_visible("#plantext"):
+        fails.append(f"build the cook: Edit the stages didn't open the program as steps ({fr.locator('#progedit .pe-step').count()})")
+    if fr.locator("#progbtns button:has-text('Start')").count() != 1 or "Pork shoulder (Texas crutch)" not in fr.inner_text("#progpreset"):
+        fails.append("build the cook: run buttons or presets missing")
+    w = fr.inner_text("#plancard")
+    if "Serve by" not in w or "Light the grill by" not in w or "Slice when" not in w or "Rest timer" not in w:
+        fails.append(f"when: {w[:200]!r}")
+    return fails
+
+
 def basic_mode(fr):
     """The Basic / Advanced switch: Basic shows only the Char-Griller app's essentials (food, chart, setup; temperature
     and target on the food cards; the timer), Advanced everything; the choice is remembered."""
@@ -400,8 +500,8 @@ def basic_mode(fr):
     if fr.evaluate("localStorage.getItem('smoker-mode')") != "basic":
         fails.append("basic mode: choice not remembered")
     fr.click('#modesw button[data-mode="advanced"]'); time.sleep(0.3)
-    if fr.evaluate("document.querySelector('[data-sect=pit]').offsetParent === null"):
-        fails.append("advanced mode: Pit & program still hidden")
+    if fr.evaluate("document.querySelector('[data-sect=cook]').offsetParent === null"):
+        fails.append("advanced mode: Cook still hidden")
     return fails
 
 
@@ -654,7 +754,6 @@ def main():
                     "scan": fr.inner_text("#scancard"),
                     "journal": fr.inner_text("#journal"),
                     "sources": fr.inner_html("#sources"),
-                    "pitcard": fr.inner_text("#pitcard"),
                     "controlcard": fr.inner_text("#controlcard"),
                     "diag": fr.inner_html("#diag"),
                     "heronext": fr.inner_text("#heronext"),
@@ -684,8 +783,8 @@ def main():
                     failures.append(f"{scheme}/{name}: experimental chips per card {exp}")
                 if "Experimental" not in checks["fuel"] or "Experimental" not in checks["recs"]:
                     failures.append(f"{scheme}/{name}: experimental label missing: fuel {checks['fuel'][:200]!r} recs {checks['recs'][:120]!r}")
-                if "Controlling the grill over Wi-Fi" not in checks["pitcard"]:
-                    failures.append(f"{scheme}/{name}: control row: {checks['pitcard'][:200]!r}")
+                if "the app controls it" not in checks["topbar"] or "Controlling the grill over Wi-Fi" not in checks["controlcard"]:
+                    failures.append(f"{scheme}/{name}: control row: {checks['topbar'][:200]!r}")
                 if "Automatic updates" not in checks["diag"] or 'data-a="switch.smoker_automatic_updates"' not in checks["diag"]:
                     failures.append(f"{scheme}/{name}: no Automatic updates toggle in the controller card")
                 if "Control over Bluetooth" not in checks["controlcard"] or "Bridge enabled" not in checks["controlcard"]:
@@ -734,7 +833,7 @@ def main():
                 if "Wi-Fi + Bluetooth" not in tb or fr.evaluate("document.querySelectorAll('#topbar .ic.via').length") != 2:
                     failures.append(f"{scheme}/{name}: both links at the top: {tb!r}")
                 order = fr.evaluate("[...document.querySelectorAll('.sect')].map(e => e.id).join(',')")
-                if order != "now,food,pit,charcoal,temps,ai,plan,journal-sec,setup":
+                if order != "now,food,cook,charcoal,temps,ai,journal-sec,setup":
                     failures.append(f"{scheme}/{name}: section order while cooking: {order}")
                 idle = fr.evaluate("""async () => {
                     const hs = window.parent.__smHass, keep = hs.states, st = Object.assign({}, keep);
@@ -745,7 +844,7 @@ def main():
                     const o = [...document.querySelectorAll('.sect')].map(e => e.id).join(',');
                     const bar = [...document.querySelectorAll('#secbar a')].map(a => a.getAttribute('href')).join(',');
                     hs.states = keep; window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return [o, bar]; }""")
-                if not idle[0].startswith("plan,now,food") or not idle[1].startswith("#plan,#now"):
+                if not idle[0].startswith("cook,now,food,charcoal") or not idle[1].startswith("#cook,#now,#food,#charcoal"):
                     failures.append(f"{scheme}/{name}: idle order: {idle}")
                 if "FOOD 1" in fr.inner_text("#kpis").upper():
                     failures.append(f"{scheme}/{name}: food repeated in Right now")
@@ -787,7 +886,7 @@ def main():
                     return r; }""")
                 if not photo["img"] or photo["pins"] < 6 or "251" not in photo["text"] or "62%" not in photo["text"] or not photo["back"]:
                     failures.append(f"{scheme}/{name}: photo mode {photo}")
-                if checks["secbar"] != ["Now", "Food", "Pit & program", "Charcoal", "Chart", "AI", "Plan", "Journal", "Setup"]:
+                if checks["secbar"] != ["Now", "Food", "Cook", "Charcoal", "Chart", "AI", "Journal", "Setup"]:
                     failures.append(f"{scheme}/{name}: section bar {checks['secbar']}")
                 if "Pork shoulder" not in checks["heronext"] or "Poultry" not in checks["heronext"]:
                     failures.append(f"{scheme}/{name}: coming up: {checks['heronext'][:160]!r}")
@@ -827,7 +926,7 @@ def main():
                 if scheme == "light" and name == "phone":
                     failures += editor_on_phone(pg, fr)
                 if scheme == "light" and name == "desktop":
-                    fr.click("#pitcard .step .btn:last-child")
+                    fr.click('#herotgt [aria-label="Raise pit target"]')
                     time.sleep(0.3)
                     calls = pg.evaluate("window.calls")
                     if not any(c[0] == "number" and c[1] == "set_value" and c[2]["value"] == 255 for c in calls):
@@ -923,10 +1022,11 @@ def main():
                         failures.append("setup page: Back to the cook didn't leave it")
                     # The latest AI plan sits in the Plan card with the loaded program; Plan with AI says "Planning…".
                     ap = fr.evaluate("(document.getElementById('aiplanbox') || {}).textContent || ''")
-                    if "about 11 h" not in ap or "Cook program" not in ap:
+                    if "about 11 h" not in ap or "Edit the stages" not in ap:
                         failures.append(f"AI plan box: {ap[:160]!r}")
+                    fr.click("#ctab-ai")
                     fr.fill("#plantext", "8 lb pork butt for 6 pm")
-                    if "Planning" not in fr.evaluate("document.activeElement.blur(), act.plan(), document.getElementById('plancard').textContent"):
+                    if "Planning" not in fr.evaluate("document.activeElement.blur(), act.plan(), document.getElementById('cookai').textContent"):
                         failures.append("Plan with AI: no 'Planning…' while it works")
                     # The cook plan: dotted on the chart, in the legend, and "ahead of plan" on Food 1's card.
                     pl = fr.evaluate("[document.querySelectorAll('#chart path[stroke-dasharray=\"2 4\"]').length, document.getElementById('legend').textContent, document.getElementById('probes').textContent]")
@@ -979,10 +1079,11 @@ def main():
                     if "not a smoker entity" not in r:
                         failures.append("shim allowed a non-smoker switch")
                 n_err = len(errors)
+                failures += [f"{scheme}/{name}: {f}" for f in hero_and_cook(pg, fr)]
                 failures += [f"{scheme}/{name}: {f}" for f in serve_together(pg, fr, f"{name}-{scheme}")]
                 failures += [f"{scheme}/{name}: {f}" for f in replay_and_picture(pg, fr, f"{name}-{scheme}", scheme == "dark")]
                 if errors[n_err:]:
-                    failures.append(f"{scheme}/{name}: JS errors in serve together / replay {errors[n_err:]}")
+                    failures.append(f"{scheme}/{name}: JS errors in the header/Cook checks, serve together or replay {errors[n_err:]}")
                 ctx.close()
         b.close()
     for f in failures:
