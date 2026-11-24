@@ -376,16 +376,18 @@ async def main():
         await asyncio.sleep(2)
         await dev.start()
         await asyncio.sleep(5)
-        await dev.action("load_program", program="name: New; pit 240 until after 10h")
+        # (The old program came back paused: a new one only loads after Stop, as on the page.)
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_program", program="name: New; pit 240 until after 10h; pit 250 until after 1h")
         await asyncio.sleep(1)
         await dev.action("start_program")
-        check(await dev.wait(lambda: (v("program_status") or "").startswith("Step 1/1"), 20, "new program"),
+        check(await dev.wait(lambda: (v("program_status") or "").startswith("Step 1/2"), 20, "new program"),
               f"the new program runs ({v('program_status')!r})")
         grill({"silent": False})
         check(await dev.wait(lambda: v("grill_connected") is True, 60, "link back"), "the grill's link is back")
         await asyncio.sleep(90)  # (recovery has done its targets step by now)
-        check((v("program_status") or "").startswith("Step 1/1") and "260" not in (v("program_status") or "")
-              and "270" not in (v("program_status") or ""),
+        check((v("program_status") or "").startswith("Step 1/2") and "240" in (v("program_status") or ""),
               f"recovery left your program alone ({v('program_status')!r}; before 1.4.4 it put the old step back)")
 
         print("scenario 13: a keep-warm program ends with the cook")
