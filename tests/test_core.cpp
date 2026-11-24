@@ -492,13 +492,34 @@ static void test_regressions() {
   CHECK(!cook::parse_program("pit 30m", probes, true, p, err));
   CHECK(!cook::parse_program("pit 250 until after 2F", probes, true, p, err));
   CHECK(!cook::parse_program("pit 250 until after 17:30", probes, true, p, err));
-  {  // a notification after the conditions (the AI planner writes it that way) is the step's notification
-    cook::Program n;
+  {  // a notification after the conditions (the AI planner writes reminders that way) is sent when they're met
+    cook::Program n, n2;
     CHECK(cook::parse_program("pit 275 until food1 >= 165 notify \"Wrap with sauce\"; pit 275 until food1 >= 203 or food2 >= 203 alert 'Done'",
                               probes, true, n, err));
-    CHECK(n.steps.size() == 2 && n.steps[0].notify == "Wrap with sauce" && n.steps[1].notify == "Done");
+    CHECK(n.steps.size() == 2 && n.steps[0].notify.empty() && n.steps[0].notify_done == "Wrap with sauce" &&
+          n.steps[1].notify_done == "Done");
     CHECK(n.steps[0].until.size() == 1 && n.steps[1].until.size() == 2);
-    CHECK(!cook::parse_program("pit 275 notify \"a\" until food1 >= 165 notify \"b\"", probes, true, n, err));
+    CHECK(cook::parse_program(cook::format_program(n, probes, true), probes, true, n2, err));
+    CHECK(n2.steps.size() == 2 && n2.steps[0].notify_done == "Wrap with sauce");
+    CHECK(cook::parse_program("pit 275 notify \"a\" until food1 >= 165 notify \"b\"", probes, true, n2, err));
+    CHECK(n2.steps[0].notify == "a" && n2.steps[0].notify_done == "b");
+    cook::ProgramRunner r;
+    r.load(n);
+    auto o = r.start(0);
+    CHECK(o.notifications.empty());
+    cook::RunnerInputs in;
+    in.temp_c = {135.0f, 60.0f, 50.0f};
+    in.done = {false, false, false};
+    in.stall_started = {false, false, false};
+    in.stall_ended = {false, false, false};
+    o = r.tick(1, in);
+    CHECK(o.notifications.empty() && r.step() == 0);
+    in.temp_c[1] = 74.0f;  // 165 °F: the stall, wrap now
+    o = r.tick(2, in);
+    CHECK(r.step() == 1 && o.notifications.size() == 1 && o.notifications[0] == "Wrap with sauce");
+    in.temp_c[2] = 95.5f;  // food2 at 204 °F: done
+    o = r.tick(3, in);
+    CHECK(o.finished && o.notifications.size() == 1 && o.notifications[0] == "Done");
   }
 
   // Briefly stepping the target below the current temperature doesn't record a cook.

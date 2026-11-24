@@ -34,11 +34,14 @@ static const char *default_model(const std::string &p) {
 static const char *const CUTS_LIST = "Pork shoulder, Brisket, Ribs, Beef roast, Poultry, Sausage, Fish, Auto";
 static const char *const PROGRAM_HELP =
     "Cook programs are text: an optional first line 'name: <name>', then steps separated by ';'. A step is 'pit <temp>' "
-    "(set the pit target) or 'hold <temp>' (set it and stay: use for the last step), optionally with 'notify \"text\"', "
-    "optionally followed by 'until' and conditions joined by 'or': 'food<N> >= <temp>' or 'food<N> >= <temp> for <M>m' "
-    "(N = food slot 1-6), 'food<N> done' (reached its own target), 'after <N>h' or 'after <N>m' (time in this step), "
-    "'at HH:MM'. Write temperatures with the unit, e.g. 250F or 120C. Example: name: Pork shoulder; pit 250F until "
-    "food1 >= 165F for 30m; pit 275F until food1 >= 203F; hold 200F notify \"Pork is done - rest it\"";
+    "(set the pit target) or 'hold <temp>' (set it and stay: use for the last step), optionally with 'notify \"text\"' "
+    "(sent when the step starts), optionally followed by 'until' and conditions joined by 'or': 'food<N> >= <temp>' or "
+    "'food<N> >= <temp> for <M>m' (N = food slot 1-6), 'food<N> done' (reached its own target), 'after <N>h' or "
+    "'after <N>m' (time in this step), 'at HH:MM'. A 'notify \"text\"' after the conditions is sent when they're met "
+    "(the step ends): use it for a reminder at a moment, e.g. 'pit 275F until food1 >= 165F notify \"Wrap it\"'. "
+    "Several foods: one condition each joined by 'or'. Write temperatures with the unit, e.g. 250F or 120C. Example: "
+    "name: Pork shoulder; pit 250F until food1 >= 165F for 30m notify \"Wrap it\"; pit 275F until food1 >= 203F; "
+    "hold 200F notify \"Pork is done - rest it\"";
 
 static std::string now_local() {
   time_t t = ::time(nullptr);

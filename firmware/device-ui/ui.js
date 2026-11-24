@@ -783,11 +783,11 @@ const PG = (() => {
       if (t[i].k === 'W' && t[i].t === 'or') { i++; continue; }
       break;
     }
-    // A notification after the conditions (as an AI writes it) is the step's notification.
-    if (t[i].k === 'W' && (t[i].t === 'notify' || t[i].t === 'alert') && !st.notify) {
+    // A notification after the conditions ("until food1 >= 165 notify ..."): sent when they're met. The controller
+    // runs it; the step editor can't show it, so such a program opens as text.
+    if (t[i].k === 'W' && (t[i].t === 'notify' || t[i].t === 'alert')) {
       i++; if (t[i].k !== 'S') throw 'notify needs a quoted message';
-      if (t[i].t.includes('"')) throw U('a notification with double quotes');
-      st.notify = t[i].t; i++;
+      i++; if (t[i].k === 'E') throw U('a notification when a step ends');
     }
     if (t[i].k !== 'E') throw "unexpected '" + t[i].t + "' at end of step";
     return st;

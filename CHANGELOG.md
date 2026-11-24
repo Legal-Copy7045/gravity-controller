@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.4] - 2026-11-24
+
+- **Fixed (1.3.3 got it wrong): a step's notify written after its conditions is sent when they're met.**
+  `pit 275 until food1 >= 165 notify "Wrap with sauce"` now reminds you when Food 1 reaches 165°F (the stall), not
+  when the step starts. The AI planners (on the controller and in Home Assistant) are told both forms, and to give
+  each food its own condition. The step editor shows such a program as text (it still runs as written).
 ## [1.3.3] - 2026-11-24
 
 - **Fixed: "Plan with AI" said "The AI's program couldn't be read (unexpected 'notify' at end of step)".** The AI

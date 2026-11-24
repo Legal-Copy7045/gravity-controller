@@ -651,7 +651,10 @@ script:
             The pit can be set from {{ lo }}{{ tu }} to {{ hi }}{{ tu }} only (so hold the meat warm at {{ lo }}{{ tu }}, never lower). For
             this cook never set the pit above {{ cap }}{{ tu }}.
             Steps separated by ';'. Each step: actions then optional 'until' conditions joined by 'or'.
-            Actions: 'pit N' (set pit {{ tu }}), 'hold N' (set and stay), 'notify "text"', 'shutdown'.
+            Actions: 'pit N' (set pit {{ tu }}), 'hold N' (set and stay), 'notify "text"' (sent when the step starts), 'shutdown'.
+            A 'notify "text"' written after the conditions is sent when they are met (the step ends): use it for
+            reminders at a moment, e.g. 'pit 275 until food1 >= 165 notify "Wrap it"'. Several foods: one condition
+            each, joined by 'or' (the step ends when the first gets there).
             Conditions: 'food1 >= N [for Nm]', 'food1 <= N', 'food1 done', 'after Nh|Nm', 'at HH:MM',
             'stall_start food1', 'stall_end food1'. Probes: pit, food1 to food6. Temperatures in {{ tu }}.
             Start with 'name: <short name>;'. Keep it under 240 characters. No links or web addresses anywhere. Example:

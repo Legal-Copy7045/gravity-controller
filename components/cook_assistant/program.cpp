@@ -295,15 +295,15 @@ bool parse_step(const std::string &text, const std::vector<std::string> &probes,
     }
     break;
   }
-  // A notification after the conditions ("pit 275 until food1 >= 165 notify \"Wrap it\"", as an AI writes it) is
-  // the step's notification, as if it came first.
-  if (t[i].kind == Tok::WORD && (t[i].text == "notify" || t[i].text == "alert") && step.notify.empty()) {
+  // A notification after the conditions ("pit 275 until food1 >= 165 notify \"Wrap it\"") is sent when they're met:
+  // the step ends (the AI planner writes reminders like this).
+  if (t[i].kind == Tok::WORD && (t[i].text == "notify" || t[i].text == "alert")) {
     i++;
     if (t[i].kind != Tok::STR) {
       err = "notify needs a quoted message";
       return false;
     }
-    step.notify = t[i].text;
+    step.notify_done = t[i].text;
     i++;
   }
   if (t[i].kind != Tok::END) {
@@ -442,6 +442,12 @@ std::string format_program(const Program &p, const std::vector<std::string> &pro
       }
       if (c.hold_min > 0)
         line += " for " + fmt_dur(c.hold_min);
+    }
+    if (!st.notify_done.empty()) {  // sent when the conditions are met
+      const char q = st.notify_done.find('"') == std::string::npos ? '"' : '\'';
+      std::string n = st.notify_done;
+      n.erase(std::remove(n.begin(), n.end(), q), n.end());
+      line += std::string(" notify ") + q + n + q;
     }
     s += line + "\n";
   }
@@ -665,13 +671,19 @@ RunnerOutputs ProgramRunner::tick(double now_min, const RunnerInputs &in) {
   }
   if (!advance)
     return out;
+  const std::string done_note = s.notify_done;  // the step's "when it ends" notification
   if (step_ + 1 >= prog_.steps.size()) {
     state_ = State::FINISHED;
     out.finished = true;
     out.step_changed = true;
+    if (!done_note.empty())
+      out.notifications.push_back(done_note);
     return out;
   }
-  return enter_step_(step_ + 1, now_min);
+  RunnerOutputs next = enter_step_(step_ + 1, now_min);
+  if (!done_note.empty())
+    next.notifications.insert(next.notifications.begin(), done_note);
+  return next;
 }
 
 std::string ProgramRunner::describe(double now_min, const RunnerInputs &in, const std::vector<std::string> &probes,

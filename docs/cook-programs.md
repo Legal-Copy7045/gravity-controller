@@ -15,7 +15,7 @@ hold 200 notify "Pork is done - rest it"
 |---|---|
 | `pit N` | set the pit target |
 | `hold N` | set the pit target and stay (final step). The stock controller's pit range is 200–700 °F, so the lowest hold is 200 |
-| `notify "text"` | send a notification when the step starts |
+| `notify "text"` | send a notification when the step starts. Written **after** the conditions, it's sent when they're met (the step ends): `pit 275 until food1 >= 165 notify "Wrap it"` |
 | `shutdown` | end the program |
 
 | Conditions | |

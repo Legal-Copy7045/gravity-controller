@@ -11,7 +11,8 @@
 //
 // Actions:     pit N          set the pit target
 //              hold N         set the pit target and stay here (no auto-advance)
-//              notify "text"  send a notification when the step starts
+//              notify "text"  send a notification when the step starts; written after the conditions
+//                             (`pit 275 until food1 >= 165 notify "Wrap it"`), when they're met
 //              shutdown       end the cook (pit target cleared, fan off on the replacement controller)
 // Conditions:  <probe> >= N [for N(m|h)]     (also <=; probe names: pit, food1, food2, ...)
 //              <probe> done                  probe reached its own target
@@ -43,6 +44,7 @@ struct Step {
   bool hold{false};
   bool shutdown{false};
   std::string notify;
+  std::string notify_done;  // `... until <conditions> notify "text"`: sent when the conditions are met (the step ends)
   std::vector<Condition> until;
 };
 
