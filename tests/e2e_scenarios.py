@@ -293,7 +293,9 @@ async def main():
         await asyncio.sleep(1)
         await dev.action("start_program")
         check(await dev.wait(lambda: v("program_state") == "Finished", 20, "keeping"), "a keep program runs (finished on its keep step)")
-        await asyncio.sleep(3)
+        # With "Resume after a power cut" on, the cook is resumed after a restart, and the keep with it.
+        dev.cli.switch_command(dev.by_id["resume_after_a_power_cut"].key, True)
+        await asyncio.sleep(130)  # (a recovery record saved during the cook)
         await dev.stop()
         await asyncio.sleep(2)
         await dev.start()
@@ -301,7 +303,15 @@ async def main():
               f"the keep program is still there after a restart (state {v('program_state')!r}; it was lost before 1.4.1)")
         dlog.flush()
         check(await dev.wait(lambda: "goes on keeping the food" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
-                             60, "notice"), "a notice says it goes on keeping the food")
+                             90, "notice"), "a notice says it goes on keeping the food")
+        # With it off, the cook isn't resumed: the keep ends too (1.4.3 brought it back to move the pit later).
+        dev.cli.switch_command(dev.by_id["resume_after_a_power_cut"].key, False)
+        await asyncio.sleep(3)
+        await dev.stop()
+        await asyncio.sleep(2)
+        await dev.start()
+        check(await dev.wait(lambda: v("program_state") == "Idle", 60, "keep ended"),
+              f"a cook that isn't resumed ends its keep (state {v('program_state')!r})")
 
         print("scenario 11: Resume turns a sear's Turbo back on; the AI plan check (links, Turbo-only steps)")
         await dev.action("stop_program")
@@ -331,9 +341,22 @@ async def main():
             return lines[-1] if ok and lines else ""
         r = await fit_result('pit 250 until food1 >= 160 notify "see https://example.test/x"; hold 200')
         check("ok=0" in r and "link" in r, f"an AI plan with a link is refused ({r[-120:]!r})")
+        r = await fit_result("pit 225 until food1 >= 115; turbo off until food1 >= 195; hold 200")
+        check("ok=1" in r and "pit 225 until food1 >= 195" in r, f"a `turbo off until` step waits at the same pit ({r[-160:]!r})")
         r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off; hold 200")
         check("ok=1" in r and "turbo" not in r.split("note=")[0].lower() and "Turbo left out" in r,
               f"Turbo taken out of an AI plan leaves a program the controller can read ({r[-160:]!r})")
+        # Home Assistant's Plan with AI loads through the same check (its unit, its AI max pit).
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_ai_program", program="name: AI hot; pit 600 until after 5h; hold 225")
+        dlog.flush()
+        check(await dev.wait(lambda: "AI program adjusted before loading" in open(os.path.join(HERE, "e2e-scen-device.log")).read()
+                             and not (v("program_error") or ""), 10, "ai load"),
+              f"an AI plan from Home Assistant is capped at the AI max pit and loaded ({v('program_error')!r})")
+        await dev.action("load_ai_program", program='pit 250 notify "see www.example.test"')
+        check(await dev.wait(lambda: "couldn't be loaded" in (v("program_error") or ""), 10, "ai refused"),
+              f"an AI plan from Home Assistant with a link is refused ({v('program_error')!r})")
         await dev.stop()
     finally:
         if dev.proc and dev.proc.poll() is None:

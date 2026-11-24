@@ -56,7 +56,7 @@ How it's protected:
 - **Rules:** at least 6 characters; repeated or sequential ones (111111, 123456) are refused.
 - **Setting the first PIN:** whenever none is set (before 1.4.2 only within 15 minutes of power-on). If someone else
   on your Wi-Fi set one first, it would only lock the page: hold BOOT for 10 s, or clear it from Home Assistant. With
-  Home Assistant, you can also set (or replace) it at any time from there: **Smoker: Set the device page PIN** (`smoker.set_device_pin`, admin only). Home
+  Home Assistant, you can also set (or replace) it at any time from there: **Smoker: Set the device page PIN** (`smoker.set_device_pin`; Home Assistant offers the action to admins, though anyone you've given a Home Assistant login can reach the controller's own actions). Home
   Assistant holds the controller's API key, so it's trusted to do this without the current PIN; it
   isn't allowed until Home Assistant has adopted the controller. The controller's **Device page PIN** sensor says
   "set" or "not set" (and why a PIN from Home Assistant was refused), never the PIN.
@@ -76,7 +76,7 @@ How it's protected:
 
 **Forgotten the PIN?** Hold the controller's **BOOT** button for 10 seconds (and let go before 30 s: that's the
 factory reset), or set a new one (or clear it, with an empty PIN) straight away from Home Assistant (**Smoker: Set the
-device page PIN**, admin only), or press **Clear the device page PIN** in Home Assistant. Your keys and settings are
+device page PIN**), or press **Clear the device page PIN** in Home Assistant. Your keys and settings are
 kept.
 
 ## Notifications straight to your phone

@@ -1106,13 +1106,21 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
     if (was_turbo && !action) {
       if (st.until.empty())
         continue;  // a bare `turbo on|off`: nothing left of it
-      // `turbo on until pit >= 600` (a sear): as hot as an AI plan may go instead, and a pit it can reach.
-      st.pit_c = hi;
-      for (auto &c : st.until)
-        if (c.type == cook::Condition::PROBE_GTE && c.probe == 0 && c.value > hi - 5.0f)
-          c.value = hi - 5.0f;
-      note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": the pit set to " +
-              this->fmt_temp_(hi) + " instead";
+      if (prog.steps[i].turbo == 1) {
+        // `turbo on until pit >= 600` (a sear): as hot as an AI plan may go instead, and a pit it can reach.
+        st.pit_c = hi;
+        for (auto &c : st.until)
+          if (c.type == cook::Condition::PROBE_GTE && c.probe == 0 && c.value > hi - 5.0f)
+            c.value = hi - 5.0f;
+        note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": the pit set to " +
+                this->fmt_temp_(hi) + " instead";
+      } else {
+        // `turbo off until food1 >= 195`: a wait at the pit the program already had.
+        float prev = NAN;
+        for (auto it = kept.rbegin(); it != kept.rend() && std::isnan(prev); ++it)
+          prev = it->pit_c;
+        st.pit_c = std::isnan(prev) ? std::max(this->pit_min_c_, std::min(hi, 107.2f)) : prev;  // (else 225 °F)
+      }
     }
     kept.push_back(st);
   }
@@ -1133,6 +1141,12 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
     return false;
   }
   return true;
+}
+
+void CookAssistant::report_program_error(const std::string &e) {
+  ESP_LOGW(TAG, "Program error: %s", e.c_str());
+  if (this->program_error_ != nullptr)
+    this->program_error_->publish_state(e);
 }
 
 bool CookAssistant::load_program(const std::string &text, bool persist) {
@@ -1224,6 +1238,7 @@ void CookAssistant::select_preset(size_t index) {
 }
 
 void CookAssistant::start_program() {
+  this->prog_restored_ = false;  // the user's choice: power-cut recovery doesn't bring the old state back
   if (!this->runner_.loaded()) {
     this->notify("No program", "Load a program or pick a preset first.", 0, "program");
     return;
@@ -1309,15 +1324,18 @@ void CookAssistant::restore_program_state_() {
   if (!this->state_pref_.load(&s) || s.running == 0 || !this->runner_.loaded())
     return;
   if (s.running == 3) {
-    // Finished on a keep step ("Keep Food 1 warm"): it goes on keeping the food, as before the restart.
+    // Finished on a keep step ("Keep Food 1 warm"), saved during a cook. Only a cook being recovered goes on keeping
+    // (power-cut recovery decides, and ends it if it doesn't resume the cook); otherwise it's over: it never comes
+    // back to move the pit in a later cook.
+    if (!this->rec_boot_pending_) {
+      this->runner_.stop();
+      this->save_program_state_();
+      ESP_LOGI(TAG, "Saved keep-warm program ended (no cook to carry on)");
+      return;
+    }
     this->runner_.restore(s.step, s.step_elapsed_min, this->now_min_(), false, true);
-    ESP_LOGW(TAG, "Restored program: still keeping a food at its temperature (step %u)", s.step + 1);
-    this->set_timeout(30000, [this]() {
-      // (Not titled "...restarted": that title gets a Resume button, and there's nothing to resume.)
-      this->notify("Still keeping the food warm", "The controller restarted and goes on keeping the food at its temperature (step " +
-                                               std::to_string(this->runner_.step() + 1) + ").",
-                   1, "program");
-    });
+    this->keep_restored_ = true;
+    ESP_LOGW(TAG, "Restored program: keeping a food warm (step %u), if the cook is resumed", s.step + 1);
     return;
   }
   // Resume as paused: a reboot mid-cook should not silently change anything;

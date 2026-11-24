@@ -245,6 +245,8 @@ class CookAssistant : public Component {
   // ---- API (buttons, HA actions, lambdas) ----
   /// Load a program from text. Returns false and publishes the error if invalid.
   bool load_program(const std::string &text, bool persist = true);
+  /// Show a reason on the Program error sensor (and the log), e.g. an AI program that was refused.
+  void report_program_error(const std::string &e);
   bool cook_active() const { return this->cook_active_; }
   /// A program is running or paused (it isn't finished or unloaded): automatic updates wait for it.
   bool program_in_progress() const {
@@ -410,6 +412,7 @@ class CookAssistant : public Component {
   uint8_t prog_restored_step_{0};
   float prog_restored_elapsed_{0};
   bool prog_restored_running_{false};
+  bool keep_restored_{false};  // a keep-warm program restored at boot, waiting for recovery to resume the cook (or not)
 
   bool fahrenheit_{true};
   sensor::Sensor *pit_temp_{nullptr};

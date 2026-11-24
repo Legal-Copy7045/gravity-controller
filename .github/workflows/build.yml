@@ -172,6 +172,8 @@ jobs:
           "$RUNNER_TEMP/sign/bin/pip" install --require-hashes -r .github/requirements/build-tools.txt
           "$RUNNER_TEMP/sign/bin/pip" install --require-hashes --no-deps --no-build-isolation --only-binary :all: \
             --no-binary esptool -r .github/requirements/sign.txt
+          # setuptools was only needed to build esptool: gone before the key exists (its .pth hook runs at every start)
+          "$RUNNER_TEMP/sign/bin/pip" uninstall -y setuptools
           echo "$RUNNER_TEMP/sign/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:

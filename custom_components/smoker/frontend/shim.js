@@ -21,6 +21,18 @@
                         'gravity980_fuel_level', 'gravity980_fuel_refilled', 'gravity980_fuel_added', 'gravity980_fuel_end'],
               script: ['smoker_plan_cook', 'smoker_ai_advise'] };
   var idxFor = null, idx = {};
+  // A smoker entity: one of the smoker controller's own (by its device in Home Assistant's registry, so renamed ones
+  // count), or one of the package's helpers (their ids start with smoker_). No registry (older Home Assistant): the id.
+  function isSmoker(h, eid) {
+    var obj = String(eid).split('.')[1] || '';
+    var reg = h && h.entities && h.entities[eid];
+    if (reg && reg.device_id && h.devices) {
+      var dev = h.devices[reg.device_id] || {};
+      return /gravity980/i.test(String(dev.model || '')) || /^smoker\b/i.test(String(dev.name_by_user || dev.name || ''));
+    }
+    if (h && h.entities) return obj.indexOf('smoker_') === 0;
+    return String(eid).indexOf('smoker') >= 0;
+  }
   function nameIndex(h) {
     if (idxFor === h.states) return idx;
     idx = {}; idxFor = h.states;
@@ -44,7 +56,7 @@
     call: function (domain, service, eid, data) {
       var h = getHass(); if (!h || !h.callService) return Promise.reject(new Error('Home Assistant is not connected'));
       if (String(eid).split('.')[0] !== domain || !CTRL[domain] || CTRL[domain].indexOf(service) < 0) return Promise.reject(new Error('not allowed: ' + domain + '.' + service));
-      if (String(eid).indexOf('smoker') < 0) return Promise.reject(new Error('not a smoker entity: ' + eid));
+      if (!isSmoker(h, eid)) return Promise.reject(new Error('not a smoker entity: ' + eid));
       if (domain === 'button' && NOPRESS.test(eid)) return Promise.reject(new Error('not allowed from this page: ' + eid));
       // The checked entity always wins: a caller's entity_id / target / device_id / area_id never widens the call.
       var d = {}; for (var k in (data || {})) if (['entity_id', 'target', 'device_id', 'area_id', 'label_id', 'floor_id'].indexOf(k) < 0) d[k] = data[k];

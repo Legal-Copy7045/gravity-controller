@@ -55,7 +55,8 @@ input_number:
     unit_of_measurement: min
     icon: mdi:timer-sand
   # The hottest pit an AI-written cook program may set (in °F, whatever the controller's unit). A program that asks
-  # for more is not loaded. Back to 400 at every restart: EDIT `initial` to change it for good.
+  # for more is not loaded. Back to 400 at every restart: EDIT `initial` to change it for good. The controller's own
+  # "AI max pit" applies too (from 1.4.4 Home Assistant's plans go through the controller's check): the lower wins.
   smoker_ai_max_pit:
     name: Smoker AI plan max pit
     min: 200
@@ -784,9 +785,18 @@ script:
               priority: 0
               tag: plan
           - stop: The AI's program was refused
-      - action: esphome.gravity980_load_program
-        data:
-          program: "{{ program }}"
+      # From controller 1.4.4 through its own AI check too (its unit, its AI max pit); older firmware: as before.
+      - if: >
+          {{ version(state_attr('update.smoker_firmware', 'installed_version') | default('0', true) | string)
+             >= '1.4.4' }}
+        then:
+          - action: esphome.gravity980_load_ai_program
+            data:
+              program: "{{ program }}"
+        else:
+          - action: esphome.gravity980_load_program
+            data:
+              program: "{{ program }}"
       - delay: 2
       - if:
           - condition: template

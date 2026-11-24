@@ -1086,6 +1086,17 @@ def main():
                     r = fr.evaluate("window.hdHA.call('lock','unlock','lock.front_door').then(()=>'ok',e=>e.message)")
                     if "not allowed" not in r:
                         failures.append("shim allowed lock.unlock")
+                    # With Home Assistant's registry: the controller's entities count even renamed; another device's
+                    # don't, even with "smoker" in the id.
+                    reg = fr.evaluate("""(async () => {
+                        const h = window.parent.__smHass; const keepE = h.entities, keepD = h.devices;
+                        h.entities = {'switch.renamed_turbo': {device_id: 'd1'}, 'switch.smoker_plug': {device_id: 'd2'}};
+                        h.devices = {d1: {model: 'legal-copy7045.gravity980-bridge'}, d2: {model: 'Plug', name: 'Garage plug'}};
+                        const a = await window.hdHA.call('switch','turn_on','switch.renamed_turbo').then(()=>'ok',e=>e.message);
+                        const b = await window.hdHA.call('switch','turn_on','switch.smoker_plug').then(()=>'ok',e=>e.message);
+                        h.entities = keepE; h.devices = keepD; return [a, b]; })()""")
+                    if reg[0] != 'ok' or 'not a smoker entity' not in reg[1]:
+                        failures.append(f"shim allowed a non-smoker device's switch, or refused a renamed smoker one: {reg}")
                     n0 = len(pg.evaluate("window.calls"))
                     fr.evaluate("window.hdHA.call('switch','turn_on','switch.smoker_turbo',{entity_id:'switch.front_door', target:{entity_id:'lock.front_door'}})")
                     time.sleep(0.2)

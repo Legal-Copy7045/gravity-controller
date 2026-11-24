@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.4.4] - 2026-11-24
+
+Fixes for the third regression run's findings (regression/RUNS.md).
+
+- **Keep warm after a restart:** a saved keep-warm program comes back only with a cook that power-cut recovery
+  resumes; otherwise (no cook, the controller off over an hour, "Resume after a power cut" off, or the first start
+  after an update) it ends, so it can't move the pit in a later cook. The "still keeping the food warm" notice now
+  comes once the cook is actually resumed.
+- **Power-cut recovery** treats Start during recovery as your choice too (it used to put the old step back).
+- **AI plans:** a `turbo off until …` step keeps the pit it had (it was turned into a sear at the AI max pit).
+- **Home Assistant's Plan with AI** loads the AI's program through the controller's own check (new controller action
+  `load_ai_program`): in the controller's unit, against its AI max pit (as well as the package's), no Turbo, no links.
+  With a °C controller and a US-units Home Assistant a plan could otherwise pass the package's check in the wrong unit.
+- The dashboard bridge only controls the smoker controller's own entities (by device, so renamed ones still work) and
+  the package's helpers, not any entity with "smoker" in its id.
+- The signing environment drops setuptools once esptool is built, before the key is written.
+- Docs: setting the device page PIN from Home Assistant isn't an admin-only barrier (Home Assistant users are
+  trusted); the two AI max pit settings.
+- Tests: scenario 10 now checks a keep program across restarts with and without "Resume after a power cut";
+  scenario 11 adds `turbo off` steps and Home Assistant's AI load route; the bridge with Home Assistant's registry;
+  the firmware-version switch in Plan with AI.
+
 ## [1.4.3] - 2026-11-24
 
 Fixes for the second regression run's findings (regression/RUNS.md).

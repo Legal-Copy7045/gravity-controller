@@ -198,6 +198,13 @@ async def main():
     check(isinstance(mins, list) and len(mins) == 4 and abs(mins[1] - 60) <= 1 and temps == [40.0, 39.0, 38.0, 37.0],
           f"forecast lists {mins} {temps}")
 
+    # 5b. Plan with AI loads through the controller's own AI check from firmware 1.4.4 (older firmware: plain load)
+    seq = pkg["script"]["smoker_plan_cook"]["sequence"]
+    vt = next(st["if"] for st in seq if isinstance(st, dict) and "if" in st and "version(" in str(st["if"]))
+    for ver, want in (("1.4.4", True), ("1.10.0", True), ("1.4.3", False), (None, False)):
+        hass.states.async_set("update.smoker_firmware", "off", {"installed_version": ver} if ver else {})
+        got = render(vt)
+        check(got is want, f"Plan with AI uses the controller's check with firmware {ver}: {got!r}")
     # 6. serve together: when each food goes on, the light-up time, and the "put it on" reminders (once per food)
     import datetime as dtm
     serve = (now + dtm.timedelta(hours=14)).replace(microsecond=0)

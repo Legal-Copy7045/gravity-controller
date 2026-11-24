@@ -220,7 +220,20 @@ void CookAssistant::recovery_tick_() {
       const float pit = this->prog_restored_ && this->prog_restored_running_ ? this->runner_.commanded_pit() : b.pit_sp_c;
       this->begin_recovery_(true, outage, b.grill_on != 0,
                             std::isnan(pit) ? b.pit_sp_c : pit);
+      if (this->keep_restored_ && this->runner_.keep_probe() >= 0)
+        // (Not titled "...restarted": that title gets a Resume button, and there's nothing to resume.)
+        this->notify("Still keeping the food warm",
+                     "The controller restarted and goes on keeping the food at its temperature (step " +
+                         std::to_string(this->runner_.step() + 1) + ").",
+                     1, "program");
+      this->keep_restored_ = false;
     } else {
+      // The cook isn't resumed: a keep-warm program restored with it ends too.
+      if (this->keep_restored_ && this->runner_.keep_probe() >= 0) {
+        this->runner_.stop();
+        this->save_program_state_();
+      }
+      this->keep_restored_ = false;
       std::string why = !this->resume_enabled_() ? "\"Resume after a power cut\" is off"
                                                  : "it was off " + fmt_outage(outage) + ", so the fire may be out";
       this->notify("Controller restarted during a cook",
