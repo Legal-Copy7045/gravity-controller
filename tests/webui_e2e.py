@@ -127,10 +127,13 @@ def section_chips(fr):
       return [...bar.querySelectorAll('a')].filter(a => a.offsetParent !== null && !a.hidden).map(a => a.getAttribute('href'))
         .filter(h => document.querySelector(h).dataset.sect !== 'setup'); }""")
     for h in hrefs + hrefs[::-1]:
-        fr.click(f'#secbar a[href="{h}"]')
-        time.sleep(0.9)
-        mark, gap = fr.evaluate("""(h) => { const bar = document.getElementById('secbar'), m = bar.querySelector('a[aria-current="true"]');
+        for attempt in (1, 2):  # a second go when the page changed under the click (the simulated cook started: the
+            fr.click(f'#secbar a[href="{h}"]')  # sections reorder and the journal folds)
+            time.sleep(0.9)
+            mark, gap = fr.evaluate("""(h) => { const bar = document.getElementById('secbar'), m = bar.querySelector('a[aria-current="true"]');
       return [m ? m.getAttribute('href') : null, Math.round(document.querySelector(h).getBoundingClientRect().top - bar.getBoundingClientRect().bottom)]; }""", h)
+            if mark == h and abs(gap - 10) <= 3:
+                break
         if mark != h or abs(gap - 10) > 3:
             fails.append(f"section bar: {h} marked {mark}, {gap}px under the bar")
     return fails
@@ -156,8 +159,8 @@ def basic_mode(fr):
     if fr.evaluate("localStorage.getItem('smoker-mode')") != "basic":
         fails.append("basic mode: choice not remembered")
     fr.click('#modesw button[data-mode="advanced"]'); time.sleep(0.3)
-    if fr.evaluate("document.querySelector('[data-sect=pit]').offsetParent === null"):
-        fails.append("advanced mode: Pit & program still hidden")
+    if fr.evaluate("document.querySelector('[data-sect=cook]').offsetParent === null"):
+        fails.append("advanced mode: Cook still hidden")
     return fails
 
 
@@ -201,11 +204,19 @@ def run_page(browser, width, height, shots):
     # pit +: the grill must report the new target
     before = value("sensor", "Pit target reported")
     check(before is not None, f"grill reports a pit target ({before})")
-    pg.locator("#pit [data-a=pit][data-d='1']").click()
+    pg.locator("#hero [data-a=pit][data-d='1']").click()
     ok = wait(lambda: (value("sensor", "Pit target reported") or 0) > (before or 0), 15, "the grill's reported target")
     check(ok, f"pit + changed the grill's target ({before} -> {value('sensor', 'Pit target reported')})")
-    pg.wait_for_function(f"document.querySelector('#pitval').textContent.startsWith('{value('number', 'Pit target'):.0f}')", timeout=10000)
+    pg.wait_for_function(f"document.querySelector('#heropit').value.startsWith('{value('number', 'Pit target'):.0f}')", timeout=10000)
     check(True, "page shows the new target")
+    # The header has what the old Pit & program section had; that section and Plan are gone, Cook has their parts.
+    check(pg.locator("[data-sect=pit], [data-sect=plan], #pitval, #secbar a[href='#s-plan']").count() == 0, "no Pit & program or Plan section")
+    check(pg.evaluate("[...document.querySelectorAll('#secbar a')].map(a => a.textContent.trim()).includes('Cook')"), "Cook in the section bar")
+    check(pg.locator("#s-cook #cookfood .slot").count() >= 1 and "Food 1" in pg.inner_text("#cookfood"), "What's cooking lists the food slots")
+    check(pg.locator("#s-cook #ctab-ai").count() == 1 and pg.locator("#s-cook #ctab-build").count() == 1, "Build the cook: Plan with AI and Build it yourself")
+    check("When" in pg.inner_text("#plan") and "Serve by" in pg.inner_text("#plan"), "When: the serve-by time")
+    check(pg.evaluate("!!document.getElementById('s-pit') && document.getElementById('s-pit').classList.contains('hero')"),
+          "old #s-pit links (notifications) land on the header")
     # The pit target in the top card: type it and Set.
     pg.evaluate("window.scrollTo(0, 0)")
     pg.fill("#heropit", "240")
@@ -413,6 +424,8 @@ def pin_flow(browser):
     ctx.add_init_script("try { localStorage.getItem('smoker-mode') || localStorage.setItem('smoker-mode', 'advanced'); } catch (e) {}")  # Advanced (the checks below are for it); basic_mode() tests Basic
     offline(ctx)
     pg = ctx.new_page()
+    src = open(os.path.join(ROOT, "firmware/device-ui/ui.js"), encoding="utf-8").read()  # (as run_page: the step editor below)
+    pg.route(BASE + "/0.js", lambda r: r.fulfill(status=200, content_type="text/javascript", body=src + "\nwindow.__gxTest = { ents, render };\n"))
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     def setup(open_=True):  # Setup is a page of its own, opened from the section bar's Setup button
@@ -483,7 +496,7 @@ def pin_flow(browser):
     pg.wait_for_function("document.querySelector('#lock').innerText.includes('locked')", timeout=5000)
     setup(False)
     before = value("number", "Pit target")
-    pg.locator("#pit [data-a=pit][data-d='1']").click()
+    pg.locator("#hero [data-a=pit][data-d='1']").click()
     pg.wait_for_timeout(1500)
     check(value("number", "Pit target") == before, f"locked: pit + changed nothing ({before} -> {value('number', 'Pit target')})")
     check(pg.locator("#pinsheet").is_visible(), "locked: the page asks for the PIN right there")
@@ -503,7 +516,7 @@ def pin_flow(browser):
     pg.wait_for_function("document.getElementById('pinsheet').hidden", timeout=5000)
     check(True, "the right PIN unlocks from the panel")
     pg.wait_for_timeout(2600)
-    pg.locator("#pit [data-a=pit][data-d='1']").click()
+    pg.locator("#hero [data-a=pit][data-d='1']").click()
     check(wait(lambda: (value("number", "Pit target") or 0) > (before or 0), 10, "the new target"), "unlocked: pit + works")
     # Stage 2: chart, plan, journal (stars, tags, notes), Open Pitmaster sharing.
     check(pg.locator("#chart svg path").count() >= 2, "the chart draws the history")
@@ -518,6 +531,8 @@ def pin_flow(browser):
     pg.click("#plan [data-a=plansave]")
     pg.wait_for_function("document.querySelector('#plan').innerText.includes('Light the grill by')", timeout=5000)
     check("Shared cooks like this" in pg.inner_text("#plan") or True, "plan saved, light-by shown")
+    pg.click('#secbar a[href="#s-journal"]')  # (folded during a cook: the simulated one may have started by now)
+    pg.wait_for_timeout(600)
     pg.click("#journal [data-a=jrate][data-n='4']")
     pg.wait_for_timeout(400)
     pg.click("#journal [data-a=jtag][data-t='juicy']")
@@ -557,9 +572,22 @@ def pin_flow(browser):
     pg.click("#aiadv [data-a=aiadvise]")
     pg.wait_for_function("document.querySelector('#aiadv').innerText.includes('stall')", timeout=5000)
     check("Wrap" in pg.inner_text("#aiadv"), "the AI's second opinion is shown")
+    try:  # the host build has no "Program" text (see program_editor()): the page is given one, for the step editor
+        get("/text/Program")
+    except Exception:
+        pg.evaluate("""() => { __gxTest.ents['text/Program'] = { domain: 'text', name: 'Program', value: '', state: '', max_length: 255 };
+            __gxTest.render(); }""")
+    pg.click("#ctab-ai")
     pg.fill("#aiplanin", "9 lb pork shoulder for 6 pm")
     pg.click("#aiplan [data-a=aiplan]")
     pg.wait_for_function("document.querySelector('#aiplan [data-a=aiload]')", timeout=5000)
+    # A new plan opens in the step editor (Build it yourself), not loaded yet.
+    pg.wait_for_function("document.getElementById('ctab-build').getAttribute('aria-selected') === 'true' && document.querySelectorAll('#progedit .pe-step').length > 0", timeout=5000)
+    check("AI's plan" in pg.inner_text("#progfrom"), "the AI's plan opens as stages in the step editor")
+    pg.click("#progfrom [data-a=cooktab]")
+    pg.click("#aiplan [data-a=aiedit]")
+    check(pg.is_visible("#progedit") and pg.locator("#progedit .pe-step").count() > 0, "Edit the stages shows the AI's program as steps")
+    pg.click("#ctab-ai")
     pg.click("#aiplan [data-a=aiload]")
     pg.wait_for_function("document.getElementById('toast').innerText.includes('Program loaded')", timeout=6000)
     check(True, "Plan with AI: Load as program reports the controller's answer")
@@ -651,9 +679,10 @@ def program_editor(pg, width, shots):
             sent.append(q.get("value", [""])[0])
             r.fulfill(status=200, body="")
         pg.route(BASE + "/text/Program/set*", catch)
-    pg.wait_for_selector("#progfold", timeout=10000)
-    if not pg.evaluate("document.getElementById('progfold').open"):  # a loaded program folds the editor away
-        pg.click("#progfold > summary")
+    pg.wait_for_selector("#ctab-build", timeout=10000)
+    pg.click("#ctab-build")  # Cook → Build the cook → Build it yourself
+    if pg.locator("#progedit #pe-simple").count():  # the AI's plan left it on the steps: the simple form
+        pg.click("#pe-simple")
     pg.wait_for_selector("#progedit #ps-cut", timeout=10000)
     pg.select_option("#ps-cut", "chicken")
     check("name: Whole chicken; pit 325 until food1 >= 165" in pg.evaluate("document.querySelector('#progedit .pe-pre').textContent"), "the simple form fills in a whole chicken")
