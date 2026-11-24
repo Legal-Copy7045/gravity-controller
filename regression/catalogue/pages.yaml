@@ -1,0 +1,74 @@
+# The two dashboards: the controller's own page (device stage, tests/webui_e2e.py against the host build) and the
+# Home Assistant page (page stage, tests/render_page.py with mock states). Shared blocks are checked in the ci stage.
+- feature: "Both dashboards share their layout code (shared blocks)"
+  since: 0.2.47
+  docs: CLAUDE.md
+  match: ["^ci:shared block", "^page:HA dashboard: shared blocks"]
+- feature: "Header: status strip, pit hero, grill drawing, photo mode"
+  since: 1.3.0
+  docs: docs/features.md
+  match: ["^device:.*(hero shows|grill drawing|status strip|photo|food 1 has a reading|a food card renders|old #s-pit)", "^page:HA dashboard: (status strip|pit temperature|header)"]
+- feature: "Top card control: pit target, + and -, Turbo, power off with two taps, timer"
+  since: 1.3.0
+  docs: docs/features.md
+  match: ["^device:.*(pit \\+|top card|grill reports a pit target|page shows the new target)", "^page:HA dashboard: (top card|Turbo button|power off|timer)"]
+- feature: "Food cards, probe sources, pull-at and recommendations"
+  since: 0.2.0
+  docs: docs/features-0.2.md
+  match: ["^device:.*(probe source|food 1 now reads)", "^page:HA dashboard: food cards"]
+- feature: "One Cook section: what's cooking, when, build the cook"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^device:.*(Pit & program|Cook in the section bar|What's cooking|Build the cook|When:)", "^page:HA dashboard: Cook section"]
+- feature: "Program editor (steps, text, presets, simple form, Load) on both pages"
+  since: 0.2.47
+  docs: docs/cook-programs.md
+  match: ["^device:.*(simple form|step editor|program is valid|Load sends|device took the program|program status|controller's program|Program error)", "^page:HA dashboard: (program editor|keep|simple form)"]
+- feature: "Plan with AI and the AI's plan as stages"
+  since: 0.2.30
+  docs: docs/features.md
+  match: ["^device:PIN: (the AI|AI provider|Test the key|Edit the stages|Plan with AI|a label photo|the label's|locked: asking the AI|locked: AI)", "^page:HA dashboard: (Plan with AI|cook plan)"]
+- feature: "Serve-together scheduler"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["serve together", "the plan says a notification", "the timeline fits", "put it on", "light the grill", "^device:PIN: plan saved"]
+- feature: "Cook replay, cook picture and share image"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["replay", "picture", "Share image"]
+- feature: "Journal, how was it, cook summary, this cook vs your best, sharing"
+  since: 0.2.20
+  docs: docs/features.md
+  match: ["^device:PIN: (journal|the share prompt|shared from)", "^page:HA dashboard: (journal|cook summary|this cook vs your best)"]
+- feature: "Chart and history"
+  since: 0.2.0
+  docs: docs/features.md
+  match: ["^device:PIN: (the chart|chart range)", "^page:HA dashboard: chart"]
+- feature: "Supplies: charcoal stock, maintenance, scans"
+  since: 0.2.40
+  docs: docs/features.md
+  match: ["^device:PIN: charcoal", "^page:HA dashboard: (charcoal|maintenance|scans)"]
+- feature: "Section bar, Basic/Advanced mode, Setup page"
+  since: 1.0.0
+  docs: docs/features.md
+  match: ["^device:.*(Basic / Advanced|section bar|scrolling back|Setup|Get started|browser's back)", "^page:HA dashboard: (section bar|Basic|Setup page)"]
+- feature: "Setup: connection, grill Wi-Fi, diagnostics, restart, Automatic updates toggle"
+  since: 1.3.0
+  docs: docs/install.md
+  match: ["^page:HA dashboard: (connection card|Automatic updates|restart)"]
+- feature: "Notifications from the controller (ntfy, Pushover, Telegram) and routing"
+  since: 0.2.30
+  docs: docs/standalone.md
+  match: ["ntfy", "the topic is stored", "notification route", "time zone sent"]
+- feature: "Pages fit and run clean (no overflow, no console errors, no outside requests)"
+  since: 0.2.0
+  docs: CLAUDE.md
+  match: ["overflow", "console errors", "no page errors", "JavaScript errors", "classic", "^page:HA dashboard: every other"]
+- feature: "Dashboard works without the integration's API or the package"
+  since: 0.2.40
+  docs: docs/install.md
+  match: ["^page:HA dashboard: works without"]
+- feature: "Dashboard shim: only smoker entities can be controlled"
+  since: 0.2.30
+  docs: docs/security.md
+  match: ["^page:HA dashboard: shim"]

@@ -1,0 +1,38 @@
+# Checks that need a person at the grill (or a real controller). Not run automatically: they show as "need a person"
+# in every report until someone does them. `last` = when it was last done and what happened (public-safe words only).
+- key: power cut at the grill (unlit)
+  check: "Power cut at the grill: unplug the grill for 1 min during an unlit test cook; does the 980 keep or reset its targets, and does the controller turn it back on?"
+  steps: "Grill unlit, a program running. Pull the grill's plug for 60 s, plug back in. Watch: link lost, link back, grill on again (if it reset), targets sent again, one notification saying what happened."
+  last: "not done yet"
+- key: controller power cut during a cook
+  check: "Controller power cut: unplug the controller for 2 min mid-cook; the cook resumes and a 'Power cut: cook resumed' notification arrives"
+  steps: "Program running. Unplug the ESP32 for 2 min, plug back in. The program continues on the same step; the notification names the outage length."
+  last: "not done yet"
+- key: OTA rollback of a bad image
+  check: "OTA rollback: an image that can't hold Wi-Fi rolls back to the previous firmware within 10 minutes"
+  steps: "Only on a spare board: flash a signed test image with wrong Wi-Fi settings over OTA; within 10 min the board is back on the previous version."
+  last: "not done yet"
+- key: real fire thresholds
+  check: "Real fire: runaway and fire-dying alerts during a real cook match what happened (no false alarms on lid openings)"
+  steps: "During a normal cook, open the lid twice for 2-3 min; no fire alert. Note any runaway or fire alert and whether it was real."
+  last: "not done yet"
+- key: H5198 over Bluetooth
+  check: "Govee H5198 read directly over Bluetooth with the grill's Wi-Fi link active"
+  steps: "Pair the H5198 in Setup, put a probe in hot water; reading within 2 °F of the grill probe."
+  last: "working on 1.3.x"
+- key: grill wi-fi link and bluetooth fallback
+  check: "Grill link falls back from Wi-Fi to Bluetooth when the grill's Wi-Fi drops"
+  steps: "Turn the router's 2.4 GHz off for 3 min during an idle test; link moves to Bluetooth and back."
+  last: "not done yet"
+- key: keep mode on a real food
+  check: "Hold mode (keep food1 60 °C) holds a real food within ±3 °C for an hour"
+  steps: "After a cook, keep food1 at 60 °C for an hour and look at the curve in replay."
+  last: "not done yet"
+- key: automatic update while idle
+  check: "Automatic update: with the switch on and the grill off, a new release installs itself and the 'Controller updated' notice arrives"
+  steps: "Leave Automatic updates on; after the next release, check the controller's version and the notification."
+  last: "1.4.0 installed itself while idle (24 Nov 2026)"
+- key: connectivity watchdog
+  check: "Connectivity watchdog: the Connectivity line names the grill, Wi-Fi, Home Assistant and internet; after a router restart everything recovers without the controller restarting"
+  steps: "Restart the router while the grill is idle. Watch Connectivity go 'Wi-Fi: down' and back; the controller's uptime keeps counting. (The host test build has no standalone component, so this isn't simulated.)"
+  last: "status line seen on 1.4.0 (live check reads it); router restart not done yet"

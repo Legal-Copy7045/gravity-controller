@@ -1,0 +1,15 @@
+# Stable check IDs for the firmware stage (regression/run.py). Append-only: never renumber or reuse
+# an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
+# highest issued: FW-012
+FW-001: "config valid: firmware/gravity980-bridge.yaml"
+FW-002: "compiles: firmware/gravity980-bridge.yaml"
+FW-003: "config valid: tests/configs/no-ha.yaml"
+FW-004: "compiles: tests/configs/no-ha.yaml"
+FW-005: "config valid: tests/host-bridge.yaml"
+FW-006: "compiles: tests/host-bridge.yaml"
+FW-007: "signed OTA verification on"
+FW-008: "OTA downgrade protection on"
+FW-009: "safe mode confirms a new image only after it has run"
+FW-010: "local only switch defaults off"
+FW-011: "automatic updates switch present"
+FW-012: "power-cut resume switch present"

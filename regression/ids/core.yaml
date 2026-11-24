@@ -1,0 +1,15 @@
+# Stable check IDs for the core stage (regression/run.py). Append-only: never renumber or reuse
+# an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
+# highest issued: CORE-012
+CORE-001: "link security"
+CORE-002: "security fixes"
+CORE-003: "local only: which hosts count as the home network"
+CORE-004: "pin auth"
+CORE-005: "protocol"
+CORE-006: "grill wi-fi setup messages"
+CORE-007: "h5198 / fuel idle gap / record layout"
+CORE-008: "program"
+CORE-009: "regressions"
+CORE-010: "fuel"
+CORE-011: "forecast and rest"
+CORE-012: "predictor"

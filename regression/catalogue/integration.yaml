@@ -1,0 +1,33 @@
+# The Home Assistant integration (custom_components/smoker): integration stage = pytest in tests/integration.
+- feature: "Integration setup, journal, scans, photos, device PIN, controller events"
+  since: 0.2.0
+  docs: README.md
+  match: ["^integration:test_smoker:"]
+- feature: "Package install and self-update (bundled package, backups, reloads)"
+  since: 0.2.19
+  docs: CLAUDE.md
+  match: ["^integration:test_smoker: (install package|package kept|bundled package)", "^ci:the integration's bundled package"]
+- feature: "Package automations: cook summary, plan refresh, AI advisor, charcoal, maintenance, calendar, coded buttons, AI plan check"
+  since: 0.2.30
+  docs: docs/features.md
+  match: ["^integration:test_automations:"]
+- feature: "Community sharing (Open Pitmaster format), opt-in, withdraw"
+  since: 0.2.20
+  docs: docs/features.md
+  match: ["^integration:test_sharing:"]
+- feature: "Cook replay data (curves, events, recorder snapshot)"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^integration:test_replay"]
+- feature: "Local only in the integration (fails closed)"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^integration:test_local_only:"]
+- feature: "Voice (Assist intents)"
+  since: 0.2.20
+  docs: docs/features.md
+  match: ["^integration:test_voice:", "^package:voice"]
+- feature: "Integration watchdog reloads a stuck controller"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^integration:test_watchdog:"]

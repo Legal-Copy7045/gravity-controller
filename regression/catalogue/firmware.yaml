@@ -1,0 +1,62 @@
+# Controller features (firmware/, components/). `match` regexes run over "<stage>:<check>" (see regression/catalogue.py).
+# Stages: core = C++ unit tests, sim = host build against tools/fake_grill.py, firmware = config/compile, manual = a person.
+- feature: "Grill link over Wi-Fi/Bluetooth, link loss and recovery"
+  since: 0.1.0
+  docs: docs/features.md
+  match: ["^core:core tests: (protocol|grill wi-fi setup)", "^sim:e2e: (bridge connects|link )", "^sim:scenarios: scenario 2:", "^sim:scenarios: connected", "^core:core tests: link security", "^manual:.*(wi-?fi link|bluetooth)"]
+- feature: "Readings: pit and food probes, slot sources, Govee H5198"
+  since: 0.1.0
+  docs: docs/features.md
+  match: ["^sim:e2e: (pit temperature published|food 1 temperature|single-source|source |food 1 now reads|slot target|food 1 target)", "^core:core tests: h5198", "^manual:.*H5198"]
+- feature: "Control: pit target, Turbo, power on/off with two taps"
+  since: 0.1.0
+  docs: docs/features.md
+  match: ["^sim:e2e: (pit target|out-of-range|Turbo|one press|a second press|two presses|quick target)", "^sim:.*no dangerous command ids"]
+- feature: "Cook programs: steps, conditions, presets, manual override and resume, restore after a restart"
+  since: 0.2.0
+  docs: docs/cook-programs.md
+  match: ["^core:core tests: (program|regressions)", "^sim:e2e: (program|hold below)", "^sim:scenarios: scenario (1|3|4b):", "^firmware:firmware config: .*preset"]
+- feature: "Hold mode (keep foodN T) and Turbo steps in programs"
+  since: 1.4.0
+  docs: docs/cook-programs.md
+  match: ["^sim:scenarios: scenario 0:", "^manual:.*keep"]
+- feature: "Predictions: finish time, stall, rest and pull-at, weather-aware"
+  since: 0.2.0
+  docs: docs/features-0.2.md
+  match: ["^core:core tests: (predictor|forecast and rest)", "^sim:e2e: (estimated total|estimate basis|pull-at|device still running after a forecast)"]
+- feature: "Charcoal gauge and burn-rate learning"
+  since: 0.2.0
+  docs: docs/features-0.2.md
+  match: ["^core:core tests: fuel", "^sim:e2e: (charcoal|topped up)"]
+- feature: "Alerts: done, lid open, runaway pit, fire dying/out, charcoal hang-up"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^sim:scenarios: scenario (5|8|9):", "^manual:.*(fire|runaway)"]
+- feature: "Power-cut recovery: controller restart and grill power loss; grill turned back on"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^sim:scenarios: scenario (4|6|6b|7):", "^firmware:firmware config: power-cut", "^manual:.*power cut"]
+- feature: "Pit stability report and lid-open cost"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["pit stability"]
+- feature: "Connectivity watchdog"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^manual:.*watchdog"]
+- feature: "Local only: no internet connections when switched on (default off)"
+  since: 1.4.0
+  docs: docs/features.md
+  match: ["^core:core tests: local only", "local only", "local_only"]
+- feature: "Controller page security: PIN, other-origin and CSRF protection, secrets never shown"
+  since: 0.2.30
+  docs: docs/standalone.md
+  match: ["^core:core tests: (pin auth|security fixes)", "^device:other websites:", "^device:PIN: (a new controller asks|an easy PIN|PIN set|locked|a forgotten PIN|a POST without|a wrong PIN|the right PIN|unlocked|without a PIN|the PIN card)", "never (shown back|returns|reaches)"]
+- feature: "Signed OTA updates, downgrade protection, automatic updates while idle, rollback of a bad release"
+  since: 1.3.0
+  docs: docs/install.md
+  match: ["^firmware:firmware config: (signed|OTA|safe mode|automatic)", "^firmware:compiles", "^firmware:config valid", "^device:PIN: (This controller offers the firmware|Install asks|the second tap installs|the page shows it installing)", "^manual:.*(rollback|OTA|update)"]
+- feature: "Factory reset (two taps, PIN when locked)"
+  since: 0.2.40
+  docs: docs/standalone.md
+  match: ["factory reset", "erases the controller"]

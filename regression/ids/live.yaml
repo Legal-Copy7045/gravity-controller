@@ -1,0 +1,11 @@
+# Stable check IDs for the live stage (regression/run.py). Append-only: never renumber or reuse
+# an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
+# highest issued: LIVE-008
+LIVE-001: "integration installed at this version"
+LIVE-002: "controller firmware at this version"
+LIVE-003: "no update pending"
+LIVE-004: "configuration check valid"
+LIVE-005: "controller connected to Home Assistant"
+LIVE-006: "local only is off (the default)"
+LIVE-007: "automatic updates state reported"
+LIVE-008: "latest GitHub release is this version"

@@ -1,0 +1,19 @@
+# Stable check IDs for the ci stage (regression/run.py). Append-only: never renumber or reuse
+# an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
+# highest issued: CI-016
+CI-001: "versions agree (VERSION, manifest, firmware, CHANGELOG)"
+CI-002: "brand files in sync"
+CI-003: "privacy guard (commits and files)"
+CI-004: "release notes build from CHANGELOG"
+CI-005: "package copy identical"
+CI-006: "shared block cook program editor"
+CI-007: "shared block cook plan"
+CI-008: "shared block serve together"
+CI-009: "shared block cook replay"
+CI-010: "shared block page sections"
+CI-011: "actions pinned"
+CI-012: "default permissions"
+CI-013: "signing key in protected environment"
+CI-014: "no pull_request_target"
+CI-015: "no keys or secrets tracked"
+CI-016: "regression out ignored"

@@ -1,0 +1,22 @@
+# The Home Assistant package (homeassistant/packages/smoker.yaml): package stage = tests/ha_check.py (HA's own config
+# check) and tests/ha_templates.py (the package's templates rendered by HA's template engine).
+- feature: "Package loads in Home Assistant (config check) with the integration"
+  since: 0.2.0
+  docs: docs/install.md
+  match: ["^package:(integration imports|Home Assistant's config check)"]
+- feature: "Notification buttons: actions, coded buttons, odd tags refused"
+  since: 0.2.30
+  docs: docs/features.md
+  match: ["^package:(button|buttons for|odd tag|pull button|notification code|coded buttons|no buttons)"]
+- feature: "AI plan check before loading (pit limits, links, injection)"
+  since: 0.2.30
+  docs: docs/cook-programs.md
+  match: ["^package:(plan check|°C controller|a link in the explanation|recommendations parsed)"]
+- feature: "Food slot templates (wrapped, external probes, slot targets)"
+  since: 0.2.0
+  docs: docs/features.md
+  match: ["^package:(wrapped entity|external probe|no entity|slot |alarm not set)"]
+- feature: "Weather forecast lists"
+  since: 0.2.10
+  docs: docs/features.md
+  match: ["^package:forecast lists"]

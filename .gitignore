@@ -11,3 +11,4 @@ tests/webui-*.log
 .pytest_cache/
 firmware/signing_key.pem
 *.pem
+regression/out/
