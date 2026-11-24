@@ -349,7 +349,8 @@ class Standalone : public Component {
   std::string conn_text_;
   uint32_t watch_at_{0};
   std::atomic<uint32_t> net_ok_at_{0}, net_fail_at_{0};  // the last internet request that worked / failed
-  uint32_t wifi_down_at_{0}, wifi_reboot_at_{0};
+  uint32_t wifi_down_at_{0}, wifi_reboot_at_{0}, wifi_up_since_{0};
+  bool wifi_was_up_{false};
   bool wifi_down_in_cook_{false};
   uint32_t ha_down_at_{0};
   bool ha_down_told_{false};

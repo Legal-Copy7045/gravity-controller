@@ -658,10 +658,11 @@ switch:
   # default; confirmed working on a 980. Every write is checked against what the grill reports back (an ignored write
   # changes nothing). Only pit/food targets, Turbo and power on/off (two presses) are ever sent. Wi-Fi is used
   # instead whenever it's connected.
-  # Local only (off unless you turn it on): the controller makes no internet connections at all. Only hosts on your
-  # own network can be reached (a self-hosted ntfy, say); weather, the AI, Pushover, Telegram, sharing, the internet
-  # clock and update checks stop. Home Assistant (on your network) keeps working, and its integration honours this
-  # switch for what it does on the controller's behalf (sharing, AI).
+  # Local only (off unless you turn it on): the controller makes no internet connections at all: weather, the AI,
+  # ntfy, Pushover, Telegram, sharing, the internet clock and update checks stop. Home Assistant (on your network) keeps
+  # working, and is then the only way alerts reach a phone; its integration honours this switch for what it does on
+  # the controller's behalf (sharing, AI). Without Home Assistant, the controller can't send alerts at all (Setup →
+  # Connectivity says so).
   - platform: template
     name: Local only (no internet)
     id: local_only

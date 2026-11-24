@@ -940,11 +940,32 @@ bool Standalone::is_local_url(const std::string &url) {
     return false;
   a += 3;
   size_t b = url.find_first_of(":/?#", a);
+  const size_t auth_end = url.find_first_of("/?#", a);
+  if (url.substr(a, auth_end == std::string::npos ? std::string::npos : auth_end - a).find('@') != std::string::npos)
+    return false;  // credentials in the URL: never treated as local
+  if (url.find('\0') != std::string::npos)
+    return false;
   std::string host = url.substr(a, b == std::string::npos ? std::string::npos : b - a);
-  if (host.find('@') != std::string::npos || host.empty() || host[0] == '[')
-    return false;  // credentials in the URL, or IPv6: not treated as local
+  if (host.empty() || host[0] == '[')
+    return false;  // IPv6: not treated as local
   for (auto &ch : host)
     ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  // All digits and dots: only a plain dotted IPv4 address with no leading zeros (lwIP reads 010 as octal, a lone
+  // number as a whole address) can be judged; anything else isn't local.
+  if (host.find_first_not_of("0123456789.") == std::string::npos) {
+    if (std::count(host.begin(), host.end(), '.') != 3)
+      return false;
+    size_t s0 = 0;
+    while (s0 <= host.size()) {
+      size_t e = host.find('.', s0);
+      std::string part = host.substr(s0, e == std::string::npos ? std::string::npos : e - s0);
+      if (part.empty() || part.size() > 3 || (part.size() > 1 && part[0] == '0'))
+        return false;
+      if (e == std::string::npos)
+        break;
+      s0 = e + 1;
+    }
+  }
   unsigned o[4];
   char tail;
   if (std::sscanf(host.c_str(), "%u.%u.%u.%u%c", &o[0], &o[1], &o[2], &o[3], &tail) == 4) {
@@ -966,13 +987,12 @@ bool Standalone::is_local_url(const std::string &url) {
 void Standalone::queue_(Job j) {
   if (this->local_only_ && !is_local_url(j.url)) {
     ESP_LOGI(TAG, "%s: not sent (local only: no internet)", j.what.c_str());
+    std::lock_guard<std::mutex> r(this->results_lock_);  // the HTTP task reads these (status_json_)
     if (j.what == "ntfy") this->last_result_[0] = "not sent: local only";
     else if (j.what == "pushover") this->last_result_[1] = "not sent: local only";
     else if (j.what == "telegram") this->last_result_[2] = "not sent: local only";
-    if (j.what.rfind("ai:", 0) == 0 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0) {
-      std::lock_guard<std::mutex> r(this->results_lock_);
+    if (j.what.rfind("ai:", 0) == 0 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0)
       this->done_.push_back({j.what, 0, std::string()});
-    }
     return;
   }
 #ifdef USE_ESP32

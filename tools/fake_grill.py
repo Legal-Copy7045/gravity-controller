@@ -165,6 +165,8 @@ def control(g, port):
                     threading.Thread(target=restore, daemon=True).start()
                 if "food1_f" in cmd:
                     g.food[0]["core"] = g.food[0]["surf"] = (float(cmd["food1_f"]) - 32) * 5 / 9
+                if "on" in cmd:
+                    g.on = bool(cmd["on"])  # its own power button (targets kept)
                 if "door" in cmd:
                     g.door = bool(cmd["door"])
                 if "pit_f" in cmd:

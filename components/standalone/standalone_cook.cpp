@@ -569,6 +569,7 @@ int Standalone::light_by_(uint32_t now_epoch, float *est_min) {
 // the last 10 minutes is reminded again); never after the serve time. Every 30 s, under lock_.
 void Standalone::put_on_reminders_(uint32_t t) {
   if (this->s2_.serve_by == 0 || this->cook_ == nullptr || t >= this->s2_.serve_by) return;
+  if (this->send_via_ha()) return;  // Home Assistant's package sends these (its serve-by time): not twice
   if (this->put_on_for_ != this->s2_.serve_by) {
     this->put_on_for_ = this->s2_.serve_by;
     this->put_on_sent_ = 0;

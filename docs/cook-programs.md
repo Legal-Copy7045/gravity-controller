@@ -38,10 +38,13 @@ program keeps retrying every minute and tells you if the grill still hasn't take
 **pauses**; resume it to go back to the program's target.
 
 **Power cuts:** with *Resume after a power cut* on (the default), a cut during a cook of up to an hour is picked up
-again: the controller reconnects, turns the grill back on if it was on before the cut, sends the pit target again and
-carries on with the program at the same step (a timed step counts the time the power was off), then tells you what
-happened. A grill turned off with its own button stays off. Longer cuts, or with the setting off, the program comes
-back **paused** at the same step and you get an urgent notification to check the grill and the food.
+again: the controller reconnects, sends the pit and food targets again and carries on with the program at the same
+step (a timed step counts the time the power was off), then tells you what happened. It turns the grill back on only
+when all of these hold: the grill was on before the cut; the outage was measured (the controller knows the time: from
+the internet or Home Assistant, within 10 minutes of starting) and is under an hour; the controller's own restart was a
+loss of power (not an update or a crash); and the grill came back with its settings reset (a grill turned off with its
+own button keeps them, so it stays off). Otherwise you get an urgent notification to check the fire and the food, and
+the grill is left as it is. Longer cuts, or with the setting off, the program comes back **paused** at the same step.
 
 **Step editor:** the Cook program card on the Home Assistant panel and on the controller's own page shows the program
 as steps: an action (*Set pit to*, *Hold at*, *Notify only*, *Shut down*), the conditions that end the step (*until* …

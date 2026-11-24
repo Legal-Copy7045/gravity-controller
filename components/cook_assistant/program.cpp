@@ -531,8 +531,9 @@ RunnerOutputs ProgramRunner::enter_step_(size_t idx, double now_min) {
       out.notifications.push_back(s.notify);
     if (s.turbo >= 0)
       out.turbo = s.turbo;
-    if (s.keep_probe >= 0 && std::isnan(s.pit_c))
-      commanded_pit_ = NAN;  // the controller moves the pit to keep the food (cook_assistant: keep)
+    if (s.keep_probe >= 0)
+      commanded_pit_ = NAN;  // the controller moves the pit to keep the food (cook_assistant: keep), even after a
+                             // starting `pit N` in the same step: not "the program's target" to defend
     if (s.shutdown) {
       out.shutdown = true;
       commanded_pit_ = NAN;

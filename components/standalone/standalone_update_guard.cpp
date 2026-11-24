@@ -97,7 +97,8 @@ void Standalone::loop_guard_(uint32_t now) {
     }
   } else {
     this->trial_wifi_since_ = 0;
-    if (now > 10 * 60000) {
+    // Never mid-cook (a restart then would interrupt it): the decision waits until the cook is over.
+    if (now > 10 * 60000 && !(this->cook_ != nullptr && this->cook_->cook_active())) {
       ESP_LOGE(TAG, "New firmware hasn't kept a Wi-Fi connection in 10 min: going back to the previous one");
       this->on_trial_ = false;
       esp_ota_mark_app_invalid_rollback_and_reboot();

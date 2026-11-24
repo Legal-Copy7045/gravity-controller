@@ -57,6 +57,14 @@ void CookAssistant::track_lid_(bool lid_open, double now, float pit, float sp) {
     if (this->lid_opened_at_ < 0) {
       this->lid_opened_at_ = now;
       this->lid_finish_before_ = this->earliest_finish_min_();
+      // Each food's predicted finish now (absolute minutes), to compare food by food afterwards.
+      this->lid_before_.assign(this->probes_.size(), NAN);
+      for (size_t i = 0; i < this->probes_.size(); i++) {
+        auto *p = this->probes_[i];
+        if (p->remaining != nullptr && p->remaining->has_state() && !std::isnan(p->remaining->state) &&
+            !(p->pulled != nullptr && p->pulled->state))
+          this->lid_before_[i] = float(now) + p->remaining->state;
+      }
       this->lid_measuring_ = false;
     }
     return;
@@ -78,11 +86,19 @@ void CookAssistant::track_lid_(bool lid_open, double now, float pit, float sp) {
   if (!back && back_min < 30.0f)
     return;
   this->lid_measuring_ = false;
-  const float after = this->earliest_finish_min_();
-  std::string food;
+  // The cost: how much later the foods that had an estimate before and still have one now (not pulled, not added
+  // during the opening) are predicted to finish; the largest of those delays.
   float cost = NAN;
-  if (!std::isnan(after) && !std::isnan(this->lid_finish_before_))
-    cost = std::max(0.0f, after - this->lid_finish_before_);
+  for (size_t i = 0; i < this->probes_.size() && i < this->lid_before_.size(); i++) {
+    auto *p = this->probes_[i];
+    if (std::isnan(this->lid_before_[i]) || p->remaining == nullptr || !p->remaining->has_state() ||
+        std::isnan(p->remaining->state) || (p->pulled != nullptr && p->pulled->state))
+      continue;
+    const float d = std::max(0.0f, float(now) + p->remaining->state - this->lid_before_[i]);
+    if (d > 6 * 60.0f)
+      continue;  // not a lid's doing (a new cook in that slot, a target changed): left out
+    cost = std::isnan(cost) ? d : std::max(cost, d);
+  }
   if (!std::isnan(cost))
     this->lid_cost_total_ += cost;
   char b[160];

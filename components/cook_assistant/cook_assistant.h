@@ -343,10 +343,14 @@ class CookAssistant : public Component {
   float earliest_finish_min_();  // absolute (now_min_ scale) finish of the soonest food, NAN if none
   double lid_closed_at_{-1};
   double runaway_since_{-1};
+  double sp_changed_at_{-1e9};
+  bool turbo_commanded_{false};  // a program step turned Turbo on (and hasn't turned it off)
+  void turbo_off_();  // a program's Turbo, off (stop/pause): cook_assistant.cpp
   bool runaway_notified_{false};
   // the lid opening being measured
   double lid_opened_at_{-1};
   float lid_finish_before_{NAN};
+  std::vector<float> lid_before_;  // per food: predicted finish when the lid opened
   float lid_open_min_{0};
   bool lid_measuring_{false};
   // this cook's totals
@@ -385,6 +389,8 @@ class CookAssistant : public Component {
   bool rec_pit_changed_{false};
   uint8_t rec_power_tries_{0};
   uint8_t rec_food_sent_{0};
+  bool rec_may_power_on_{false};   // outage measured, within the limit, and (controller) a power-loss reset
+  bool rec_grill_reset_{false};     // the grill came back with its targets reset: it lost power too
   float rec_outage_min_{NAN};
   float rec_pit_c_{NAN};
   float rec_pre_sp_c_{NAN};    // the grill's reported target before the link dropped
@@ -392,6 +398,7 @@ class CookAssistant : public Component {
   uint32_t rec_since_ms_{0}, rec_step_ms_{0};
   uint32_t override_hold_until_{0};  // ignore "the pit target changed outside the program" until (a rebooted grill)
   bool grill_was_on_{false};         // live: the grill reported on while connected
+  uint32_t resync_until_{0};         // food targets may go back to a grill reporting none until (see sync_tick_)
   uint32_t link_down_ms_{0};         // live: the grill link dropped during a cook at (0 = up)
   // The program as restored at boot (paused); recovery resumes it, counting the time the controller was off.
   bool prog_restored_{false};

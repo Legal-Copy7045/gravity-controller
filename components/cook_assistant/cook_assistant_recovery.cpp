@@ -86,6 +86,16 @@ void CookAssistant::recovery_save_(bool force) {
     global_preferences->sync();  // a cut right after a change shouldn't lose it
 }
 
+// The controller's own reset was a loss of power (a cut or a dip), not a restart, an update or a crash.
+static bool reset_was_power_loss() {
+#ifdef USE_ESP32
+  const auto r = esp_reset_reason();
+  return r == ESP_RST_POWERON || r == ESP_RST_BROWNOUT;
+#else
+  return true;  // (the host test build: a restart stands in for a power cut)
+#endif
+}
+
 static std::string reset_reason_text() {
 #ifdef USE_ESP32
   switch (esp_reset_reason()) {
@@ -109,6 +119,9 @@ static std::string reset_reason_text() {
 
 void CookAssistant::begin_recovery_(bool controller, float outage_min, bool grill_was_on, float pit_c) {
   this->rec_ = Rec::WAIT_LINK;
+  // Turning the grill back on needs a measured outage within the limit, and (for a restart of the controller) a
+  // restart caused by a loss of power. Then, at the grill, evidence that it lost power too (see Rec::CHECK).
+  this->rec_may_power_on_ = !std::isnan(outage_min) && outage_min <= MAX_OUTAGE_MIN && (!controller || reset_was_power_loss());
   this->rec_controller_ = controller;
   this->rec_grill_was_on_ = grill_was_on;
   this->rec_turned_on_ = this->rec_pit_changed_ = false;
@@ -137,6 +150,9 @@ void CookAssistant::finish_recovery_(int priority, const std::string &problem) {
   const bool prog = st == cook::ProgramRunner::State::RUNNING || st == cook::ProgramRunner::State::PAUSED;
   const bool controller = this->rec_controller_;
   this->rec_ = Rec::NONE;
+  this->prog_restored_ = false;  // a program left paused stays paused; never resumed later by a stale record
+  if (!problem.empty())
+    this->grill_was_on_ = false;  // no automatic power-on for the rest of this cook until the grill is seen on again
   // A Wi-Fi/Bluetooth dropout with the grill fine (on, same target): nothing happened; the link note covers it, and
   // a target changed by hand right after it is a manual change as usual.
   if (!controller && !this->rec_turned_on_ && !this->rec_pit_changed_ && this->rec_food_sent_ == 0 && problem.empty()) {
@@ -146,7 +162,8 @@ void CookAssistant::finish_recovery_(int priority, const std::string &problem) {
   this->override_hold_until_ = millis() + OVERRIDE_HOLD_MS;
   std::string title, msg;
   if (controller) {
-    title = problem.empty() ? "Power cut: cook resumed" : "Power cut: cook needs you";
+    const char *what = reset_was_power_loss() ? "Power cut" : "Controller restarted";
+    title = std::string(what) + (problem.empty() ? ": cook resumed" : ": cook needs you");
     msg = "The controller was off " + fmt_outage(this->rec_outage_min_) + " (" + reset_reason_text() + ").";
   } else {
     title = problem.empty() ? "The grill lost power: cook resumed" : "The grill lost power";
@@ -176,10 +193,11 @@ void CookAssistant::recovery_tick_() {
   const uint32_t now = millis();
   const bool link = this->link_up_();
 
-  // ---- after a restart: decide once the clock is known (or after 3 min without it)
+  // ---- after a restart: decide once the clock is known (Home Assistant can take a while to come back after a power
+  // cut: up to 10 min). Without a clock the outage can't be measured: the cook is picked up, the grill never turned on.
   if (this->rec_boot_pending_) {
     const uint32_t ep = this->epoch_now_();
-    if (ep == 0 && now < 180000)
+    if (ep == 0 && now < 600000)
       return;
     this->rec_boot_pending_ = false;
     const RecoveryBlob &b = this->rec_boot_;
@@ -221,6 +239,7 @@ void CookAssistant::recovery_tick_() {
       if (this->link_down_ms_ != 0) {
         const float down = (now - this->link_down_ms_) / 60000.0f;
         this->link_down_ms_ = 0;
+        this->resync_until_ = now + 600000;
         if (this->cook_active_ && this->grill_was_on_ && down <= MAX_OUTAGE_MIN && this->resume_enabled_()) {
           const auto st = this->runner_.state();
           const float pit = st == cook::ProgramRunner::State::RUNNING ? this->runner_.commanded_pit()
@@ -233,8 +252,10 @@ void CookAssistant::recovery_tick_() {
       if (this->rec_ == Rec::NONE && this->grill_on_ != nullptr && this->grill_on_->has_state()) {
         // Just switched on (by hand, or from a page): it may report its own default target for a moment; that isn't
         // a manual change of the program's target, which goes to it again (the program's retry).
-        if (this->grill_on_->state && !this->grill_was_on_ && this->cook_active_)
+        if (this->grill_on_->state && !this->grill_was_on_ && this->cook_active_) {
           this->override_hold_until_ = now + OVERRIDE_HOLD_MS;
+          this->resync_until_ = now + 600000;
+        }
         this->grill_was_on_ = this->grill_on_->state;
       }
     }
@@ -248,6 +269,7 @@ void CookAssistant::recovery_tick_() {
   switch (this->rec_) {
     case Rec::WAIT_LINK:
       if (link) {
+        this->resync_until_ = now + 600000;
         this->rec_ = Rec::CHECK;
         this->rec_step_ms_ = now;
         this->rec_sp_at_link_ = this->pit_setpoint_c_();  // from the first status after reconnecting
@@ -263,16 +285,37 @@ void CookAssistant::recovery_tick_() {
       }
       if (now - this->rec_step_ms_ < SETTLE_MS)
         break;
-      // Only the link dropped (the grill kept its power): it's on and reports the same target as before.
-      if (!this->rec_controller_ && this->grill_reports_on_() &&
-          (std::isnan(this->rec_pre_sp_c_) ||
-           (!std::isnan(this->rec_sp_at_link_) && std::fabs(this->rec_sp_at_link_ - this->rec_pre_sp_c_) <= 1.0f))) {
-        this->finish_recovery_(1, "");
-        break;
+      {
+        // Evidence that the grill itself lost power: it came back with a different pit target than before (its
+        // default), or with no target on a probe that had one. A grill turned off with its button keeps its targets.
+        bool reset = !std::isnan(this->rec_pre_sp_c_) &&
+                     (std::isnan(this->rec_sp_at_link_) || std::fabs(this->rec_sp_at_link_ - this->rec_pre_sp_c_) > 1.0f);
+        for (auto *p : this->probes_) {
+          if (p->active >= p->sources.size())
+            continue;
+          auto &src = p->sources[p->active];
+          if (src.sync != nullptr && src.target != nullptr && this->sync_owner_(p, src) &&
+              !std::isnan(this->slot_in_source_(p, src)) && !(src.target->has_state() && !std::isnan(src.target->state)))
+            reset = true;
+        }
+        this->rec_grill_reset_ = reset;
+        // Only the link dropped (the grill kept its power): it's on and reports the same targets as before.
+        if (!this->rec_controller_ && this->grill_reports_on_() && !reset) {
+          this->finish_recovery_(1, "");
+          break;
+        }
       }
       if (this->grill_reports_on_() || this->grill_on_ == nullptr) {
         this->rec_ = Rec::TARGETS;
         this->rec_step_ms_ = now;
+      } else if (this->rec_grill_was_on_ && !(this->rec_may_power_on_ && this->rec_grill_reset_)) {
+        // Off, but no proof it was a power cut (or the outage couldn't be measured, or was too long): never turned on.
+        this->finish_recovery_(2, !this->rec_may_power_on_
+                                      ? "The grill is off. It wasn't turned back on: the controller couldn't tell how "
+                                        "long the power was off. Check the fire and the food, then turn it on if all's well."
+                                      : "The grill is off and its settings look unchanged (turned off at the grill?). "
+                                        "It wasn't turned back on: turn it on if you want to carry on.");
+        break;
       } else if (this->rec_grill_was_on_) {
         if (this->rec_power_tries_ >= 2) {
           this->finish_recovery_(2, "The grill is still off: it didn't turn back on. Turn it on at the grill.");

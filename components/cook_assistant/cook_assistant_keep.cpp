@@ -42,8 +42,11 @@ void CookAssistant::keep_tick_(const cook::RunnerInputs &in) {
   float pit = want + 10.0f + 4.0f * err + this->keep_i_;
   pit = std::max(this->pit_min_c_, std::min(this->pit_max_c_, pit));
   const float step = this->fahrenheit_ ? 5.0f * 5.0f / 9.0f : 2.0f;
-  pit = std::max(this->pit_min_c_, std::round(pit / step) * step);
-  if (std::isnan(this->last_commanded_c_) || std::fabs(pit - this->last_commanded_c_) >= step * 0.9f) {
+  pit = std::max(this->pit_min_c_, std::min(this->pit_max_c_, std::round(pit / step) * step));
+  // Send when it changes, or when the grill doesn't have it (it restarted, or a change at the grill).
+  const float rep = this->pit_setpoint_c_();
+  const bool grill_differs = !std::isnan(rep) && std::fabs(rep - pit) >= step * 0.9f;
+  if (std::isnan(this->last_commanded_c_) || std::fabs(pit - this->last_commanded_c_) >= step * 0.9f || grill_differs) {
     ESP_LOGI(TAG, "Keeping probe %d at %.1f °C (now %.1f): pit to %.0f °C", kp, want, food, pit);
     this->set_pit_(pit);
   }

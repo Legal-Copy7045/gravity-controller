@@ -165,6 +165,25 @@ async def main():
                              open(os.path.join(HERE, "e2e-scen-grill.log")).read().split("power back")[-1], 30, "food"),
               "the food target was sent to the grill again")
 
+        print("scenario 6b: the link drops, and meanwhile the grill is turned off at its button: left off")
+        dlog.flush()
+        before = len(open(os.path.join(HERE, "e2e-scen-device.log")).read())
+        grill({"silent": True})
+        check(await dev.wait(lambda: v("grill_connected") is False, 40, "lost"), "link lost")
+        grill({"on": False})
+        await asyncio.sleep(5)
+        grill({"silent": False})
+        check(await dev.wait(lambda: v("grill_connected") is True, 60, "back"), "link back")
+        await asyncio.sleep(40)
+        check(v("grill_on") is False, "a grill turned off at its button (settings kept) isn't turned back on")
+        dlog.flush()
+        log = open(os.path.join(HERE, "e2e-scen-device.log")).read()[before:]
+        check("wasn't turned back on" in log, "a notification says it was left off")
+        dev.cli.button_command(dev.by_id["turn_the_grill_on"].key)
+        dev.cli.button_command(dev.by_id["turn_the_grill_on"].key)
+        check(await dev.wait(lambda: v("grill_on") is True, 20, "on"), "grill on again (two presses)")
+        check(await dev.wait(lambda: v("pit_target_reported") == 260.0, 90, "pit 260"), "program's target back")
+
         print("scenario 7: the grill is turned off with its button: not turned back on")
         dev.cli.button_command(dev.by_id["turn_the_grill_off"].key)
         dev.cli.button_command(dev.by_id["turn_the_grill_off"].key)

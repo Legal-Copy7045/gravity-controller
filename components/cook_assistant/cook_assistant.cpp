@@ -617,6 +617,7 @@ void CookAssistant::tick_second_() {
         if (this->override_since_ < 0)
           this->override_since_ = now;
         if (now - this->override_since_ > 0.5) {
+          this->turbo_off_();
           this->runner_.pause(now, "pit target changed outside the program");
           this->notify("Program paused", "The pit target was changed to " + this->fmt_temp_(rep) +
                                              ". Resume the program to go back to " + this->fmt_temp_(cmd) + ".",
@@ -821,6 +822,7 @@ void CookAssistant::check_alerts_() {
   // A new setpoint restarts "has the pit reached its target yet".
   if (!std::isnan(sp) && (std::isnan(this->alert_sp_c_) || std::fabs(sp - this->alert_sp_c_) > 3.0f)) {
     this->alert_sp_c_ = sp;
+    this->sp_changed_at_ = now;
     this->pit_reached_ = false;
     this->pit_off_since_ = this->fire_low_since_ = -1;
   }
@@ -852,20 +854,19 @@ void CookAssistant::check_alerts_() {
     // After the lid has been open, the pit needs a while to come back: a dip then isn't a fire problem.
     const bool lid_grace = lid_open || (this->lid_closed_at_ >= 0 && now - this->lid_closed_at_ < 10);
     const bool rising = this->pit_hist_.size() >= 6 && this->pit_hist_.back() > this->pit_hist_.front() + 1.0f;
-    // The fire is struggling (a warning before "Fire may be out"): the fan has been blowing nearly all of the last
-    // 10 minutes, yet the pit is under target and not coming back. A healthy fire recovers with that much air. With
+    // The fire is struggling (a warning before "Fire may be out"): the grill has been on all of the last 10 minutes
+    // (the stock controller's flag; no separate fan bit is known yet), yet the pit is under target and falling. With
     // plenty of charcoal left by the estimate, the likely cause is charcoal hung up in the chute (it bridges and stops
     // feeding the fire); with little left, the hopper is running out.
     {
       int fan_min = 0;  // fan_hist_: one sample a minute, last 10 (kept by the fuel gauge's minute tick)
       for (uint8_t f : this->fan_hist_) fan_min += f;
       const bool struggling = this->pit_reached_ && !lid_grace && this->fan_hist_.size() >= 10 && fan_min >= 8 &&
-                              sp - pit > 5.5f && !rising;  // 10 °F under and not recovering, fan flat out
+                              sp - pit > 5.5f && falling;  // 10 °F under and falling
       if (struggling && !this->fire_dying_notified_ && !this->fire_notified_) {
         this->fire_dying_notified_ = true;
         const float hrs = this->fuel_.hours_left();
-        const std::string where = "Pit " + this->fmt_temp_(pit) + (falling ? " and falling" : " and not recovering") +
-                                  " (target " + this->fmt_temp_(sp) + ") with the fan running flat out.";
+        const std::string where = "Pit " + this->fmt_temp_(pit) + " and falling (target " + this->fmt_temp_(sp) + ").";
         if (std::isfinite(hrs) && hrs < 1.5f) {
           this->notify("The fire may be dying", where + " The charcoal estimate is low: top up the hopper.", 1,
                        "fire_dying");
@@ -886,25 +887,22 @@ void CookAssistant::check_alerts_() {
       }
     }
     // Running away: well over the target and still climbing with the lid closed (a grease fire, or air getting in
-    // round the fan's flap, the hopper lid or the ash door), or far over it and not coming down.
+    // round the fan's flap, the hopper lid or the ash door) for 5 minutes, or far over it and not coming down. Not
+    // while a program has Turbo on (a sear), nor in the 10 minutes after the target changed (a lowered target takes a
+    // while to come down to).
     {
       const float over = pit - sp;
-      int fan_on = 0;
-      for (size_t i = this->fan_hist_.size() > 3 ? this->fan_hist_.size() - 3 : 0; i < this->fan_hist_.size(); i++)
-        fan_on += this->fan_hist_[i];
-      const bool fan_quiet = this->fan_ == nullptr || fan_on == 0;
-      const bool away = !lid_open && this->cook_active_ &&
-                        ((over > 28.0f && rising && fan_quiet) || (over > 56.0f && !falling) ||
-                         pit > this->pit_max_c_ + 8.0f);
+      const bool quiet = this->turbo_commanded_ || now - this->sp_changed_at_ < 10;
+      const bool away = !lid_open && this->cook_active_ && !quiet &&
+                        ((over > 28.0f && rising) || (over > 56.0f && !falling) || pit > this->pit_max_c_ + 8.0f);
       if (away) {
         if (this->runaway_since_ < 0)
           this->runaway_since_ = now;
-        if (now - this->runaway_since_ >= 3 && !this->runaway_notified_) {
+        if (now - this->runaway_since_ >= 5 && !this->runaway_notified_) {
           this->runaway_notified_ = true;
           this->notify("Pit temperature running away",
                        "Pit " + this->fmt_temp_(pit) + (rising ? " and still rising" : "") + ", " +
                            this->fmt_temp_delta_(over) + " over the " + this->fmt_temp_(sp) + " target" +
-                           (fan_quiet && this->fan_ != nullptr ? " with the fan off" : "") +
                            ". Possibly a grease fire, or air getting in (the fan's flap, the hopper lid, the ash door). "
                            "Keep the lid closed, close the hopper lid and the ash door, and keep an eye on it.",
                        2, "runaway");
@@ -1000,9 +998,11 @@ void CookAssistant::set_pit_(float c) {
 void CookAssistant::apply_outputs_(const cook::RunnerOutputs &o) {
   if (o.set_pit)
     this->set_pit_(o.pit_c);
-  if (o.turbo >= 0)
+  if (o.turbo >= 0) {
+    this->turbo_commanded_ = o.turbo == 1;
     for (auto *t : this->turbo_triggers_)
       t->trigger(o.turbo == 1);
+  }
   for (const auto &m : o.notifications)
     this->notify(this->runner_.program().name.empty() ? "Cook program" : this->runner_.program().name, m, 1, "program");
   if (o.step_changed && !o.finished) {
@@ -1142,6 +1142,7 @@ void CookAssistant::start_program() {
   this->save_program_state_();
 }
 void CookAssistant::pause_program() {
+  this->turbo_off_();  // a paused sear doesn't keep the fan flat out
   this->runner_.pause(this->now_min_(), "paused by user");
   this->save_program_state_();
 }
@@ -1154,7 +1155,16 @@ void CookAssistant::skip_step() {
   auto o = this->runner_.skip(this->now_min_());
   this->apply_outputs_(o);
 }
+void CookAssistant::turbo_off_() {
+  if (!this->turbo_commanded_)
+    return;
+  this->turbo_commanded_ = false;
+  for (auto *t : this->turbo_triggers_)
+    t->trigger(false);
+}
+
 void CookAssistant::stop_program() {
+  this->turbo_off_();
   this->runner_.stop();
   this->save_program_state_();
 }
@@ -1477,11 +1487,13 @@ void CookAssistant::sync_tick_(FoodProbe *p, const ProbeSource &src) {
   if (std::isnan(st)) {
     p->last_source_target = NAN;  // link down / no target: the next reading is a "first" one
     p->pushed_target = NAN;
-    // Connected, but the source has no target at all (a grill that restarted forgets its probe targets): the slot's
-    // target goes back to it.
+    // Connected, but the source has no target at all: a grill that restarted forgets its probe targets. During a cook,
+    // in the 10 minutes after the grill reconnects or is switched on, the slot's target goes back to it. (Outside that
+    // window a target cleared at the grill stays cleared.)
     const float want = this->slot_in_source_(p, src);
     const uint32_t now = millis();
-    if (src.sync != nullptr && this->link_up_() && !std::isnan(want) && now - p->push_ms >= SYNC_RETRY_MS) {
+    if (src.sync != nullptr && this->link_up_() && this->cook_active_ && int32_t(this->resync_until_ - now) > 0 &&
+        !std::isnan(want) && now - p->push_ms >= SYNC_RETRY_MS) {
       this->push_target_(p, src, want);
       p->pushed_target = NAN;  // nothing to compare against yet: the next reading decides
     }
