@@ -1,6 +1,6 @@
 # Stable check IDs for the sim stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: SIM-103
+# highest issued: SIM-107
 SIM-001: "e2e › bridge connects to grill"
 SIM-002: "e2e › pit temperature published"
 SIM-003: "e2e › food 1 temperature published"
@@ -100,3 +100,7 @@ SIM-099: "scenarios › scenario 11 › resume turned Turbo back on"
 SIM-100: "scenarios › scenario 11 › stop turned Turbo off"
 SIM-101: "scenarios › scenario 11 › an AI plan with a link is refused"
 SIM-102: "scenarios › scenario 11 › Turbo taken out of an AI plan leaves a program the controller can read"
+SIM-104: "scenarios › scenario 10 › a cook that isn't resumed ends its keep"
+SIM-105: "scenarios › scenario 11 › a `turbo off until` step waits at the same pit"
+SIM-106: "scenarios › scenario 11 › an AI plan from Home Assistant is capped at the AI max pit and loaded"
+SIM-107: "scenarios › scenario 11 › an AI plan from Home Assistant with a link is refused"
