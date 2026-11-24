@@ -32,6 +32,15 @@ namespace esphome {
 namespace cook_assistant {
 class CookAssistant;
 }
+namespace binary_sensor {
+class BinarySensor;
+}
+namespace sensor {
+class Sensor;
+}
+namespace text_sensor {
+class TextSensor;
+}
 namespace standalone {
 
 // Fixed-size settings in flash. Secret fields are never returned by the web API.
@@ -81,6 +90,32 @@ struct JEntry {
 static constexpr size_t JOURNAL_SLOTS = 24;
 static constexpr size_t HIST_SERIES = 8;  // pit, pit target, food 1-6
 static constexpr size_t HIST_LEN = 1440;  // 24 h at one a minute
+
+// Something that happened during a cook, for the device page's replay (standalone_replay.cpp).
+struct CookEvent {
+  uint32_t t{0};     // epoch
+  uint8_t k{0};      // 1 lid opened, 2 wrapped, 3 unwrapped, 4 stall began, 5 stall ended, 6 program step,
+                     // 7 charcoal topped up, 8 off the grill (pulled)
+  uint8_t slot{0};   // food slot 1-6 (0: not a food's)
+  uint16_t v{0};     // lid: seconds it was open; program step: its number; charcoal: the level (%)
+};
+static constexpr size_t CURVE_LEN = 120;
+static constexpr size_t CURVE_EVENTS = 24;
+// One journal entry's curves and events (flash, one record per journal slot, beside its JEntry; a separate record so
+// the journal's own stays as it was). id 0, or another entry's id: none (a cook from before replays were kept).
+struct JCurve {
+  uint32_t id{0};          // the journal entry's id
+  uint32_t start{0};       // epoch of the first point
+  uint16_t step_s{0};      // seconds between points
+  uint8_t n{0};            // points
+  uint8_t slot{0};         // the food's slot (1-6), 0 = not known
+  uint8_t ne{0};           // events
+  uint8_t unit_f{1};       // temperatures in °F (else °C)
+  uint8_t pad_[2]{};
+  int16_t pit[CURVE_LEN]{};   // tenths of a degree, INT16_MIN = no reading
+  int16_t food[CURVE_LEN]{};
+  CookEvent ev[CURVE_EVENTS]{};
+};
 
 // The AI on the controller (a separate record, for the same reason as Settings2).
 struct AiSettings {
@@ -189,6 +224,30 @@ class Standalone : public Component {
   std::string record_json_(const JEntry &e, const char *id);  // the anonymous Open Pitmaster record
   bool share_entry_(JEntry &e, std::string &why);
   int light_by_(uint32_t now_epoch, float *est_min);
+  void put_on_reminders_(uint32_t now_epoch);  // serve together: "put it on now", food by food
+  uint32_t put_on_for_{0};                     // the serve-by time put_on_sent_ is for
+  uint8_t put_on_sent_{0};                     // bit per food slot
+  // cook replays (standalone_replay.cpp)
+  void setup_replay_();
+  void watch_events_(uint32_t now);
+  void note_event_(uint32_t t, uint8_t k, uint8_t slot, uint16_t v);
+  void keep_curve_(size_t slot, const JEntry &e, const std::string &probe_key);
+  std::string curve_json_(const std::string &id_hex, int &status);
+  JCurve *curves_{nullptr};  // JOURNAL_SLOTS of them, beside journal_ (PSRAM)
+  ESPPreferenceObject cpref_[JOURNAL_SLOTS];
+  uint32_t curve_dirty_{0};  // bit per slot: saved from the main loop
+  static constexpr size_t EVENT_RING = 64;
+  CookEvent events_[EVENT_RING]{};
+  size_t ev_head_{0}, ev_count_{0}, ev_lid_at_{SIZE_MAX};
+  uint32_t ev_polled_{0};
+  bool ev_looked_{false}, ev_primed_{false};
+  int8_t ev_lid_{-1};
+  int ev_step_{-1};
+  uint8_t ev_wrap_{0}, ev_stall_{0}, ev_pulled_{0};
+  float ev_fuel_{NAN};
+  binary_sensor::BinarySensor *ev_lid_bs_{nullptr};  // "Lid"
+  sensor::Sensor *ev_fuel_s_{nullptr};               // "Charcoal level"
+  text_sensor::TextSensor *ev_prog_ts_{nullptr};     // "Program status"
   std::string api_cook_(const std::string &path, JsonDocument &in, bool authed, int &status);
   std::string status_json_(bool authed);
   bool direct_configured_() const;

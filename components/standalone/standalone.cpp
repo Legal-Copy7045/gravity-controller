@@ -1187,6 +1187,8 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   }
   if (method == "GET" && path == "journal")
     return this->journal_json_(authed);
+  if (method == "GET" && path.rfind("journal/", 0) == 0 && path.size() > 14 && path.compare(path.size() - 6, 6, "/curve") == 0)
+    return this->curve_json_(path.substr(8, path.size() - 14), status);  // a cook's replay (standalone_replay.cpp)
   if (method == "GET" && path == "community")
     return this->community_json_();
   if (method == "GET" && path == "ai")
