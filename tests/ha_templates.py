@@ -184,6 +184,50 @@ async def main():
     temps = render(fv["temps"], f=f)
     check(isinstance(mins, list) and len(mins) == 4 and abs(mins[1] - 60) <= 1 and temps == [40.0, 39.0, 38.0, 37.0],
           f"forecast lists {mins} {temps}")
+
+    # 6. serve together: when each food goes on, the light-up time, and the "put it on" reminders (once per food)
+    import datetime as dtm
+    serve = (now + dtm.timedelta(hours=14)).replace(microsecond=0)
+    hass.states.async_set("input_datetime.smoker_serve_time", serve.strftime("%Y-%m-%d %H:%M:%S"))
+    hass.states.async_set("input_number.smoker_rest_minutes", "45")
+    for n, total, weight, prot in ((1, "760", "8.2", "Pork shoulder"), (3, "300", "3.5", "Poultry"), (4, "420", "0", "Brisket"),
+                                   (2, "unknown", "5", "Auto")):
+        hass.states.async_set(f"sensor.smoker_food_{n}_estimated_total_cook_time", total)
+        hass.states.async_set(f"number.smoker_food_{n}_weight", weight)
+        hass.states.async_set(f"select.smoker_food_{n}_protein", prot)
+    st = next(x for x in tsens if x.get("unique_id") == "smoker_serve_together")
+    foods = render(st["attributes"]["foods"])
+    s_ts = int(serve.timestamp())
+    check(foods == [{"slot": 1, "name": "Pork shoulder", "total": 760, "on": s_ts - (760 + 45) * 60},
+                    {"slot": 3, "name": "Poultry", "total": 300, "on": s_ts - (300 + 45) * 60}],
+          f"serve together: only foods with a weight and an estimate, earliest first: {foods}")
+    check(int(render(st["state"])) == 2 and int(render(st["attributes"]["serve"])) == s_ts, "serve together: count and serve time")
+    by = next(x for x in tsens if x.get("unique_id") == "smoker_start_by")["state"]
+    got = dt_util.parse_datetime(str(render(by)))
+    check(got is not None and abs((serve - got).total_seconds() / 60 - (760 + 45 + 45)) < 1,
+          f"light the grill: 45 min before the longest food goes on ({got})")
+    # The reminder's trigger: due once a food's time has come, until it's marked as sent for this serve time.
+    put = autos["smoker_put_on_reminder"]
+    trig = put["triggers"][0]["value_template"]
+    attrs = {"serve": s_ts, "rest_minutes": 45, "foods": foods}
+    hass.states.async_set("sensor.smoker_serve_together", "2", attrs)
+    hass.states.async_set("input_text.smoker_put_on_sent", "")
+    check(render(trig) is False, "put it on: nothing due 14 h before serving")
+    early = dict(attrs, foods=[dict(foods[0], on=s_ts - 20 * 3600), foods[1]])
+    hass.states.async_set("sensor.smoker_serve_together", "2", early)
+    check(render(trig) is True, "put it on: the pork is due")
+    v = put["actions"][0]["variables"]
+    done = render(v["done"], serve=s_ts)
+    due = render(v["due"], done=done)
+    check([d["slot"] for d in due] == [1], f"put it on: due {due}")
+    sent = render(put["actions"][2]["data"]["value"], serve=s_ts, done=done, due=due)
+    check(sent == f"{s_ts}:1", f"put it on: marked as sent {sent!r}")
+    hass.states.async_set("input_text.smoker_put_on_sent", sent)
+    check(render(trig) is False, "put it on: not again once sent")
+    msg = render(put["actions"][3]["repeat"]["sequence"][0]["data"]["message"], repeat={"item": due[0]}, serve=s_ts, rest=45)
+    check("Put the pork shoulder on now (Food 1)" in msg and "plus a 45 min rest" in msg, f"put it on: message {msg!r}")
+    hass.states.async_set("input_text.smoker_put_on_sent", f"{s_ts - 60}:13")  # sent for an earlier serve time
+    check(render(trig) is True, "put it on: a new serve time starts afresh")
     await hass.async_stop()
 
 

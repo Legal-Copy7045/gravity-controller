@@ -1,11 +1,13 @@
 // Stage 2 of running without Home Assistant (docs/standalone.md): what the device page needs to stand on its own.
 //  - a 24 h history of the pit and food temperatures, one sample a minute, for the page's chart;
 //  - the journal: every finished cook, with stars, "How was it?" tags and notes, kept in flash;
-//  - the plan: a serve-by time; "light the grill by" from the controller's own estimate, with a reminder;
+//  - the plan: a serve-by time; "light the grill by" from the controller's own estimate, with a reminder, and with
+//    several foods a reminder when each should go on ("serve together");
 //  - Open Pitmaster (github.com/Legal-Copy7045/open-pitmaster): anonymous, opt-in sharing straight from the
 //    controller, and the shared averages.
 #include "standalone.h"
 
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <ctime>
@@ -124,6 +126,7 @@ void Standalone::setup_cook_() {
     this->hist_ = static_cast<int16_t *>(malloc(n * sizeof(int16_t)));  // NOLINT
   if (this->hist_ != nullptr)
     for (size_t i = 0; i < n; i++) this->hist_[i] = INT16_MIN;
+  this->setup_replay_();  // each journal entry's curves and events (standalone_replay.cpp)
 }
 
 void Standalone::loop_cook_(uint32_t now) {
@@ -131,6 +134,7 @@ void Standalone::loop_cook_(uint32_t now) {
     this->hist_last_ = now ? now : 1;  // not "now | 1": 1 ms ahead, now - it wraps
     this->sample_history_();
   }
+  this->watch_events_(now);  // for the journal's replays (standalone_replay.cpp)
   this->loop_ai_(now);
   if (this->ai_save_) {
     this->ai_save_ = false;
@@ -249,6 +253,18 @@ void Standalone::loop_cook_(uint32_t now) {
     for (size_t i = 0; i < JOURNAL_SLOTS; i++)
       if (dirty & (1u << i)) this->save_journal_(i);
   }
+  if (this->curve_dirty_ && this->curves_ != nullptr) {  // and their replays
+    for (size_t i = 0; i < JOURNAL_SLOTS; i++) {
+      JCurve copy;
+      {
+        std::lock_guard<std::recursive_mutex> g(this->lock_);
+        if (!(this->curve_dirty_ & (1u << i))) continue;
+        this->curve_dirty_ &= ~(1u << i);
+        copy = this->curves_[i];
+      }
+      this->cpref_[i].save(&copy);
+    }
+  }
   // Every 30 s: the plan's reminder, and automatic sharing of cooks that became ready.
   static uint32_t every30 = 0;
   if (now - every30 < 30000) return;
@@ -271,6 +287,7 @@ void Standalone::loop_cook_(uint32_t now) {
                     lt.tm_hour, lt.tm_min, est / 60.0f, unsigned(this->s2_.rest_min));
       if (this->cook_ != nullptr) this->cook_->notify("Time to light the grill", msg, 1, "plan");  // re-enters lock_: fine
     }
+    this->put_on_reminders_(t);
     if (this->s2_.share_enabled && this->s2_.share_auto) {
       for (auto &e : this->journal_) {
         if (e.id && e.share == 0 && e.ended >= this->s2_.auto_since &&
@@ -380,6 +397,7 @@ void Standalone::add_cook(const std::string &summary) {
   this->journal_[slot] = e;
   this->journal_dirty_ |= 1u << slot;
   ESP_LOGI(TAG, "Journal: %s, %.1f h", e.profile, e.total_h);
+  this->keep_curve_(slot, e, d["probe"] | "");  // its curves and events, for the page's replay
 }
 
 static std::string tag_names(uint16_t bits) {
@@ -545,6 +563,44 @@ int Standalone::light_by_(uint32_t now_epoch, float *est_min) {
   return int(this->s2_.serve_by) - int((est + this->s2_.rest_min) * 60.0f);
 }
 
+// Serve together: with several foods, a reminder when each one should go on (its whole-cook estimate plus the rest
+// before the serve time) so that everything is ready at once, for the same foods as light_by_ (a weight set). The
+// first one's is "Time to light the grill". Once per food and serve time (in RAM: after a restart, only a food due in
+// the last 10 minutes is reminded again); never after the serve time. Every 30 s, under lock_.
+void Standalone::put_on_reminders_(uint32_t t) {
+  if (this->s2_.serve_by == 0 || this->cook_ == nullptr || t >= this->s2_.serve_by) return;
+  if (this->put_on_for_ != this->s2_.serve_by) {
+    this->put_on_for_ = this->s2_.serve_by;
+    this->put_on_sent_ = 0;
+  }
+  const int light = this->light_by_(t, nullptr);
+  const auto &ps = this->cook_->probes();
+  for (size_t i = 0; i < ps.size() && i < 8; i++) {
+    auto *p = ps[i];
+    if ((this->put_on_sent_ & (1u << i)) || p->estimated_total == nullptr || !p->estimated_total->has_state() ||
+        std::isnan(p->estimated_total->state) || p->weight == nullptr || !p->weight->has_state() || !(p->weight->state > 0))
+      continue;
+    const float est = p->estimated_total->state;
+    const int on = int(this->s2_.serve_by) - int((est + this->s2_.rest_min) * 60.0f);
+    if (on > int(t)) continue;
+    this->put_on_sent_ |= 1u << i;
+    if ((light > 0 && on <= light) || int(t) - on > 10 * 60) continue;  // the first food, or long past (a restart)
+    time_t sb = this->s2_.serve_by;
+    struct tm lt;
+    localtime_r(&sb, &lt);
+    const char *cut = cook::profiles()[p->predictor.profile()].name;
+    const bool named = cut != nullptr && std::strcmp(cut, "Auto") != 0;
+    std::string what = named ? std::string(cut) : p->name, low = what;
+    for (auto &ch : low) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    char msg[200];
+    std::snprintf(msg, sizeof(msg), "Put %s%s on now%s%s%s so everything is ready to serve at %02d:%02d: about %.1f h on the "
+                  "grill plus a %u min rest.", named ? "the " : "", named ? low.c_str() : what.c_str(),
+                  named ? " (" : "", named ? p->name.c_str() : "", named ? ")" : "", lt.tm_hour, lt.tm_min, est / 60.0f,
+                  unsigned(this->s2_.rest_min));
+    this->cook_->notify(what + ": on the grill now", msg, 1, "put_on_" + p->key);  // re-enters lock_: fine
+  }
+}
+
 // ---------------------------------------------------------------- API: /local/history, journal, plan, share, community
 
 std::string Standalone::api_cook_(const std::string &path, JsonDocument &in, bool authed, int &status) {
@@ -610,6 +666,10 @@ std::string Standalone::api_cook_(const std::string &path, JsonDocument &in, boo
       if (e.id == 0 || e.id != id) continue;
       if (is_j && sub == "delete") {
         e = JEntry{};
+        if (this->curves_ != nullptr) {  // its replay goes with it
+          this->curves_[i] = JCurve{};
+          this->curve_dirty_ |= 1u << i;
+        }
       } else if (is_j) {
         if (in["rating"].is<int>()) { int r = in["rating"]; e.rating = r >= 1 && r <= 5 ? uint8_t(r) : 0; }
         if (in["tags"].is<JsonArray>()) {

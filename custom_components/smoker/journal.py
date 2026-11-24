@@ -8,6 +8,7 @@
   assigning an item to a probe sets that probe's protein and weight on the controller.
 * The page reads everything through authenticated views (/api/smoker/journal, /api/smoker/photo/<name>).
 * sensor.smoker_journal summarises recent entries (notes and ratings) so the AI advisor can learn from them.
+* Each finished cook's curves and events are kept for the dashboard's replay (replay.py).
 """
 
 from __future__ import annotations
@@ -122,6 +123,9 @@ class Journal:
         self.data: dict[str, Any] = {"entries": [], "draft": {"items": [], "photos": []}}
         self.listeners: list = []  # called with each new entry (sharing offers it)
         self.photo_dir = Path(hass.config.path(".storage", "smoker_photos"))
+        from .replay import Replays
+
+        self.replays = Replays(hass)  # each cook's curves and events (replay.py)
 
     async def async_load(self) -> None:
         stored = await self.store.async_load()
@@ -129,6 +133,7 @@ class Journal:
             self.data.update(stored)
         self.data.setdefault("entries", [])
         self.data.setdefault("draft", {"items": [], "photos": []})
+        await self.replays.async_load()
         self._publish()
 
     def _save(self) -> None:
@@ -206,6 +211,7 @@ class Journal:
         if mine:
             self.data["draft"]["photos"] = []
         self._save()
+        self.replays.schedule(self, entry)  # its curves and events, once the recorder has written the last minutes
         for cb in list(self.listeners):
             cb(entry, "new")
 
@@ -240,6 +246,7 @@ class Journal:
         self.data["entries"] = [e for e in self.data["entries"] if e["id"] != entry_id]
         if len(self.data["entries"]) != n:
             self._save()
+            self.replays.forget({e["id"] for e in self.data["entries"]})
             return True
         return False
 
@@ -696,7 +703,10 @@ async def async_setup_journal(hass: HomeAssistant) -> Journal:
     j = Journal(hass)
     await j.async_load()
     hass.data[DATA] = j
-    for view in (JournalView(), JournalEntryView(), DraftView(), IdentifyView(), PhotoView(), GrillPhotoView(), GrillPhotoImageView()):
+    from .replay import ReplayView
+
+    for view in (JournalView(), JournalEntryView(), ReplayView(), DraftView(), IdentifyView(), PhotoView(), GrillPhotoView(),
+                 GrillPhotoImageView()):
         hass.http.register_view(view)
     j.unsub = hass.bus.async_listen(COOK_COMPLETE, j.handle_cook_complete)
     return j
@@ -707,3 +717,5 @@ def async_unload_journal(hass: HomeAssistant) -> None:
     if j and j.unsub:
         j.unsub()
         j.unsub = None
+    if j:
+        j.replays.cancel()

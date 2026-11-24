@@ -353,6 +353,16 @@ const ACT = {
     if (!armed[k]) { armed[k] = setTimeout(() => { delete armed[k]; renderJournal(); }, 3000); return renderJournal(); }
     clearTimeout(armed[k]); delete armed[k]; await jpost(el.dataset.id + '/delete', {}); toast('Removed from the journal');
   },
+  // Replay a cook (curves, scrubber, events, compare) and its summary as a picture: the shared "cook replay" block.
+  async jreplay(el) {
+    const id = el.dataset.id; toast('Loading the cook…');
+    try { RP.show(await replayCook(id), { others: replayOthers(id), load: replayCook, toast }); } catch (e) { toast('Couldn\'t load the cook: ' + e.message); }
+  },
+  async jimg(el) {
+    toast('Making the picture…');
+    try { const r = await RP.shareImage(await replayCook(el.dataset.id)); toast(r === 'shared' ? 'Shared' : r === 'downloaded' ? 'Picture saved' : 'Not shared'); }
+    catch (e) { toast('Couldn\'t make the picture: ' + e.message); }
+  },
   async jshare(el) { if (await sharePost('share/' + el.dataset.id)) toast('Sharing, anonymously… thank you!'); setTimeout(loadJournal, 4000); },
   async jdecline(el) { await sharePost('share/' + el.dataset.id + '/decline'); },
   async sharecfg(el) { const o = {}; o[el.dataset.k] = el.dataset.v === '1'; if (await sharePost('share/settings', o)) toast(el.dataset.k === 'enabled' ? (o.enabled ? 'Sharing on: the journal asks after each cook' : 'Sharing off') : o.auto ? 'Cooks are shared once rated (or after 12 h)' : 'The journal asks after each cook'); },
@@ -1245,6 +1255,357 @@ function planWords(dev) {
   return m <= 10 ? 'on plan' : dev > 0 ? t + ' ahead of plan' : t + ' behind plan';
 }
 // ==== END cook plan (shared block) ====
+// ==== BEGIN serve together (shared block) ====
+// Several foods, one serve time: when each goes on the grill so that everything is ready together, and when to light
+// the grill. Identical in the integration's page.html and the controller's ui.js (tests/render_page.py checks). Each
+// food has its whole-cook estimate (minutes, the controller's "Food N estimated total cook time"; the pages pass none
+// for a food that isn't set up, with no weight); every food rests for the plan's rest time; foods without an estimate
+// are left out. `warm`: minutes to light the grill and come up to temperature before the first food goes on (the Home
+// Assistant package allows 45; the controller's own reminder says to light it when the first food goes on: 0).
+function serveTogether(serve, rest, warm, foods) {
+  if (!serve || !isFinite(serve)) return null;
+  const r = Math.max(0, +rest || 0), w = Math.max(0, +warm || 0);
+  const list = (foods || []).filter(f => f && f.total != null && isFinite(f.total) && f.total > 0)
+    .map(f => ({ slot: f.slot, name: f.name, total: f.total, on: serve - (f.total + r) * 60e3, off: serve - r * 60e3 }))
+    .sort((a, b) => a.on - b.on || a.slot - b.slot);
+  return { serve, rest: r, foods: list, light: list.length ? list[0].on - w * 60e3 : null };
+}
+const stClock = t => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+const stDur = m => { m = Math.round(m); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + String(m % 60).padStart(2, '0') + ' min' : ''); };
+// The plan in time order: light the grill, each food on, serve.
+function serveSteps(p) {
+  if (!p || !p.foods.length) return [];
+  const merged = p.light === p.foods[0].on, out = [];
+  if (!merged) out.push({ t: p.light, what: 'Light the grill', kind: 'light' });
+  p.foods.forEach((f, i) => out.push({ t: f.on, what: (i === 0 && merged ? 'Light the grill, ' + f.name.toLowerCase() : f.name) + ' on', kind: 'on', food: f }));
+  out.push({ t: p.serve, what: 'Serve', kind: 'serve' });
+  return out;
+}
+// One line: "1:30 PM pork shoulder on · 4:45 PM chicken thighs on · 7:30 PM serve".
+const serveLine = p => serveSteps(p).map(s => stClock(s.t) + ' ' + s.what.charAt(0).toLowerCase() + s.what.slice(1)).join(' · ');
+// The timeline (past steps greyed, the next one marked).
+function serveHTML(p, now) {
+  const steps = serveSteps(p); if (!steps.length) return '';
+  const next = steps.findIndex(s => s.t > now);
+  return `<ol class="stt" aria-label="When each food goes on">${steps.map((s, i) => `<li class="${s.kind}${next < 0 || i < next ? ' past' : i === next ? ' next' : ''}">
+    <span class="stt-t">${esc(stClock(s.t))}</span><span class="stt-w">${esc(s.what)}</span>${s.food ? `<span class="stt-n">${esc(stDur(s.food.total))} on the grill${p.rest ? ', ' + esc(stDur(p.rest)) + ' rest' : ''}</span>` : ''}</li>`).join('')}</ol>`;
+}
+// ==== END serve together (shared block) ====
+// ==== BEGIN cook replay (shared block) ====
+// A finished cook, replayed: its curves with a scrubber (drag it, or Play) showing the temperatures at that moment,
+// its events (lid, wrap, stall, program steps, charcoal) and, to compare, a second cook overlaid (hours since each
+// started). Also the cook as a picture to share (a PNG drawn here: no libraries, nothing sent anywhere). Identical in
+// the integration's page.html and the controller's ui.js (tests/render_page.py checks). Each page turns its own
+// journal entry into a cook:
+//   { id, title, ended (ms), start (ms), unit, pit, total_h, stall_h, rating, tags, photo (image URL or null),
+//     series: [{ k: 'pit' | 'target' | 'food', name, pts: [[hours since the start, temperature], ...] }],
+//     events: [{ h, k: 'lid' | 'wrap' | 'unwrap' | 'stall_start' | 'stall_end' | 'step' | 'fuel' | 'pulled', slot, v, d }] }
+const RP = (() => {
+  const X = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const EV = { lid: 'Lid opened', wrap: 'Wrapped', unwrap: 'Unwrapped', stall_start: 'Stall began', stall_end: 'Stall ended',
+    step: 'Program step', fuel: 'Charcoal topped up', pulled: 'Off the grill' };
+  const MK = { lid: 'L', wrap: 'W', unwrap: 'U', stall_start: 'S', stall_end: 'S', step: 'P', fuel: 'C', pulled: 'O' };
+  const COL = { pit: 'var(--pit)', target: 'var(--muted)', food: 'var(--food1)' };
+  const hm = h => { const m = Math.max(0, Math.round(h * 60)); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min'; };
+  const clk = t => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const day = t => new Date(t).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const deg = (v, u) => v == null || !isFinite(v) ? '--' : Math.round(v) + (u || '');
+  function evText(e) {
+    let t = EV[e.k] || String(e.k);
+    if (e.k === 'lid' && e.d) t = 'Lid open ' + (e.d < 90 ? Math.round(e.d) + ' s' : Math.round(e.d / 60) + ' min');
+    if (e.k === 'step' && e.v) t += ' ' + e.v;
+    if (e.k === 'fuel' && e.v != null) t += ' to ' + Math.round(e.v) + '%';
+    return t + (e.slot && /wrap|stall|pulled/.test(e.k) ? ' (Food ' + e.slot + ')' : '');
+  }
+  // The temperature at hour h: between two readings up to 30 min apart; nothing outside the recording or across a gap.
+  function at(pts, h) {
+    if (!pts || !pts.length || h < pts[0][0] - 1e-6 || h > pts[pts.length - 1][0] + 1e-6) return null;
+    let lo = 0, hi = pts.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m][0] <= h) lo = m; else hi = m; }
+    const [x0, y0] = pts[lo], [x1, y1] = pts[hi];
+    if (x1 <= x0 || h <= x0) return y0;
+    if (x1 - x0 > 0.5) return h - x0 < 0.1 ? y0 : x1 - h < 0.1 ? y1 : null;
+    return y0 + (y1 - y0) * (h - x0) / (x1 - x0);
+  }
+  const span = c => Math.max(0.25, c ? Math.max(c.total_h || 0, ...c.series.map(s => s.pts.length ? s.pts[s.pts.length - 1][0] : 0)) : 0);
+  const CSS = `.rp{position:fixed;inset:0;z-index:3000;background:var(--ground);color:var(--ink);overflow:auto;padding:16px}
+.rp[hidden]{display:none}
+.rp-in{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.rp-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 12px;align-items:flex-start}
+.rp-top h2{margin:2px 0;font:700 24px/1.2 "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;border:0;padding:0}
+.rp-eye{margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.rp-sub{margin:0;color:var(--ink-2);font-size:13.5px}
+.rp-tools{display:flex;gap:8px;flex-wrap:wrap}
+.rp-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.rp-card h3{margin:0;font:700 16px "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif}
+.rp-read{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;min-height:28px}
+.rp-time{font:600 14px "JetBrains Mono",ui-monospace,monospace;margin-right:4px}
+.rp-v{display:inline-flex;align-items:center;gap:6px;font:600 13px "Instrument Sans",system-ui,sans-serif;padding:3px 10px;border-radius:999px;background:var(--sunk);color:var(--ink);white-space:nowrap}
+.rp-v i{width:12px;border-top:3px solid;display:inline-block}
+.rp-v.cmp i{border-top-style:dashed}
+.rp-last{font-size:12.5px;color:var(--ink-2)}
+.rp-chart{height:280px;position:relative;touch-action:pan-y;cursor:ew-resize;user-select:none;-webkit-user-select:none}
+.rp-chart svg{width:100%;height:100%;display:block}
+.rp-chart text{font:11px "JetBrains Mono",ui-monospace,monospace;fill:var(--muted)}
+.rp-chart .rp-mk text{font:700 10px "Instrument Sans",system-ui,sans-serif;fill:#fff}
+.rp-ctl{display:flex;align-items:center;gap:10px}
+.rp-ctl input[type=range]{flex:1 1 auto;min-width:0;width:auto;accent-color:var(--page);min-height:32px;padding:0;border:0;background:none}
+.rp-ctl .btn{min-width:84px}
+.rp-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--ink-2)}
+.rp-legend i{display:inline-block;width:16px;border-top:3px solid;margin-right:5px;vertical-align:middle}
+.rp-legend .cmp i{border-top-style:dashed}
+.rp-cmp{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13.5px}
+.rp-cmp select{min-width:0;max-width:100%;flex:1 1 220px}
+.rp-evs{list-style:none;margin:0;padding:0}
+.rp-evs button{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;width:100%;padding:7px 2px;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink)}
+.rp-evs li:first-child button{border-top:0}
+.rp-evs button:focus-visible{outline:2px solid var(--page);outline-offset:-2px}
+.rp-evs .t{font:500 12.5px "JetBrains Mono",ui-monospace,monospace;color:var(--muted);min-width:96px}
+.rp-evs li.past button{color:var(--ink-2)}
+.rp-evs li.now button{color:var(--page);font-weight:600}
+.rp-none{color:var(--muted);font-size:13px;margin:0}
+html.rp-open body{overflow:hidden}
+@media (max-width:560px){.rp{padding:12px}.rp-chart{height:230px}.rp-top h2{font-size:20px}.rp-evs .t{min-width:80px}}`;
+  let el = null, cook = null, cmp = null, pos = 0, playing = 0, opts = {}, back = null, rid = 0;
+  function mount() {
+    if (el) return el;
+    if (!document.getElementById('rp-css')) { const s = document.createElement('style'); s.id = 'rp-css'; s.textContent = CSS; document.head.appendChild(s); }
+    el = document.createElement('div'); el.id = 'rp'; el.className = 'rp'; el.hidden = true;
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'rp-t');
+    document.body.appendChild(el);
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-rp]'); if (!b || !el.contains(b)) return;
+      const a = b.dataset.rp;
+      if (a === 'close') close();
+      else if (a === 'play') play(!playing);
+      else if (a === 'ev') { play(false); setPos(parseFloat(b.dataset.h) / span(spanOf())); }
+      else if (a === 'png') shareImage(cook).then(r => opts.toast && opts.toast(r === 'shared' ? 'Shared' : r === 'downloaded' ? 'Picture saved' : 'Not shared'), err => opts.toast && opts.toast('Couldn\'t make the picture: ' + err.message));
+    });
+    el.addEventListener('input', e => { if (e.target.id === 'rp-pos') { play(false); setPos(e.target.value / 1000); } });
+    el.addEventListener('change', e => { if (e.target.id === 'rp-cmp') compare(e.target.value); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); close(); } });
+    window.addEventListener('resize', () => { if (el && !el.hidden) draw(); });
+    return el;
+  }
+  // The longer of the two cooks sets the time axis (both start at 0).
+  const spanOf = () => ({ total_h: Math.max(span(cook), cmp ? span(cmp) : 0), series: [] });
+  // opts: { others: [{ id, label }] to compare with, load(id) -> Promise<cook>, toast(text) }
+  function show(c, o) {
+    mount(); cook = c; cmp = null; pos = 0; opts = o || {}; play(false);
+    back = document.activeElement;
+    const others = (opts.others || []).filter(x => x.id !== c.id);
+    el.innerHTML = `<div class="rp-in">
+      <div class="rp-top"><div><p class="rp-eye">Cook replay</p><h2 id="rp-t">${X(c.title)}</h2>
+        <p class="rp-sub">${X(day(c.ended))} · ${X(hm(c.total_h || span(c)))} in all${c.stall_h ? ' · stall ' + X(hm(c.stall_h)) : ''}</p></div>
+        <div class="rp-tools"><button type="button" class="btn" data-rp="png">Share image</button><button type="button" class="btn" data-rp="close">Close</button></div></div>
+      <div class="rp-card">
+        <div class="rp-read" id="rp-read"></div>
+        <div class="rp-chart" id="rp-chart"></div>
+        <div class="rp-ctl"><button type="button" class="btn pri" data-rp="play" id="rp-play">Play</button>
+          <input type="range" id="rp-pos" min="0" max="1000" step="1" value="0" aria-label="Time in the cook"></div>
+        <div class="rp-legend" id="rp-legend"></div>
+        ${others.length ? `<label class="rp-cmp"><span>Compare with</span><select id="rp-cmp"><option value="">No other cook</option>${others.map(x => `<option value="${X(x.id)}">${X(x.label)}</option>`).join('')}</select></label>` : ''}
+      </div>
+      <div class="rp-card"><h3>What happened</h3><ol class="rp-evs" id="rp-evs"></ol></div></div>`;
+    el.hidden = false; document.documentElement.classList.add('rp-open');
+    draw(); setPos(0);
+    const f = el.querySelector('[data-rp=close]'); if (f) f.focus();
+  }
+  function close() {
+    play(false); if (!el) return; el.hidden = true; el.innerHTML = ''; cook = cmp = null; rid++;
+    document.documentElement.classList.remove('rp-open');
+    if (back && back.focus && document.contains(back)) back.focus();
+  }
+  function compare(id) {
+    const n = ++rid;
+    if (!id) { cmp = null; draw(); setPos(pos); return; }
+    if (!opts.load) return;
+    opts.load(id).then(c => { if (n !== rid || !cook) return; cmp = c; draw(); setPos(pos); },
+      err => opts.toast && opts.toast('Couldn\'t load that cook: ' + err.message));
+  }
+  function play(on) {
+    if (playing) { cancelAnimationFrame(playing); playing = 0; }
+    const b = el && el.querySelector('#rp-play');
+    if (on && cook) {
+      if (pos >= 0.999) setPos(0);
+      let last = 0;
+      const step = t => { if (last) setPos(Math.min(1, pos + (t - last) / 15000)); last = t; playing = pos < 1 ? requestAnimationFrame(step) : 0; if (!playing && b) b.textContent = 'Play'; };
+      playing = requestAnimationFrame(step);
+    }
+    if (b) { b.textContent = playing ? 'Pause' : 'Play'; b.setAttribute('aria-pressed', String(!!playing)); }
+  }
+  let G = null;  // the drawn chart's scales
+  function draw() {
+    const box = el && el.querySelector('#rp-chart'); if (!box || !cook) return;
+    const W = Math.max(280, box.clientWidth || 600), Hh = box.clientHeight || 280, L = 40, R = 12, B = 24;
+    const S = span(spanOf()), all = [cook, cmp].filter(Boolean);
+    // Event markers sit in rows above the curves: one that would overlap another goes a row lower (three at most).
+    const xh = h => L + (W - L - R) * h / S, rows = [[], [], []];
+    const marks = (cook.events || []).filter(e => e.h >= 0 && e.h <= S).map(e => {
+      let r = 0; while (r < 2 && rows[r].some(q => Math.abs(q - xh(e.h)) < 18)) r++;
+      rows[r].push(xh(e.h)); return { e, r };
+    });
+    const T = 14 + 18 * Math.max(1, rows.filter(r => r.length).length);
+    let lo = Infinity, hi = -Infinity;
+    all.forEach(c => c.series.forEach(s => s.pts.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); })));
+    if (!isFinite(lo)) {
+      box.innerHTML = '<p class="rp-none">No temperatures were recorded for this cook.</p>';
+      G = null; legend(); events(); return;
+    }
+    const sy = (hi - lo) > 200 ? 50 : (hi - lo) > 80 ? 25 : 10;
+    lo = Math.floor((lo - 5) / sy) * sy; hi = Math.ceil((hi + 5) / sy) * sy;
+    const x = h => L + (W - L - R) * h / S, y = v => T + (Hh - T - B) * (1 - (v - lo) / (hi - lo));
+    G = { x, y, L, R, T, B, W, Hh, S };
+    let g = '';
+    for (let v = lo; v <= hi; v += sy) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1" opacity=".7"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    const hs = [1, 2, 3, 4, 6, 8, 12].find(k => (W - L - R) * k / S >= 48) || 24;
+    for (let h = 0; h <= S + 1e-9; h += hs) g += `<text x="${x(h)}" y="${Hh - 6}" text-anchor="middle">${h}h</text>`;
+    const path = (s, dash) => { if (!s.pts.length) return ''; let d = '', prev = null;
+      s.pts.forEach(p => { d += (prev != null && p[0] - prev <= 0.5 ? 'L' : 'M') + x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1); prev = p[0]; });
+      return `<path d="${d}" fill="none" stroke="${COL[s.k] || 'var(--ink-2)'}" stroke-width="${s.k === 'target' ? 1.5 : 2.2}" stroke-linejoin="round"${s.k === 'target' || dash ? ` stroke-dasharray="${dash ? '6 5' : '4 4'}"` : ''}${dash ? ' opacity=".6"' : ''}/>`; };
+    const lines = (cmp ? cmp.series.map(s => path(s, true)).join('') : '') + cook.series.map(s => path(s, false)).join('');
+    const mk = marks.map(({ e, r }) => `<g class="rp-mk" data-rp="ev" data-h="${e.h}" role="button" tabindex="-1" aria-label="${X(evText(e))} at ${X(hm(e.h))}">
+      <line x1="${x(e.h)}" x2="${x(e.h)}" y1="${14 + 18 * r + 8}" y2="${Hh - B}" stroke="var(--muted)" stroke-dasharray="1 3"/>
+      <circle cx="${x(e.h)}" cy="${14 + 18 * r}" r="8" fill="${e.k === 'lid' ? 'var(--warn)' : /stall/.test(e.k) ? 'var(--ink-2)' : 'var(--page)'}"/>
+      <text x="${x(e.h)}" y="${14 + 18 * r + 3.5}" text-anchor="middle">${MK[e.k] || '•'}</text></g>`).join('');
+    // The stall, shaded (from "Stall began" to "Stall ended", or to the end).
+    let stall = '';
+    (cook.events || []).forEach((e, i, ev) => {
+      if (e.k !== 'stall_start') return;
+      const end = ev.slice(i + 1).find(o => o.k === 'stall_end' && o.slot === e.slot), h1 = end ? end.h : S;
+      stall += `<rect x="${x(e.h)}" y="${T}" width="${Math.max(0, x(Math.min(h1, S)) - x(e.h))}" height="${Hh - B - T}" fill="var(--warn)" opacity=".09"/>`;
+    });
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Temperatures through the cook">${stall}${g}${lines}${mk}<g id="rp-cur"></g></svg>`;
+    const svg = box.querySelector('svg');
+    const toPos = e => { const r = svg.getBoundingClientRect(); return Math.max(0, Math.min(1, ((e.clientX - r.left) * W / r.width - L) / (W - L - R))); };
+    svg.addEventListener('pointerdown', e => {
+      if (e.target.closest('.rp-mk')) return;
+      play(false); setPos(toPos(e));
+      const mv = ev => setPos(toPos(ev)), up = () => { svg.removeEventListener('pointermove', mv); svg.removeEventListener('pointerup', up); svg.removeEventListener('pointercancel', up); };
+      svg.addEventListener('pointermove', mv); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+      try { svg.setPointerCapture(e.pointerId); } catch (err) { /* (synthetic events) */ }
+    });
+    legend(); events();
+  }
+  function legend() {
+    const L = el.querySelector('#rp-legend'); if (!L) return;
+    L.innerHTML = cook.series.map(s => `<span><i style="border-color:${COL[s.k]}"></i>${X(s.name)}</span>`).join('') +
+      (cmp ? cmp.series.filter(s => s.k !== 'target').map(s => `<span class="cmp"><i style="border-color:${COL[s.k]}"></i>${X(s.name)}, ${X(cmp.title)}</span>`).join('') : '');
+  }
+  function events() {
+    const E = el.querySelector('#rp-evs'); if (!E) return;
+    const ev = cook.events || [];
+    E.innerHTML = ev.length ? ev.map(e => `<li data-h="${e.h}"><button type="button" data-rp="ev" data-h="${e.h}"><span class="t">${X(hm(e.h))}</span><span>${X(evText(e))}</span></button></li>`).join('')
+      : '<li class="rp-none">No events were recorded for this cook (lid, wrap, stall, program steps and charcoal top-ups are kept for cooks from now on).</li>';
+  }
+  function setPos(p) {
+    if (!cook || !el) return;
+    pos = Math.max(0, Math.min(1, p || 0));
+    const S = span(spanOf()), h = pos * S, u = cook.unit || '';
+    const r = el.querySelector('#rp-pos'); if (r && document.activeElement !== r) r.value = Math.round(pos * 1000);
+    if (r) r.setAttribute('aria-valuetext', hm(h) + ' in');
+    const vals = cook.series.map(s => ({ s, v: at(s.pts, h), c: false })).concat(cmp ? cmp.series.filter(s => s.k !== 'target').map(s => ({ s, v: at(s.pts, h), c: true })) : []);
+    const last = (cook.events || []).filter(e => e.h <= h + 1e-6).pop();
+    const R = el.querySelector('#rp-read');
+    if (R) R.innerHTML = `<span class="rp-time">${X(hm(h))} in · ${X(clk(cook.start + h * 3600e3))}</span>` +
+      vals.map(o => `<span class="rp-v${o.c ? ' cmp' : ''}"><i style="border-color:${COL[o.s.k]}"></i>${X(o.c ? 'Other ' + o.s.name.toLowerCase() : o.s.name)} ${X(deg(o.v, u))}</span>`).join('') +
+      (last ? `<span class="rp-last">Latest: ${X(evText(last))}, ${X(hm(h - last.h))} before</span>` : '');
+    const C = el.querySelector('#rp-cur');
+    if (C && G) C.innerHTML = `<line x1="${G.x(h)}" x2="${G.x(h)}" y1="${G.T}" y2="${G.Hh - G.B}" stroke="var(--ink)" stroke-width="1.5"/>` +
+      vals.filter(o => o.v != null).map(o => `<circle cx="${G.x(h)}" cy="${G.y(o.v)}" r="4.5" fill="var(--surface)" stroke="${COL[o.s.k]}" stroke-width="2.5"${o.c ? ' opacity=".7"' : ''}/>`).join('');
+    const lis = [...el.querySelectorAll('#rp-evs li[data-h]')], done = lis.filter(li => parseFloat(li.dataset.h) <= h + 1e-6).length;
+    lis.forEach((li, i) => { li.className = i < done - 1 ? 'past' : i === done - 1 ? 'now' : ''; });
+  }
+  // ---- the picture (PNG, 1080 x 1350, in the page's light or dark colours)
+  const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('photo')); i.src = src; });
+  function rrect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
+  async function png(c) {
+    const W = 1080, H = 1350, P = 72, cs = getComputedStyle(document.documentElement);
+    const col = (n, d) => { const v = (cs.getPropertyValue(n) || '').trim(); return /^(#|rgb|hsl)/.test(v) ? v : d; };
+    const C = { bg: col('--surface', '#ffffff'), sunk: col('--sunk', '#e9edf1'), ink: col('--ink', '#0f1b27'), ink2: col('--ink-2', '#44556a'),
+      muted: col('--muted', '#6d7d8f'), line: col('--line', '#dbe2e9'), page: col('--page', '#c2410c'), pit: col('--pit', '#c2410c'),
+      food: col('--food1', '#2b7fb8'), star: col('--warn', '#a86400') };
+    const SANS = '"Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', MONO = '"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
+    const photo = c.photo ? await loadImg(c.photo).catch(() => null) : null;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const x = cv.getContext('2d');
+    x.fillStyle = C.bg; x.fillRect(0, 0, W, H);
+    x.fillStyle = C.page; x.fillRect(0, 0, W, 14);
+    x.textBaseline = 'alphabetic';
+    let yy = 104;
+    x.fillStyle = C.muted; x.font = `600 24px ${SANS}`; x.fillText('COOK SUMMARY', P, yy);
+    // title: up to two lines
+    x.fillStyle = C.ink; x.font = `700 60px ${SANS}`;
+    const words = String(c.title || 'Cook').split(/\s+/), lines = [];
+    let ln = '';
+    words.forEach(w => { const t = ln ? ln + ' ' + w : w; if (x.measureText(t).width > W - 2 * P && ln) { lines.push(ln); ln = w; } else ln = t; });
+    if (ln) lines.push(ln);
+    lines.slice(0, 2).forEach((l, i) => { let t = l; if (i === 1 && lines.length > 2) t += '…'; while (x.measureText(t).width > W - 2 * P && t.length > 4) t = t.slice(0, -2) + '…'; yy += 72; x.fillText(t, P, yy); });
+    yy += 52; x.fillStyle = C.ink2; x.font = `500 30px ${SANS}`; x.fillText(day(c.ended), P, yy);
+    if (c.rating) { yy += 58; x.font = `400 44px ${SANS}`; for (let i = 0; i < 5; i++) { x.fillStyle = i < c.rating ? C.star : C.line; x.fillText('★', P + i * 50, yy); } }
+    yy += 34;
+    if (photo) {
+      const ph = 330, k = Math.max((W - 2 * P) / photo.width, ph / photo.height), sw = (W - 2 * P) / k, sh = ph / k;
+      x.save(); rrect(x, P, yy, W - 2 * P, ph, 24); x.clip();
+      x.drawImage(photo, (photo.width - sw) / 2, (photo.height - sh) / 2, sw, sh, P, yy, W - 2 * P, ph); x.restore();
+      yy += ph + 30;
+    }
+    // the facts
+    const facts = [['Pit', deg(c.pit, c.unit)], ['Total time', c.total_h ? hm(c.total_h) : '--'], ['Stall', c.stall_h ? hm(c.stall_h) : 'none']];
+    const gap = 20, tw = (W - 2 * P - gap * (facts.length - 1)) / facts.length;
+    facts.forEach(([k, v], i) => {
+      const fx = P + i * (tw + gap);
+      x.fillStyle = C.sunk; rrect(x, fx, yy, tw, 128, 18); x.fill();
+      x.fillStyle = C.muted; x.font = `600 22px ${SANS}`; x.fillText(k.toUpperCase(), fx + 22, yy + 44);
+      x.fillStyle = C.ink; x.font = `600 38px ${MONO}`;
+      let t = v; while (x.measureText(t).width > tw - 40 && t.length > 3) t = t.slice(0, -1);
+      x.fillText(t, fx + 22, yy + 100);
+    });
+    yy += 128 + 40;
+    // the curve (pit and food; none recorded: said so)
+    const foot = H - 72, tags = (c.tags || []).length ? 'How it was: ' + c.tags.join(', ') : '';
+    const cb = foot - (tags ? 92 : 30), ct = yy + 40, ser = c.series.filter(s => s.k !== 'target' && s.pts.length);
+    x.font = `600 22px ${SANS}`;
+    let lx = P;
+    ser.forEach(s => { const cc = s.k === 'pit' ? C.pit : C.food; x.fillStyle = cc; x.fillRect(lx, yy + 6, 28, 6); x.fillStyle = C.ink2; x.fillText(s.name, lx + 38, yy + 16); lx += 38 + x.measureText(s.name).width + 30; });
+    if (ser.length && cb - ct > 120) {
+      let lo = Infinity, hi = -Infinity, S = Math.max(0.25, c.total_h || 0);
+      ser.forEach(s => s.pts.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); S = Math.max(S, p[0]); }));
+      const sy = (hi - lo) > 200 ? 50 : (hi - lo) > 80 ? 25 : 10; lo = Math.floor((lo - 5) / sy) * sy; hi = Math.ceil((hi + 5) / sy) * sy;
+      const L = P + 64, R = W - P, B = cb - 36;
+      const px = h => L + (R - L) * h / S, py = v => ct + (B - ct) * (1 - (v - lo) / (hi - lo));
+      x.font = `500 20px ${MONO}`; x.textAlign = 'right';
+      for (let v = lo; v <= hi; v += sy) { x.strokeStyle = C.line; x.lineWidth = 1; x.beginPath(); x.moveTo(L, py(v)); x.lineTo(R, py(v)); x.stroke(); x.fillStyle = C.muted; x.fillText(v + (c.unit || ''), L - 12, py(v) + 7); }
+      x.textAlign = 'center';
+      const hs = [1, 2, 3, 4, 6, 8, 12].find(k => (R - L) * k / S >= 90) || 24;
+      for (let h = 0; h <= S + 1e-9; h += hs) x.fillText(h + 'h', px(h), cb - 4);
+      x.textAlign = 'left'; x.lineJoin = 'round'; x.lineCap = 'round';
+      ser.forEach(s => { x.strokeStyle = s.k === 'pit' ? C.pit : C.food; x.lineWidth = 5; x.beginPath(); let prev = null;
+        s.pts.forEach(p => { if (prev != null && p[0] - prev <= 0.5) x.lineTo(px(p[0]), py(p[1])); else x.moveTo(px(p[0]), py(p[1])); prev = p[0]; }); x.stroke(); });
+    } else {
+      x.fillStyle = C.muted; x.font = `500 26px ${SANS}`; x.fillText('No temperature curve was recorded for this cook.', P, ct + 40);
+    }
+    if (tags) { x.fillStyle = C.ink2; x.font = `500 28px ${SANS}`; let t = tags; while (x.measureText(t).width > W - 2 * P && t.length > 4) t = t.slice(0, -2) + '…'; x.fillText(t, P, foot - 34); }
+    x.strokeStyle = C.line; x.lineWidth = 2; x.beginPath(); x.moveTo(P, foot - 6); x.lineTo(W - P, foot - 6); x.stroke();
+    x.fillStyle = C.page; x.beginPath(); x.arc(P + 10, foot + 30, 10, 0, 2 * Math.PI); x.fill();
+    x.fillStyle = C.muted; x.font = `600 22px ${SANS}`; x.fillText('Smoker · cook journal', P + 32, foot + 38);
+    return new Promise((res, rej) => cv.toBlob(b => b ? res(b) : rej(new Error('the browser couldn\'t make a PNG')), 'image/png'));
+  }
+  const fileName = c => 'cook-' + new Date(c.ended).toISOString().slice(0, 10) + '-' + String(c.title || 'cook').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) + '.png';
+  // Share the picture (the phone's share sheet, where the browser can share files), else download it.
+  async function shareImage(c) {
+    const blob = await png(c), name = fileName(c);
+    let file = null; try { file = new File([blob], name, { type: 'image/png' }); } catch (e) { file = null; }
+    if (file && navigator.canShare && navigator.share && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: c.title }); return 'shared'; } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    return 'downloaded';
+  }
+  return { show, close, png, shareImage, at, evText, open: () => !!(el && !el.hidden), state: () => ({ pos, cmp: cmp && cmp.id, cook: cook && cook.id }) };
+})();
+// ==== END cook replay (shared block) ====
 function drawChart() {
   put('range', [3, 6, 12, 24].map(h => `<button aria-pressed="${h === chartHours}" data-a="range" data-h="${h}">${h}h</button>`).join(''));
   const box = $('chart'); if (!box) return;
@@ -1273,19 +1634,33 @@ function drawChart() {
       return `<span><i style="background:transparent;border-top:2px dotted ${COLORS[q.i]};height:0"></i>${esc(q.n)} plan${w ? ' · ' + esc(w) : ''}</span>`; }).join(''));
 }
 
+// The food slots for "Ready together": only those set up for the cook (a weight set, as the controller's own planner
+// and reminders: every slot with a target has an estimate), with their whole-cook estimate.
+function serveFoods() {
+  const out = [];
+  for (let i = 1; i <= 6; i++) {
+    const L = 'Food ' + i, w = num(E('number', L + ' weight')), prot = str(E('select', L + ' protein'));
+    const total = S(L + ' estimated total cook time') ?? S(L + ' estimated total');
+    out.push({ slot: i, total: w > 0 ? total : null, name: prot && !/^Auto/i.test(prot) ? prot : L });
+  }
+  return out;
+}
 function renderPlan() {
   const L = LOCAL, P = L && L.plan;
   if (!P) { put('plan', '<p class="note">Planning needs firmware 0.2.29 or later.</p>'); return; }
   const sv = P.serve_by ? new Date(P.serve_by * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
   const profiles = [1, 2, 3, 4, 5, 6].map(i => T('Food ' + i + ' protein') || str(E('select', 'Food ' + i + ' protein'))).filter(Boolean);
   const like = COMMUNITY && COMMUNITY.groups ? COMMUNITY.groups.filter(g => profiles.includes(g.cut)).slice(0, 3) : [];
+  // Serve together: when each food goes on (the controller sends a notification at each).
+  const sp = P.serve_by && P.serve_by * 1000 > Date.now() - 3600e3 ? serveTogether(P.serve_by * 1000, P.rest_min, 0, serveFoods()) : null;
   put('plan', `<h3><span>Plan a cook</span>${P.serve_by ? '<span class="chip ok">planned</span>' : ''}</h3>
     <div class="row"><span>Serve by</span><span class="entry"><input id="servein" type="datetime-local" value="${esc(sv)}" aria-label="Serve by"></span></div>
     <div class="row"><span>Rest</span><span class="entry"><input id="restin" type="number" min="0" max="360" step="5" value="${P.rest_min}" style="width:70px" aria-label="Rest minutes"><span class="muted">min</span></span></div>
     <div class="btns"><button class="btn pri" data-a="plansave">Save</button>${P.serve_by ? '<button class="btn" data-a="planclear">Clear</button>' : ''}</div>
     ${P.serve_by ? row('Light the grill by', P.light_by ? `${atClock(P.light_by)} <span class="muted small">(${P.light_by <= P.now ? 'now' : 'in ' + mins((P.light_by - P.now) / 60)})</span>` : '<span class="muted small">set the cut and weight on a Food card for an estimate</span>') : ''}
     ${P.est_min ? row('Cooking time', '~' + mins(P.est_min) + (P.rest_min ? ' + ' + P.rest_min + ' min rest' : '')) : ''}
-    ${P.serve_by ? '<p class="note">You\'ll get a notification when it\'s time to light the grill.</p>' : '<p class="note">Pick when you want to eat: the controller works out when to light the grill from its estimate and reminds you.</p>'}
+    ${sp && sp.foods.length ? `<h3 style="margin-top:12px"><span>Ready together</span><span class="muted small">${sp.foods.length} food${sp.foods.length > 1 ? 's' : ''}</span></h3><div id="servetl">${serveHTML(sp, Date.now())}</div>` : ''}
+    ${P.serve_by ? `<p class="note">You'll get a notification when it's time to light the grill${sp && sp.foods.length > 1 ? ' and when each food should go on' : ''}.</p>` : '<p class="note">Pick when you want to eat: the controller works out when to light the grill from its estimate and reminds you.</p>'}
     ${like.length ? `<h3 style="margin-top:12px"><span>Shared cooks like this</span><span class="muted small">Open Pitmaster · ${fmt(COMMUNITY.cooks)} cooks</span></h3>${like.map(g => `<p class="note" style="margin:4px 0">${esc(g.line)}</p>`).join('')}` : ''}`);
 }
 
@@ -1306,12 +1681,54 @@ function renderJournal() {
       <div class="chips">${chip('', fmt(e.total_h, 1) + ' h total')}${e.stall_h ? chip('warn', 'stall ' + fmt(e.stall_h, 1) + ' h') : ''}${e.pit_c != null ? chip('hot', 'pit ' + fmt(tF(e.pit_c)) + u) : ''}${e.ambient_c != null ? chip('', 'outside ' + fmt(tF(e.ambient_c)) + u) : ''}${e.wrapped ? chip('', 'wrapped') : ''}${e.share === 'shared' ? chip('ok', 'shared') : e.share === 'sending' ? chip('', 'sharing…') : ''}</div>
       <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" data-a="jrate" data-id="${e.id}" data-n="${n}" aria-label="${n} stars">★</button>`).join('')}</span>
         <span>${sh.enabled && e.share === 'declined' ? `<button class="btn" data-a="jshare" data-id="${e.id}">Share</button>` : ''}<button class="btn${armed['del' + e.id] ? ' arm' : ''}" data-a="jdel" data-id="${e.id}">${armed['del' + e.id] ? 'Tap again to remove' : 'Remove'}</button></span></div>
+      <div class="btns"><button class="btn" data-a="jreplay" data-id="${esc(e.id)}">Replay</button><button class="btn" data-a="jimg" data-id="${esc(e.id)}">Share image</button></div>
       <details class="more" data-k="t${e.id}"${(e.tags || []).length ? '' : ' open'}><summary>How was it?${(e.tags || []).length ? ' · ' + esc(e.tags.join(', ')) : ''}</summary>
         <div class="taste">${TASTE.map((g, k) => `<span class="grp">${TASTE_GROUPS[k]}</span>` + g.map(t => `<button aria-pressed="${(e.tags || []).includes(t)}" data-a="jtag" data-id="${e.id}" data-t="${t}">${t}</button>`).join('')).join('')}</div></details>
       <div class="row"><span class="entry" style="flex:1"><input id="jn-${e.id}" type="text" maxlength="99" value="${esc(e.notes || '')}" placeholder="Notes (bark, tenderness, what you'd change)" aria-label="Notes" style="flex:1"><button class="btn" data-a="jnote" data-id="${e.id}">Save</button></span></div></div>`;
   };
   put('journal', ask + (list.length ? shown.map(ent).join('') + (list.length > shown.length ? `<div class="btns"><button class="btn" onclick="journalAll=true;renderJournal()">Show all ${list.length}</button></div>` : '')
     : '<div class="empty">No cooks yet. Each finished cook is added here: rate it and tick how it was, and the controller learns from it.</div>'));
+}
+
+// ---------------------------------------------------------------- cook replay and the picture to share
+// A journal entry as the shared "cook replay" block wants it. The controller keeps each cook's curves (pit and its
+// food, up to 120 points) and events with the journal (GET /local/journal/<id>/curve); for a cook from before that,
+// the last 24 hours it records for the chart, if the cook is still in them.
+const replayCache = {};
+const entryTitle = e => { const w = e.weight_kg ? (isF() ? fmt(e.weight_kg * 2.2046, 1) + ' lb' : fmt(e.weight_kg, 1) + ' kg') : '';
+  return (e.profile && e.profile !== 'Auto' ? e.profile : 'Cook') + (w ? ' · ' + w : ''); };
+async function replayCook(id) {
+  const hit = replayCache[id]; if (hit && Date.now() - hit.t < 300e3) return hit.c;
+  const e = (JOURNAL.entries || []).find(x => x.id === id); if (!e) throw new Error('that cook isn\'t in the journal any more');
+  const end = e.ended || Date.now() / 1000, start = end - (e.total_h || 0) * 3600;
+  const c = { id, title: entryTitle(e), ended: end * 1000, start: start * 1000, unit: TU(), pit: tF(e.pit_c), total_h: e.total_h,
+    stall_h: e.stall_h, rating: e.rating, tags: e.tags || [], photo: null, series: [], events: [] };
+  let r = null;
+  try { r = await local('journal/' + encodeURIComponent(id) + '/curve'); } catch (err) { r = null; }  // (older firmware: none)
+  if (r && ((r.pit || []).length || (r.food || []).length)) {
+    const t0 = r.start || start, st = r.step_s || 60, pts = a => (a || []).map((v, i) => [(t0 - start + i * st) / 3600, v]).filter(p => p[1] != null && p[0] >= 0);
+    if (r.unit) c.unit = r.unit;
+    [['pit', 'Pit'], ['food', r.slot ? 'Food ' + r.slot : 'Food']].forEach(([k, n]) => { const q = pts(r[k]); if (q.length) c.series.push({ k, name: n, pts: q }); });
+    c.events = (r.events || []).map(v => Object.assign({}, v, { h: (v.t - start) / 3600 })).filter(v => v.h >= 0).sort((a, b) => a.h - b.h);
+  } else if (e.ended) {
+    const h = await local('history?hours=24').catch(() => null);
+    if (h && h.series && h.series.length) {
+      const step = (h.step_min || 1) * 60, now = Date.now() / 1000 - (h.age_s || 0);
+      const S = h.series.map(a => a.map((v, k) => [now - (a.length - 1 - k) * step, v]).filter(p => p[1] != null && p[0] >= start && p[0] <= end + 300).map(p => [(p[0] - start) / 3600, p[1]]));
+      if (S[0] && S[0].length) c.series.push({ k: 'pit', name: 'Pit', pts: S[0] });
+      if (S[1] && S[1].length) c.series.push({ k: 'target', name: 'Pit target', pts: S[1] });
+      let best = -1; for (let i = 2; i < S.length; i++) if (S[i].length && (best < 0 || S[i].length > S[best].length)) best = i;
+      if (best >= 0) c.series.push({ k: 'food', name: h.names[best] || 'Food', pts: S[best] });
+    }
+  }
+  replayCache[id] = { t: Date.now(), c };
+  return c;
+}
+// Cooks to compare with: the same cut first, newest first.
+function replayOthers(id) {
+  const all = JOURNAL.entries || [], me = all.find(x => x.id === id) || {};
+  return all.filter(x => x.id !== id).sort((a, b) => ((b.profile === me.profile) - (a.profile === me.profile)) || ((b.ended || 0) - (a.ended || 0)))
+    .map(x => ({ id: x.id, label: entryTitle(x) + (x.ended ? ' · ' + dayLabel(x.ended) : '') + (x.rating ? ' · ' + '★'.repeat(x.rating) : '') }));
 }
 
 function renderShare() {
