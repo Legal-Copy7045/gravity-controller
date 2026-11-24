@@ -101,6 +101,7 @@ STATES = dict([
        "Smoker Charcoal estimate basis"),
     st("switch.smoker_control_over_bluetooth_experimental", "on", "Smoker Control over Bluetooth (experimental)"),
     st("button.smoker_restart", "unknown", "Smoker Restart"),
+    st("switch.smoker_automatic_updates", "off", "Smoker Automatic updates"),
     st("button.smoker_grill_wi_fi_scan", "unknown", "Smoker Grill Wi-Fi: scan"),
     st("button.smoker_grill_wi_fi_join_saved_network", "unknown", "Smoker Grill Wi-Fi: join saved network"),
     st("sensor.smoker_grill_wi_fi_networks", "Grill-Network, Neighbour", "Smoker Grill Wi-Fi networks"),
@@ -503,6 +504,7 @@ def main():
                     "sources": fr.inner_html("#sources"),
                     "pitcard": fr.inner_text("#pitcard"),
                     "controlcard": fr.inner_text("#controlcard"),
+                    "diag": fr.inner_html("#diag"),
                     "heronext": fr.inner_text("#heronext"),
                     "grill": fr.inner_html("#grillpic"),
                     "topbar": fr.inner_text("#topbar"),
@@ -532,6 +534,8 @@ def main():
                     failures.append(f"{scheme}/{name}: experimental label missing: fuel {checks['fuel'][:200]!r} recs {checks['recs'][:120]!r}")
                 if "Controlling the grill over Wi-Fi" not in checks["pitcard"]:
                     failures.append(f"{scheme}/{name}: control row: {checks['pitcard'][:200]!r}")
+                if "Automatic updates" not in checks["diag"] or 'data-a="switch.smoker_automatic_updates"' not in checks["diag"]:
+                    failures.append(f"{scheme}/{name}: no Automatic updates toggle in the controller card")
                 if "Control over Bluetooth" not in checks["controlcard"] or "Bridge enabled" not in checks["controlcard"]:
                     failures.append(f"{scheme}/{name}: connection card: {checks['controlcard'][:200]!r}")
                 g = checks["grill"]

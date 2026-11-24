@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.2.1] - 2026-11-24
+
+- **Automatic updates on the Home Assistant dashboard:** the Smoker dashboard (Setup → Controller) now has the
+  *Automatic updates* switch, next to the controller's firmware status. No firmware change.
 ## [1.2.0] - 2026-11-23
 
 - **Automatic updates (optional, off by default):** turn on *Automatic updates* (Home Assistant: the controller's

@@ -1856,7 +1856,10 @@ function renderDiag() {
   ].join('') +
     (E('Restart', ['button']) ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>
       <button class="btn" onclick="act.restart(this)">${restartArmed ? 'Tap again to restart' : 'Restart'}</button></div>` : '') +
-    (fs ? `<div class="row"><span>Controller firmware</span><span class="r">${fs.state === 'on' ? 'update available: ' + esc(fs.attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : ''));
+    (fs ? `<div class="row"><span>Controller firmware</span><span class="r">${fs.state === 'on' ? 'update available: ' + esc(fs.attributes.latest_version) + ' (install from Settings)' : 'up to date'}</span></div>` : '') +
+    // The controller's own automatic updates (firmware 1.2.0+): it installs a release only while idle.
+    (au => au ? `<div class="row"><span>Automatic updates<br><span class="muted small">The controller installs a new release by itself, only while the grill is off and no cook or program is running (idle for an hour).</span></span>
+      <button class="tg ${val(au) === 'on' ? 'on' : ''}" role="switch" aria-checked="${val(au) === 'on'}" data-act="toggle" data-a="${esc(au)}" aria-label="Automatic updates"></button></div>` : '')(E('Automatic updates', ['switch'])));
   put('foot', 'Smoker' + (ok(ctl) ? ' · controller ' + esc(ctl) : '') + (integ ? ' · integration ' + esc(integ) : ''));
 }
 
