@@ -1,6 +1,6 @@
 # Stable check IDs for the sim stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: SIM-087
+# highest issued: SIM-096
 SIM-001: "e2e › bridge connects to grill"
 SIM-002: "e2e › pit temperature published"
 SIM-003: "e2e › food 1 temperature published"
@@ -88,3 +88,12 @@ SIM-084: "scenarios › scenario 4 › a 'Power cut: cook resumed' notification"
 SIM-085: "scenarios › scenario 4b › program restored paused"
 SIM-086: "scenarios › scenario 4b › status says restored"
 SIM-087: "scenarios › scenario 4b › no dangerous command ids sent"
+SIM-088: "e2e › estimated total published, phase 'Waiting (collecting data)'"
+SIM-089: "e2e › estimate basis"
+SIM-090: "scenarios › scenario 10 › the sear turned Turbo on"
+SIM-091: "scenarios › scenario 10 › sear restored paused"
+SIM-092: "scenarios › scenario 10 › Turbo turned off for the paused sear"
+SIM-093: "scenarios › scenario 10 › a keep program runs"
+SIM-094: "scenarios › scenario 10 › the keep program is still there after a restart"
+SIM-095: "scenarios › scenario 10 › a notice says it goes on keeping the food"
+SIM-096: "scenarios › scenario 10 › no dangerous command ids sent"
