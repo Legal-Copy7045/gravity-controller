@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.4.0] - 2026-11-24
+
+- **Power-cut recovery** (*Resume after a power cut*, on by default): after a cut during a cook of up to an hour, the
+  controller reconnects, sends the pit and food targets again, carries on with the program (a timed step counts the
+  time the power was off) and tells you what happened. It turns the grill back on only with proof of a short cut: a
+  measured outage under an hour, a power-loss restart of the controller, and the grill back with its settings reset (a
+  grill turned off with its own button keeps them and stays off). Otherwise it alerts you to check the fire and food.
+- **Fire alerts:** *Pit temperature running away* (well over target and climbing, or far over and not coming down; quiet
+  during a Turbo sear and for 10 minutes after a target change), *Charcoal may be stuck in the chute* (the pit falling
+  with plenty of charcoal left by the estimate) and *The fire may be dying*; a lid opening no longer counts towards any
+  of them for 10 minutes.
+- **Connectivity watchdog:** one *Connectivity* line (grill, Wi-Fi, Home Assistant, internet); notices when Home
+  Assistant goes away during a cook and when the controller comes back after being offline; a Wi-Fi that worked and
+  then stays stuck restarts the controller (never during a cook, at most 3 times in a row).
+- **Local only (no internet)**, off by default: no internet connections at all (weather, AI, ntfy, Pushover, Telegram,
+  sharing, update checks, the internet clock). Alerts then reach you only through Home Assistant; the integration and
+  the package honour it too.
+- **Automatic rollback:** a new firmware that crashes or hangs in its first 15 minutes, or can't stay on the Wi-Fi for
+  10, goes back to the previous version (never mid-cook); automatic updates then skip that version.
+- **Hold mode:** `keep food1 150` moves the pit to keep a food at a temperature. **Turbo in programs:** `turbo on` /
+  `turbo off` (switched off when a program is paused or stopped). New presets: steak reverse sear (rare to
+  medium-well, seared at 700 °F with Turbo), burgers, keep Food 1 warm.
+- **Pit report:** *Pit stability* (how often the pit was within 10 °F of target, average off, peak, dip) and *Last lid
+  opening* (what it cost in finish time), kept with each cook in the journal.
+- **Cook section:** *Cook program*, *Plan* and *What's cooking* are now one section: what's cooking (scan the package or
+  pick the cut and weight), build the cook (with AI, or stage by stage: the AI's plan opens as stages to tweak) and
+  when (serve by, light the grill by, **ready together**: when each food goes on, with a reminder for each). The *Pit &
+  program* section is gone: the header shows the lid, the program and how steady the pit is.
+- **Cook replay** (Journal: scrub through a cook's curves with its events: lid, wrap, stall, top-ups, program steps;
+  compare with another cook) and a **cook picture** to share.
+- Fixed: a food target the grill lost when it restarted now goes back to it during a cook.
 ## [1.3.4] - 2026-11-24
 
 - **Fixed (1.3.3 got it wrong): a step's notify written after its conditions is sent when they're met.**

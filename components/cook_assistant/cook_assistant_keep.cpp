@@ -38,11 +38,26 @@ void CookAssistant::keep_tick_(const cook::RunnerInputs &in) {
   const float dt_min = (now - this->keep_last_ms_) / 60000.0f;
   this->keep_last_ms_ = now;
   const float err = want - food;  // °C; positive = the food is too cool
-  this->keep_i_ = std::max(-15.0f, std::min(45.0f, this->keep_i_ + 0.05f * err * std::min(dt_min, 10.0f)));
-  float pit = want + 10.0f + 4.0f * err + this->keep_i_;
-  pit = std::max(this->pit_min_c_, std::min(this->pit_max_c_, pit));
+  // Far below what it's kept at (25 °C / 45 °F): a probe that fell out, or food just put on cold. Not a reason to
+  // fire the grill up: the pit stays at its lowest and the controller says so once.
+  const bool suspect = err > 25.0f;
+  if (suspect && !this->keep_probe_warned_) {
+    this->keep_probe_warned_ = true;
+    std::string name = size_t(kp - 1) < this->probes_.size() ? this->probes_[kp - 1]->name : "The food";
+    this->notify("Check the probe", name + " reads " + this->fmt_temp_(food) + ", far below the " + this->fmt_temp_(want) +
+                                        " it's kept at: is the probe still in the food? The pit stays at its lowest "
+                                        "until the reading makes sense.",
+                 1, "keep");
+  } else if (!suspect) {
+    this->keep_probe_warned_ = false;
+  }
+  if (!suspect)
+    this->keep_i_ = std::max(-15.0f, std::min(30.0f, this->keep_i_ + 0.05f * err * std::min(dt_min, 10.0f)));
+  float pit = suspect ? this->pit_min_c_ : want + 10.0f + 4.0f * err + this->keep_i_;
+  // Never more than 40 °C (72 °F) above the food's temperature: keeping warm isn't cooking.
+  pit = std::max(this->pit_min_c_, std::min({this->pit_max_c_, want + 40.0f, pit}));
   const float step = this->fahrenheit_ ? 5.0f * 5.0f / 9.0f : 2.0f;
-  pit = std::max(this->pit_min_c_, std::min(this->pit_max_c_, std::round(pit / step) * step));
+  pit = std::max(this->pit_min_c_, std::min({this->pit_max_c_, want + 40.0f, std::round(pit / step) * step}));
   // Send when it changes, or when the grill doesn't have it (it restarted, or a change at the grill).
   const float rep = this->pit_setpoint_c_();
   const bool grill_differs = !std::isnan(rep) && std::fabs(rep - pit) >= step * 0.9f;

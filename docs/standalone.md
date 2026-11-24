@@ -140,7 +140,7 @@ Pick one or more services:
   - the journal asks *Share this cook?* once a cook is rated or 12 hours old, and shows exactly what's sent;
   - **Share automatically** skips the question, **Remove my shared cooks** deletes what you've shared, and
     **Download my cooks (anonymised)** lets you look first;
-  - the Plan card shows the shared averages for the cuts you're cooking;
+  - the Cook section (*When*) shows the shared averages for the cuts you're cooking;
   - if you also share from Home Assistant's Smoker page, turn one of them off, or each cook would be shared twice.
 
 ## The AI pitmaster on the controller
@@ -155,7 +155,7 @@ Once it's set up, an **AI pitmaster** section appears on the page:
 - **Second opinion:** how the cook is going, the next thing to do, its own finish estimate and a few timed tips.
   **Ask now**, or turn on **every 30 min during a cook**.
 - **Plan with AI:** describe the cook ("9 lb pork shoulder, eating at 6 pm Saturday"). It suggests when to light up and
-  the steps, and writes a cook program: **Load as program**, check it under Pit & program, then Start.
+  the steps, and writes a cook program, which opens as stages under *Build it yourself* to check or tweak: **Load as program**, then Start.
 - **What's cooking:** **Take a photo** or **Choose a photo** of the package label. The page shrinks it, the AI reads
   the cut and weight, and **Set** puts them on a Food slot.
 

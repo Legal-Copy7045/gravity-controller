@@ -13,8 +13,11 @@ NAME = "Local only (no internet)"
 MESSAGE = "Local only is on for the controller: nothing is sent to the internet. Turn it off under Setup to use this."
 
 
+_LAST: dict[str, bool] = {}  # entity id -> last known on/off (fails closed while the controller is offline)
+
+
 def local_only(hass: HomeAssistant) -> bool:
-    """True if any Smoker controller has "Local only" on."""
+    """True if any Smoker controller has "Local only" on (or had it on when it was last seen)."""
     from .watchdog import is_smoker_device
 
     devs, ents = dr.async_get(hass), er.async_get(hass)
@@ -27,6 +30,8 @@ def local_only(hass: HomeAssistant) -> bool:
         if dev is None or not is_smoker_device(dev):
             continue
         st = hass.states.get(ent.entity_id)
-        if st is not None and st.state == "on":
+        if st is not None and st.state in ("on", "off"):
+            _LAST[ent.entity_id] = st.state == "on"
+        if _LAST.get(ent.entity_id, False):
             return True
     return False

@@ -333,6 +333,7 @@ class CookAssistant : public Component {
   uint32_t keep_last_ms_{0};
   uint32_t keep_low_since_{0};
   bool keep_warned_{false};
+  bool keep_probe_warned_{false};
 
   // ---- lid-open cost and pit stability (cook_assistant_stats.cpp) ----
   void track_lid_(bool lid_open, double now, float pit, float sp);
@@ -345,6 +346,7 @@ class CookAssistant : public Component {
   double runaway_since_{-1};
   double sp_changed_at_{-1e9};
   bool turbo_commanded_{false};  // a program step turned Turbo on (and hasn't turned it off)
+  double turbo_on_at_{-1e9};
   void turbo_off_();  // a program's Turbo, off (stop/pause): cook_assistant.cpp
   bool runaway_notified_{false};
   // the lid opening being measured

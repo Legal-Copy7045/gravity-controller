@@ -891,12 +891,16 @@ const PG = (() => {
         const v = parseFloat(s.temp);
         if (!Number.isFinite(v)) add('set the pit temperature'); else if (v < lo || v > hi) add('the pit range is ' + lo + '–' + hi + u);
       }
-      if (s.kind === 'keep' && !Number.isFinite(parseFloat(s.temp))) add('set the food temperature to keep');
+      if (s.kind === 'keep') {
+        const v = parseFloat(s.temp), [klo, khi] = f ? [104, 203] : [40, 95];
+        if (!Number.isFinite(v)) add('set the food temperature to keep'); else if (v < klo || v > khi) add('keep a food between ' + klo + ' and ' + khi + u);
+      }
+      if (s.turbo && (s.kind === 'hold' || s.kind === 'keep' || last)) add("Turbo can't stay on where the program holds or ends: untick it here");
       if (s.kind === 'hold' && !last) add('"Hold at" must be the last step (the program stays there)');
       if (s.kind === 'keep' && !last) add('"Keep food at" must be the last step (the program stays there)');
       if (s.kind === 'shutdown' && !last) add('"Shut down" ends the program: the steps after it never run');
       const turboChange = !!s.turbo !== !!(i && p.steps[i - 1].turbo);
-      if (s.kind === 'notify' && !(s.notify || '').trim() && !turboChange && !(s.until.length && (s.done || '').trim())) add('write the notification');
+      if (s.kind === 'notify' && !(s.notify || '').trim() && !turboChange) add('write the notification');
       if ((s.notify || '').includes('"') || (s.done || '').includes('"')) add("the notification can't contain double quotes");
       if (s.kind === 'pit' || s.kind === 'notify') s.until.forEach(c => {
         const v = parseFloat(c.value);
@@ -1988,7 +1992,11 @@ function renderAI() {
     ${au ? `<div class="row"><span>Every ${fmt(A.interval)} min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg${A.auto ? ' on' : ''}" data-a="aiauto" data-v="${A.auto ? 0 : 1}" role="switch" aria-checked="${!!A.auto}" aria-label="Ask the AI every ${fmt(A.interval)} minutes during a cook"></button></div>` : ''}`);
   const pl = A.plan;
   // A new plan: its stages open in the step editor (not loaded yet).
-  if (pl && pl.at && pl.program && aiPlanSeen !== undefined && pl.at !== aiPlanSeen) { fromAI = true; progEd.open(pl.program, true); cookTab = 'build'; setTimeout(renderProg, 0); }
+  if (pl && pl.at && pl.program && aiPlanSeen !== undefined && pl.at !== aiPlanSeen) {
+    // (Unsent edits in the editor aren't overwritten: the plan waits behind "Edit the stages".)
+    if (progEd.state.touched) toast('A new plan from the AI is ready: "Edit the stages" opens it (your unsent edits are still in the editor)');
+    else { fromAI = true; progEd.open(pl.program, true); cookTab = 'build'; setTimeout(renderProg, 0); }
+  }
   aiPlanSeen = (pl && pl.at) || aiPlanSeen || 0;
   put('aiplan', `<p class="note" style="margin-top:0">Say what you're cooking, how much, and when you want to eat. The AI writes the stages; you can change them before you start.${pl ? ' ' + aiWhen(pl.at) : ''}</p>
     <textarea id="aiplanin" rows="2" maxlength="600" style="width:100%;box-sizing:border-box" placeholder="e.g. 9 lb pork shoulder, eating at 6 pm Saturday, 8 people" aria-label="Describe the cook"></textarea>

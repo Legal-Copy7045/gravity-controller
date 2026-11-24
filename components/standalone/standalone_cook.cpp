@@ -569,7 +569,6 @@ int Standalone::light_by_(uint32_t now_epoch, float *est_min) {
 // the last 10 minutes is reminded again); never after the serve time. Every 30 s, under lock_.
 void Standalone::put_on_reminders_(uint32_t t) {
   if (this->s2_.serve_by == 0 || this->cook_ == nullptr || t >= this->s2_.serve_by) return;
-  if (this->send_via_ha()) return;  // Home Assistant's package sends these (its serve-by time): not twice
   if (this->put_on_for_ != this->s2_.serve_by) {
     this->put_on_for_ = this->s2_.serve_by;
     this->put_on_sent_ = 0;
@@ -598,7 +597,9 @@ void Standalone::put_on_reminders_(uint32_t t) {
                   "grill plus a %u min rest.", named ? "the " : "", named ? low.c_str() : what.c_str(),
                   named ? " (" : "", named ? p->name.c_str() : "", named ? ")" : "", lt.tm_hour, lt.tm_min, est / 60.0f,
                   unsigned(this->s2_.rest_min));
-    this->cook_->notify(what + ": on the grill now", msg, 1, "put_on_" + p->key);  // re-enters lock_: fine
+    // The same tag as the Home Assistant package's reminder ("put_on_1"): if both send one, the phone shows one.
+    const std::string slot = p->key.rfind("food", 0) == 0 ? p->key.substr(4) : p->key;
+    this->cook_->notify(what + ": on the grill now", msg, 1, "put_on_" + slot);  // re-enters lock_: fine
   }
 }
 

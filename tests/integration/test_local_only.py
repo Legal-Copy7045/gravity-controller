@@ -21,6 +21,8 @@ async def test_local_only_follows_the_controllers_switch(hass: HomeAssistant):
     assert not local_only(hass)
     hass.states.async_set(r.entity_id, "on")
     assert local_only(hass)
+    hass.states.async_set(r.entity_id, "unavailable")  # the controller went offline: still local only
+    assert local_only(hass)
     # Another device's switch with the same name doesn't count.
     other = MockConfigEntry(domain="esphome", title="plug", data={"host": "plug.local"}, state=ConfigEntryState.NOT_LOADED)
     other.add_to_hass(hass)

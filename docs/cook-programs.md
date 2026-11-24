@@ -46,8 +46,9 @@ loss of power (not an update or a crash); and the grill came back with its setti
 own button keeps them, so it stays off). Otherwise you get an urgent notification to check the fire and the food, and
 the grill is left as it is. Longer cuts, or with the setting off, the program comes back **paused** at the same step.
 
-**Step editor:** the Cook program card on the Home Assistant panel and on the controller's own page shows the program
-as steps: an action (*Set pit to*, *Hold at*, *Notify only*, *Shut down*), the conditions that end the step (*until* …
+**Step editor:** the **Cook** section (*Build the cook → Build it yourself*) on the Home Assistant panel and on the controller's own page shows the program
+as steps: an action (*Set pit to*, *Hold at*, *Keep food at*, *Notify only*, *Shut down*), *Turbo (full fan)* for the step,
+*Notify when it ends*, the conditions that end the step (*until* …
 *or* …: a food probe reaches or drops to a temperature, optionally held for some minutes; the pit reaches a
 temperature; a probe is done; time in the step; a clock time; a stall starts or ends) and an optional notification.
 Steps can be added, removed and moved; *Program text* shows what will be sent, and **Load program**, then **Start**,

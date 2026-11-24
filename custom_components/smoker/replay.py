@@ -180,7 +180,8 @@ async def async_read(hass: HomeAssistant, entry: dict) -> dict[str, Any] | None:
         series[role] = [(s.last_changed.timestamp(), s.state) for s in states.get(eid, []) if hasattr(s, "last_changed")]
     pit = hass.states.get(ids.get("pit", ""))
     unit = str(pit.attributes.get("unit_of_measurement") or "") if pit else ""
-    return build(series, start, end, slot, unit)
+    # Gridding a long cook's points is real work: off the event loop.
+    return await hass.async_add_executor_job(build, series, start, end, slot, unit)
 
 
 class Replays:
@@ -262,4 +263,8 @@ class ReplayView(HomeAssistantView):
         if r is None:
             return self.json({"v": 1, "start": round(entry["started"]), "end": round(entry["ended"]), "pit": [],
                               "target": [], "food": [], "events": [], "kept": False})
+        if r["pit"] or r["food"]:
+            # Read once from the history, then kept: the next look (or a compare) doesn't query the recorder again.
+            j.replays.keep(entry_id, r, {e["id"] for e in j.data["entries"]})
+            return self.json({**r, "kept": True})
         return self.json({**r, "kept": False})

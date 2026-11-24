@@ -892,7 +892,8 @@ void CookAssistant::check_alerts_() {
     // while to come down to).
     {
       const float over = pit - sp;
-      const bool quiet = this->turbo_commanded_ || now - this->sp_changed_at_ < 10;
+      // (Turbo quiets it for its first 30 minutes only: a sear is short.)
+      const bool quiet = (this->turbo_commanded_ && now - this->turbo_on_at_ < 30) || now - this->sp_changed_at_ < 10;
       const bool away = !lid_open && this->cook_active_ && !quiet &&
                         ((over > 28.0f && rising) || (over > 56.0f && !falling) || pit > this->pit_max_c_ + 8.0f);
       if (away) {
@@ -1000,6 +1001,8 @@ void CookAssistant::apply_outputs_(const cook::RunnerOutputs &o) {
     this->set_pit_(o.pit_c);
   if (o.turbo >= 0) {
     this->turbo_commanded_ = o.turbo == 1;
+    if (o.turbo == 1)
+      this->turbo_on_at_ = this->now_min_();
     for (auto *t : this->turbo_triggers_)
       t->trigger(o.turbo == 1);
   }
@@ -1024,6 +1027,8 @@ void CookAssistant::apply_outputs_(const cook::RunnerOutputs &o) {
   if (o.shutdown)
     this->notify("Shutdown", "Cook program requested shutdown. Let the fire burn out with the lid closed.", 1,
                  "program");
+  if (o.finished || o.shutdown)
+    this->turbo_off_();  // a program never leaves the fan flat out once it's done
   if (o.step_changed || o.finished)
     this->save_program_state_();
 }
@@ -1051,6 +1056,24 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
             " changed to " + this->fmt_temp_(to) +
             (pc < to ? " (the lowest the grill holds)" : capped ? " (the AI max pit)" : " (the grill's highest)");
     prog.steps[i].pit_c = to;
+  }
+  // An AI's keep step is clamped to a food temperature, and Turbo is never left on where the program stays.
+  bool turbo = false;
+  for (size_t i = 0; i < prog.steps.size(); i++) {
+    auto &st = prog.steps[i];
+    if (st.keep_probe >= 0 && !(st.keep_c >= 40.0f && st.keep_c <= 95.0f)) {
+      const float to = std::max(40.0f, std::min(95.0f, std::isnan(st.keep_c) ? 60.0f : st.keep_c));
+      note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": keep " +
+              this->fmt_temp_(st.keep_c) + " changed to " + this->fmt_temp_(to);
+      st.keep_c = to;
+    }
+    if (st.turbo >= 0)
+      turbo = st.turbo == 1;
+    if (turbo && (st.hold || i + 1 == prog.steps.size())) {
+      st.turbo = 0;
+      turbo = false;
+      note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": Turbo turned off (it can't stay on)";
+    }
   }
   fixed = cook::format_program(prog, this->probe_keys(), this->fahrenheit_);
   if (fixed.size() >= PROGRAM_MAX) {
@@ -1082,6 +1105,21 @@ bool CookAssistant::load_program(const std::string &text, bool persist) {
       this->program_error_->publish_state(e);
     return false;
   };
+  for (size_t i = 0; i < prog.steps.size(); i++) {
+    const auto &st = prog.steps[i];
+    // Keep: a food holding temperature (40-95 °C, 104-203 °F), not a pit one.
+    if (st.keep_probe >= 0 && !(st.keep_c >= 40.0f && st.keep_c <= 95.0f))
+      return fail("step " + std::to_string(i + 1) + ": keep " + this->fmt_temp_(st.keep_c) + " isn't a food temperature (" +
+                  this->fmt_temp_(40.0f) + "-" + this->fmt_temp_(95.0f) + ")");
+    // Turbo (the fan flat out) can't be left on where the program stays: a hold or keep step, or the last one.
+    bool turbo = false;
+    for (size_t k = 0; k <= i; k++)
+      if (prog.steps[k].turbo >= 0)
+        turbo = prog.steps[k].turbo == 1;
+    if (turbo && (st.hold || i + 1 == prog.steps.size()))
+      return fail("step " + std::to_string(i + 1) + ": Turbo would stay on; turn it off (turbo off) before the program "
+                  "holds or ends");
+  }
   for (size_t i = 0; i < prog.steps.size(); i++) {
     float pc = prog.steps[i].pit_c;
     if (std::isnan(pc))

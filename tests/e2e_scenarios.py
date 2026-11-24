@@ -111,6 +111,16 @@ async def main():
         v = dev.val
         check(await dev.wait(lambda: v("grill_connected") is True, 20, "connect"), "connected")
 
+        print("scenario 0: programs the controller refuses (keep at a pit temperature; Turbo left on)")
+        await dev.action("load_program", program="name: Bad keep; keep food1 400")
+        check(await dev.wait(lambda: "food temperature" in (v("program_error") or ""), 10, "keep range"),
+              f"keep 400 refused ({v('program_error')!r})")
+        await dev.action("load_program", program="name: Bad turbo; pit 300 turbo on until food1 >= 160")
+        check(await dev.wait(lambda: "Turbo would stay on" in (v("program_error") or ""), 10, "turbo"),
+              f"Turbo left on at the end refused ({v('program_error')!r})")
+        await dev.action("load_program", program="name: Sear; pit 700 turbo on until food1 >= 128; hold 200 turbo off")
+        check(await dev.wait(lambda: not (v("program_error") or ""), 10, "ok"), f"a sear that turns Turbo off loads ({v('program_error')!r})")
+
         print("scenario 1: idle grill ignores the program's target")
         grill({"idle": True})
         await dev.action("load_program", program="name: Idle test; pit 260 until after 10h")

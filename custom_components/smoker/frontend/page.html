@@ -655,12 +655,16 @@ const PG = (() => {
         const v = parseFloat(s.temp);
         if (!Number.isFinite(v)) add('set the pit temperature'); else if (v < lo || v > hi) add('the pit range is ' + lo + '–' + hi + u);
       }
-      if (s.kind === 'keep' && !Number.isFinite(parseFloat(s.temp))) add('set the food temperature to keep');
+      if (s.kind === 'keep') {
+        const v = parseFloat(s.temp), [klo, khi] = f ? [104, 203] : [40, 95];
+        if (!Number.isFinite(v)) add('set the food temperature to keep'); else if (v < klo || v > khi) add('keep a food between ' + klo + ' and ' + khi + u);
+      }
+      if (s.turbo && (s.kind === 'hold' || s.kind === 'keep' || last)) add("Turbo can't stay on where the program holds or ends: untick it here");
       if (s.kind === 'hold' && !last) add('"Hold at" must be the last step (the program stays there)');
       if (s.kind === 'keep' && !last) add('"Keep food at" must be the last step (the program stays there)');
       if (s.kind === 'shutdown' && !last) add('"Shut down" ends the program: the steps after it never run');
       const turboChange = !!s.turbo !== !!(i && p.steps[i - 1].turbo);
-      if (s.kind === 'notify' && !(s.notify || '').trim() && !turboChange && !(s.until.length && (s.done || '').trim())) add('write the notification');
+      if (s.kind === 'notify' && !(s.notify || '').trim() && !turboChange) add('write the notification');
       if ((s.notify || '').includes('"') || (s.done || '').includes('"')) add("the notification can't contain double quotes");
       if (s.kind === 'pit' || s.kind === 'notify') s.until.forEach(c => {
         const v = parseFloat(c.value);
@@ -1010,6 +1014,7 @@ window.act = {
   prog(svc) { esph(svc).then(() => toast(svc.replace('_', ' '))); },
   plan() {
     if (!hasPkg()) return toast(PKG_MSG);
+    if (localOnly()) return toast(LOCAL_MSG, true);
     const t = $('plantext').value.trim(); if (!t) return toast('Describe the cook first');
     // The script runs until the AI has answered and the controller has the program (up to a minute or so): the Plan
     // card says "Planning…" meanwhile, then shows the plan, the loaded program and a Start button.
@@ -1022,7 +1027,7 @@ window.act = {
         const c = $('progcard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); })
       .catch(e => { planBusy = 0; renderPlanAI(); fail(e); });
   },
-  advise() { if (!hasPkg()) return toast(PKG_MSG); toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
+  advise() { if (!hasPkg()) return toast(PKG_MSG); if (localOnly()) return toast(LOCAL_MSG, true); toast('Asking the AI…'); H().service('script', 'smoker_ai_advise', {}).catch(fail); },
   serve(v) {
     const e = E('Smoker serve by', ['input_datetime']) || byName('Smoker serve by', ['input_datetime']);
     if (!e) return toast(PKG_MSG); if (!v) return; H().call('input_datetime', 'set_datetime', e, { datetime: v.replace('T', ' ') + ':00' }).then(() => toast('Serve time set')).catch(fail);
@@ -1446,6 +1451,9 @@ function renderControl() {
 // Cook → "Build the cook": two ways to the same stages. "Plan with AI" (the package's plan script writes a program and
 // loads it) and "Build it yourself" (presets and the step editor: shared block above, its own redraws, so edits survive
 // live updates). A plan from the AI opens in the step editor. Below both: the program's state and the run buttons.
+// "Local only (no internet)" on the controller: the AI isn't asked (the package's scripts stop too).
+const localOnly = () => val(E('Local only (no internet)', ['switch'])) === 'on';
+const LOCAL_MSG = 'Local only is on (Setup → Controller): the AI isn\'t asked. Turn it off to plan or ask the AI.';
 const progEd = PG.editor({
   el: () => $('progedit'), isF, unit: TU, toast,
   labels: () => PROBES.map(p => { const pr = S(E(p.label + ' protein', ['select'])); return p.label + (pr && !/^(Auto|unknown|unavailable)$/i.test(pr.state) ? ' · ' + pr.state : ''); }),
@@ -1469,7 +1477,11 @@ function renderProgram() {
     <div id="progstat" class="ck-stat"></div><div id="progbtns"></div>`;
   // A new plan from the AI: its stages open in the step editor, to check or change before Start.
   const ap = S(byName('Smoker AI plan', ['input_text'])), apAt = ap ? ap.last_changed : null;
-  if (aiSeen && apAt && apAt !== aiSeen && !/^(Rejected|unknown|unavailable)/.test(ap.state || '')) { cookTab = 'build'; fromAI = true; progEd.open(); }
+  if (aiSeen && apAt && apAt !== aiSeen && !/^(Rejected|unknown|unavailable)/.test(ap.state || '')) {
+    // (Unsent edits in the editor aren't overwritten: the plan waits behind "Edit the stages".)
+    if (progEd.state.touched) toast('A new plan from the AI is ready: "Edit the stages" opens it (your unsent edits are still in the editor)');
+    else { cookTab = 'build'; fromAI = true; progEd.open(); }
+  }
   if (apAt) aiSeen = apAt;
   const tab = cookTab === 'ai' || cookTab === 'build' ? cookTab : hasPkg() && !txt && !running && !paused ? 'ai' : 'build';
   [['ai', 'cookai'], ['build', 'cookbuild']].forEach(([k, id]) => {
@@ -1989,7 +2001,9 @@ async function replayCook(id) {
     if (f.length) c.series.push({ k: 'food', name: label, pts: f });
   }
   if ((e.photos || []).length) {
-    try { c.photo = URL.createObjectURL(await api('GET', '/api/smoker/photo/' + e.photos[0])); } catch (err) { c.photo = null; }
+    // One object URL per photo for the page's life (shared with the journal's photo cache), never one per load.
+    const name = e.photos[0];
+    try { c.photo = photoURL[name] || (photoURL[name] = URL.createObjectURL(await api('GET', '/api/smoker/photo/' + name))); } catch (err) { c.photo = null; }
   }
   replayCache[id] = { t: Date.now(), c };
   return c;

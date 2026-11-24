@@ -16,8 +16,8 @@ probes of its own. Home Assistant is optional (see
   even in the meat.
 - **Stall detection** and stall-remaining estimates; "wrapped" switch that the model takes into account.
 - **Cook programs** you can type on a phone: `pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"`.
-- **Alerts**: done / almost done, stall start and end, probe slipped out, pit off target, fire may be out, lid open,
-  grill connection lost. Through Home Assistant (actionable notifications), with **ntfy** as a direct path for
+- **Alerts**: done / almost done, stall start and end, probe slipped out, pit off target, pit running away, fire dying
+  or out (told apart from a lid opening), charcoal stuck in the chute, lid open, grill connection lost. Through Home Assistant (actionable notifications), with **ntfy** as a direct path for
   critical alarms when Home Assistant is down.
 - **Home Assistant AI** (any `ai_task` entity): plan a cook from a sentence, a second-opinion ETA every 30 minutes,
   a review after each cook.
@@ -31,10 +31,14 @@ probes of its own. Home Assistant is optional (see
 - **Control like the Char-Griller app**: pit and food targets, a timer, Turbo, and turning the grill on or off (two
   taps within 10 s, enforced by the controller). The controller's own page and the dashboard start in **Basic** (what
   the app does); switch to **Advanced** for programs, AI, charcoal, planning and the journal.
-- **Dashboard**: a phone-friendly Home Assistant sidebar page, with AI recommendations (prep, lighting time, wrap point, weather effects).
+- **Dashboard**: a phone-friendly Home Assistant sidebar page, with AI recommendations (prep, lighting time, wrap point,
+  weather effects), one **Cook** section to plan a cook (scan the package or pick the cut, then plan it with AI or stage
+  by stage; when each food goes on), a **cook replay** and a picture of each cook to share.
 - **Its own web page** at `http://gravity980.local`, working without Home Assistant or the internet, with a PIN.
-- **Signed updates over the air**, optionally automatic while the grill is idle; **browser installer** for the first
-  flash.
+- **Power-cut recovery** (resumes the cook and, with proof of a short cut, turns the grill back on), a **connectivity
+  watchdog**, a **local only** switch (no internet at all).
+- **Signed updates over the air**, optionally automatic while the grill is idle, rolled back automatically if a new
+  one misbehaves; **browser installer** for the first flash.
 
 **Future (not built): a controller of its own** that would replace the stock one, drive the stock fan itself and take
 probes wired straight into it (more food probes, zone probes, a chute thermocouple), maybe with a display. It needs
