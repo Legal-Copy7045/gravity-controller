@@ -270,6 +270,36 @@ async def main():
         check(await dev.wait(lambda: v("program_state") == "Paused", 30, "restored"),
               f"program restored paused (state {v('program_state')!r}, status {v('program_status')!r})")
         check("restored" in (v("program_status") or ""), f"status says restored: {v('program_status')!r}")
+
+        print("scenario 10: a sear restored paused after a restart turns its Turbo off; a keep program keeps going")
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_program", program="name: Sear test; pit 300 turbo on until after 5h; hold 225 turbo off")
+        await asyncio.sleep(1)
+        await dev.action("start_program")
+        check(await dev.wait(lambda: v("turbo") is True, 20, "turbo on"), "the sear turned Turbo on")
+        await asyncio.sleep(3)
+        await dev.stop()
+        await asyncio.sleep(2)
+        await dev.start()  # (Resume after a power cut is still off: restored paused)
+        check(await dev.wait(lambda: v("program_state") == "Paused", 30, "restored"), "sear restored paused")
+        check(await dev.wait(lambda: v("turbo") is False, 60, "turbo off"),
+              f"Turbo turned off for the paused sear (it was left on at the grill before 1.4.1; turbo {v('turbo')!r})")
+        await dev.action("stop_program")
+        await asyncio.sleep(1)
+        await dev.action("load_program", program="name: Keep test; keep food1 at 140")
+        await asyncio.sleep(1)
+        await dev.action("start_program")
+        check(await dev.wait(lambda: v("program_state") == "Finished", 20, "keeping"), "a keep program runs (finished on its keep step)")
+        await asyncio.sleep(3)
+        await dev.stop()
+        await asyncio.sleep(2)
+        await dev.start()
+        check(await dev.wait(lambda: v("program_state") == "Finished", 30, "still keeping"),
+              f"the keep program is still there after a restart (state {v('program_state')!r}; it was lost before 1.4.1)")
+        dlog.flush()
+        check(await dev.wait(lambda: "goes on keeping the food" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
+                             60, "notice"), "a notice says it goes on keeping the food")
         await dev.stop()
     finally:
         if dev.proc and dev.proc.poll() is None:

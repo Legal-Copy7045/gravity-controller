@@ -331,7 +331,10 @@ def stage_firmware(st, args):
                      ("safe mode confirms a new image only after it has run", r"boot_is_good_after:"),
                      ("local only switch defaults off", r"id:\s*local_only[\s\S]{0,400}restore_mode:\s*RESTORE_DEFAULT_OFF"),
                      ("automatic updates switch present", r"id:\s*auto_update"),
-                     ("power-cut resume switch present", r"resume_after_power_cut")]:
+                     ("power-cut resume switch present", r"resume_after_power_cut"),
+                     ("local only: update checks go nowhere", r"set_source_url\(\"http://127\.0\.0\.1/local-only\"\)"),
+                     ("factory reset and clear-PIN buttons not offered to Home Assistant",
+                      r"name: Clear the device page PIN\s+internal: true[\s\S]*name: Factory reset\s+#[^\n]*\n\s+internal: true")]:
         ok = re.search(pat, base) is not None
         st.add(key, f"firmware config: {key}", "pass" if ok else "fail", "" if ok else f"pattern {pat!r} not found")
 

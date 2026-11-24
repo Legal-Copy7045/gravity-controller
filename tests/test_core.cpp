@@ -551,6 +551,31 @@ static void test_regressions() {
     o = r.tick(2, in);
     CHECK(o.turbo == 0 && r.keep_probe() == 1 && std::isnan(r.commanded_pit()));
     NEAR(r.keep_c(), 60.0f, 0.01f);
+    // Turbo in effect follows the last turbo on/off up to the step.
+    CHECK(!r.turbo_in_effect());
+    // After a restart: a finished keep program goes on keeping (it isn't lost), with no pit target of its own.
+    cook::ProgramRunner rf;
+    rf.load(k);
+    rf.restore(2, 30, 100, false, true);
+    CHECK(rf.state() == cook::ProgramRunner::State::FINISHED && rf.keep_probe() == 1 && std::isnan(rf.commanded_pit()));
+    // A keep step restored running or paused has no stale pit target from an earlier step to defend (or re-send).
+    cook::Program k3;
+    CHECK(cook::parse_program("pit 250 until food1 >= 60; keep food1 at 140 until after 2h; hold 200", probes, true, k3, err));
+    cook::ProgramRunner rk;
+    rk.load(k3);
+    rk.restore(1, 10, 100, true);
+    CHECK(rk.state() == cook::ProgramRunner::State::RUNNING && rk.keep_probe() == 1 && std::isnan(rk.commanded_pit()));
+    rk.restore(0, 10, 100, false);
+    CHECK(!std::isnan(rk.commanded_pit()));  // (an ordinary step still has its pit)
+    // A sear restored mid-step: Turbo is in effect (restore sends it again); before it and after `turbo off`, not.
+    cook::ProgramRunner rt;
+    rt.load(k);
+    rt.restore(1, 1, 100, true);
+    CHECK(rt.turbo_in_effect());
+    rt.restore(0, 1, 100, true);
+    CHECK(!rt.turbo_in_effect());
+    rt.restore(2, 1, 100, true);
+    CHECK(!rt.turbo_in_effect());
   }
 
   // Briefly stepping the target below the current temperature doesn't record a cook.
@@ -1081,6 +1106,17 @@ static void test_pin_auth() {
     CHECK(e.locked_for("192.168.1.200") == 0 && e.login("482913", "192.168.1.200").size() == 64);
     e.clear();
     CHECK(e.locked_for("192.168.2.0") == 0);
+  }
+  // The address that last logged in with the right PIN isn't held when guessers overflow the client list.
+  {
+    uint32_t c = 1000;
+    uint8_t sd = 21;
+    Guard e([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    CHECK(e.set_pin("482913", "") == "");
+    CHECK(e.login("482913", "10.0.0.5").size() == 64);  // the owner's phone
+    for (int k = 0; k < 50; k++) e.login("999999", "192.168.1." + std::to_string(k / 3));
+    CHECK(e.locked_for("192.168.1.250") > 0);               // anyone else waits
+    CHECK(e.locked_for("10.0.0.5") == 0 && e.login("482913", "10.0.0.5").size() == 64);
   }
 
   // Home Assistant sets or replaces the PIN whenever (no window, no current PIN), with the same rules; every session

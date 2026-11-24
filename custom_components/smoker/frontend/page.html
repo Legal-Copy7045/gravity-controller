@@ -1327,6 +1327,10 @@ function sendPhotoToController(url) {
   const txt = E('Grill photo URL', ['text']); if (!txt) return;
   let origin = ''; try { origin = window.parent.location.origin; } catch (e) { origin = location.origin; }
   if (!/^https?:/.test(origin)) return;
+  // Only Home Assistant's address in the home network (the controller's page takes no other): opened from outside
+  // (a remote URL), the controller keeps the address it had.
+  const localHost = h => /^(localhost|127(\.\d+){3}|10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2}|169\.254(\.\d+){2}|\[(fd[0-9a-f]{2}|fe80):[0-9a-f:]*\])$/i.test(h) || /^[a-z0-9-]+$/i.test(h) || /\.(local|lan|home\.arpa|internal|home)$/i.test(h);
+  try { if (!localHost(new URL(origin).hostname)) return; } catch (e) { return; }
   const abs = origin + url;
   if (val(txt) !== abs) H().call('text', 'set_value', txt, { value: abs }).catch(() => {});
 }

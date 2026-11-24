@@ -1,6 +1,6 @@
 # Stable check IDs for the firmware stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: FW-012
+# highest issued: FW-014
 FW-001: "config valid: firmware/gravity980-bridge.yaml"
 FW-002: "compiles: firmware/gravity980-bridge.yaml"
 FW-003: "config valid: tests/configs/no-ha.yaml"
@@ -13,3 +13,5 @@ FW-009: "safe mode confirms a new image only after it has run"
 FW-010: "local only switch defaults off"
 FW-011: "automatic updates switch present"
 FW-012: "power-cut resume switch present"
+FW-013: "local only: update checks go nowhere"
+FW-014: "factory reset and clear-PIN buttons not offered to Home Assistant"

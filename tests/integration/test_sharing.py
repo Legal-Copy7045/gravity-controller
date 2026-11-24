@@ -150,6 +150,10 @@ async def test_auto_share_and_non_admin(hass: HomeAssistant, hass_client, hass_a
     assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
     sh = hass.data[sharing.DATA]
     sh._touched[new["id"]] = 0
+    # A random hold (up to 6 h) comes after the feedback settles; here it's over.
+    sh._ready_to_send()
+    assert 0 <= sh._hold[new["id"]] - time.time() <= sharing.JITTER + 1
+    sh._hold[new["id"]] = 0
     await sh.share_ready()
     await hass.async_block_till_done()
     posts = [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
@@ -235,6 +239,7 @@ async def test_uploads_are_spaced_and_retried(hass: HomeAssistant, hass_client, 
     for i in ids:
         await client.post(f"/api/smoker/journal/{i}", json={"rating": 4})
         sh._touched[i] = 0
+    sh.__dict__["_hold"] = {i: 0 for i in ids}  # (the random hold is over)
     await hass.async_block_till_done()
     posts = lambda: [c for c in aioclient_mock.mock_calls if c[0] == "POST"]  # noqa: E731
 

@@ -218,7 +218,9 @@ uint32_t Guard::locked_for(const std::string &client) const {
   if (c != nullptr && c->locked) left = int32_t(c->locked_until - now);
   // The backstop: while GLOBAL_MAX or more wrong PINs are outstanding, a client with wrong PINs of its own waits; one
   // without any (the owner) doesn't, unless guessers have overflowed the client list (then nobody can be told apart).
-  if (this->global_on_ && (this->overflow_ || (c != nullptr && c->failures > 0))) {
+  // The address that last logged in with the right PIN is told apart even then (unless it's guessing itself).
+  const bool trusted = !this->trusted_ip_.empty() && client == this->trusted_ip_;
+  if (this->global_on_ && ((this->overflow_ && !trusted) || (c != nullptr && c->failures > 0))) {
     int64_t g = int64_t(int32_t(this->global_until_ - now)) - int64_t(GLOBAL_MAX - 1) * GLOBAL_LEAK_MS;
     if (g > left) left = g;
   }
@@ -316,6 +318,7 @@ std::string Guard::login(const std::string &pin, const std::string &client) {
   if (this->locked_for(client) > 0) return "";
   if (this->verify_(pin)) {
     this->forget_(client);
+    this->trusted_ip_ = client;  // the owner's device: never held by a flood of guessers (see locked_for)
     return this->new_token_();
   }
   this->fail_(client);

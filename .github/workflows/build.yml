@@ -93,12 +93,12 @@ jobs:
 
   # Builds what gets published (the ESP32-S3 firmware and the web installer) with ESPHome alone: the test tools
   # below (aioesphomeapi, Playwright, a browser) run in their own job, so they can't touch the published files.
-  firmware:
+  # The compile runs third-party build code (PlatformIO/ESP-IDF scripts, managed components), so it never sees the
+  # real signing key: it signs with a throwaway key made for the run, and the `firmware` job below signs the unsigned
+  # app it leaves (gravity980-unsigned.bin) with the real key, in a job that runs nothing but espsecure and esptool.
+  firmware-build:
     needs: versions
     runs-on: ubuntu-latest
-    # The firmware signing key (OTA_SIGNING_KEY) is in the release-signing environment, which only the default branch
-    # can use. Every other build is signed with a throwaway key made for that run (never published).
-    environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' && 'release-signing' || 'unsigned-build' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,29 +119,16 @@ jobs:
           grep -qx "esphome==${ESPHOME_VERSION}" .github/requirements/firmware.in || { echo "::error::ESPHOME_VERSION and .github/requirements/firmware.in differ: regenerate the lock"; exit 1; }
           python -m pip install --require-hashes -r .github/requirements/build-tools.txt
           python -m pip install --require-hashes --no-build-isolation -r .github/requirements/firmware.txt
-      # Released firmware is signed, and controllers only accept updates signed with the same key
-      # (firmware/gravity980-bridge.yaml, signed_ota_verification). The key exists only for the compile.
-      - name: Signing key
+      - name: Throwaway signing key for the compile (the real one never comes near it)
         working-directory: firmware
-        env:
-          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
         run: |
           umask 077
-          if [ "$IS_DEFAULT" = "true" ]; then
-            [ -n "$OTA_SIGNING_KEY" ] || { echo "::error::OTA_SIGNING_KEY isn't available: add it to the release-signing environment"; exit 1; }
-            printf '%s\n' "$OTA_SIGNING_KEY" > signing_key.pem
-          else
-            espsecure generate-signing-key --version 2 --scheme rsa3072 signing_key.pem >/dev/null
-          fi
-      - name: Compile ESP32-S3 firmware (signed)
-        working-directory: firmware
-        run: esphome compile gravity980-bridge.yaml
-      - name: Check the update image is signed with that key, then remove the key
-        if: always()
+          espsecure generate-signing-key --version 2 --scheme rsa3072 signing_key.pem >/dev/null
+      - name: Compile ESP32-S3 firmware
         working-directory: firmware
         run: |
           trap 'rm -f signing_key.pem' EXIT
-          espsecure verify-signature --version 2 --keyfile signing_key.pem .esphome/build/gravity980/build/firmware.ota.bin
+          esphome compile gravity980-bridge.yaml
       - name: Save the ESPHome toolchain cache
         if: steps.fwcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -150,8 +137,71 @@ jobs:
           key: esphome-release-${{ env.ESPHOME_VERSION }}-${{ runner.os }}-${{ hashFiles('.github/requirements/firmware.txt') }}
       - name: Validate the controller without Home Assistant (base.yaml alone, no API)
         run: esphome config tests/configs/no-ha.yaml
+      - name: Upload the unsigned app and the flash parts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware-unsigned
+          path: |
+            firmware/.esphome/build/gravity980/build/gravity980-unsigned.bin
+            firmware/.esphome/build/gravity980/build/bootloader/bootloader.bin
+            firmware/.esphome/build/gravity980/build/partition_table/partition-table.bin
+            firmware/.esphome/build/gravity980/build/ota_data_initial.bin
+            firmware/.esphome/build/gravity980/build/flasher_args.json
+          if-no-files-found: error
+
+  # Signs the app and assembles the update image, the installer's factory image and the site. Only espsecure and
+  # esptool run here (hash-pinned), with the key on disk for the signing step alone.
+  firmware:
+    needs: firmware-build
+    runs-on: ubuntu-latest
+    # The firmware signing key (OTA_SIGNING_KEY) is in the release-signing environment, which only the default branch
+    # can use. Every other build is signed with a throwaway key made for that run (never published).
+    environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' && 'release-signing' || 'unsigned-build' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install esptool (hash-pinned, from .github/requirements/firmware.txt)
+        run: |
+          python -m pip install --require-hashes -r .github/requirements/build-tools.txt
+          python -m pip install --require-hashes --no-build-isolation -r .github/requirements/firmware.txt
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: firmware-unsigned
+          path: build
+      # Released firmware is signed, and controllers only accept updates signed with the same key
+      # (firmware/gravity980-bridge.yaml, signed_ota_verification). The key exists only for this step.
+      - name: Sign the app
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          umask 077
+          trap 'rm -f signing_key.pem' EXIT
+          if [ "$IS_DEFAULT" = "true" ]; then
+            [ -n "$OTA_SIGNING_KEY" ] || { echo "::error::OTA_SIGNING_KEY isn't available: add it to the release-signing environment"; exit 1; }
+            printf '%s\n' "$OTA_SIGNING_KEY" > signing_key.pem
+          else
+            espsecure generate-signing-key --version 2 --scheme rsa3072 signing_key.pem >/dev/null
+          fi
+          espsecure sign-data --version 2 --keyfile signing_key.pem --output build/gravity980.bin build/gravity980-unsigned.bin
+          espsecure verify-signature --version 2 --keyfile signing_key.pem build/gravity980.bin
+      - name: Update image and factory image (as ESPHome makes them)
+        run: |
+          cp build/gravity980.bin build/firmware.ota.bin
+          python3 - <<'PY'
+          import json, subprocess
+          fa = json.load(open("build/flasher_args.json"))
+          parts = []
+          for addr, f in sorted(fa["flash_files"].items(), key=lambda kv: int(kv[0], 16)):
+              parts += [addr, "build/" + f]
+          subprocess.run(["esptool", "--chip", fa["extra_esptool_args"]["chip"], "merge-bin", "--flash-size", "16MB",
+                          "-o", "build/firmware.factory.bin"] + parts, check=True)
+          PY
       - name: Assemble site
-        run: python3 .github/scripts/make_site.py _site firmware/.esphome/build/gravity980/build firmware/base.yaml
+        run: python3 .github/scripts/make_site.py _site build firmware/base.yaml
       - name: Upload Pages artifact
         if: env.IS_DEFAULT == 'true'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

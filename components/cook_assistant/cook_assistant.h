@@ -348,6 +348,7 @@ class CookAssistant : public Component {
   bool turbo_commanded_{false};  // a program step turned Turbo on (and hasn't turned it off)
   double turbo_on_at_{-1e9};
   void turbo_off_();  // a program's Turbo, off (stop/pause): cook_assistant.cpp
+  void restore_turbo_(bool running);  // after a restart: the program's Turbo back on (running) or off (paused)
   bool runaway_notified_{false};
   // the lid opening being measured
   double lid_opened_at_{-1};
@@ -394,6 +395,7 @@ class CookAssistant : public Component {
   bool rec_may_power_on_{false};   // outage measured, within the limit, and (controller) a power-loss reset
   bool rec_grill_reset_{false};     // the grill came back with its targets reset: it lost power too
   float rec_outage_min_{NAN};
+  double rec_began_min_{0};  // now_min_() when recovery began (the boot decision)
   float rec_pit_c_{NAN};
   float rec_pre_sp_c_{NAN};    // the grill's reported target before the link dropped
   float rec_sp_at_link_{NAN};   // ...and the first one after it came back (a rebooted grill reports its default)

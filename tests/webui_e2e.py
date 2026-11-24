@@ -250,12 +250,17 @@ def run_page(browser, width, height, shots):
     # Your grill photo: with "Grill photo URL" set, the readings are pinned on the photo; cleared, the drawing returns.
     png = tiny_png()
     pg.context.route("http://photo.test/**", lambda r: r.fulfill(status=200, content_type="image/png", body=png))
+    pg.context.route("http://homeassistant.local:8123/**", lambda r: r.fulfill(status=200, content_type="image/png", body=png))
     # Any other address is ignored (the owner's browser would load it): the drawing stays.
     post("/text/Grill photo URL/set", value="http://photo.test/grill.png")
     pg.wait_for_timeout(1500)
     check(pg.locator("#grillpic .gphoto").count() == 0 and pg.locator("#grillpic svg").count() == 1,
           "a photo URL that isn't the integration's photo (or this controller's) is ignored")
+    # The integration's photo path on a server on the internet: ignored too (only a host in the home network).
     post("/text/Grill photo URL/set", value="http://photo.test/api/smoker/grill_photo/image/abc123?token=x")
+    pg.wait_for_timeout(1500)
+    check(pg.locator("#grillpic .gphoto").count() == 0, "the integration's photo path on an internet host is ignored")
+    post("/text/Grill photo URL/set", value="http://homeassistant.local:8123/api/smoker/grill_photo/image/abc123?token=x")
     try:
         pg.wait_for_selector("#grillpic .gphoto img", timeout=10000)
         pins = pg.locator("#grillpic .gphoto .pin").count()

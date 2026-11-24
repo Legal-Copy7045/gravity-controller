@@ -15,9 +15,10 @@ esphome:
     build_flags:
       - -Werror=misleading-indentation
 
-# Signed updates: the released firmware is signed at build time with the project's key (CI writes it to
-# firmware/signing_key.pem for the compile only), and a controller running it only accepts updates signed with the
-# same key, and never an older version (downgrade protection). No eFuses are burned: flashing over USB from the web
+# Signed updates: the released firmware is signed with the project's key, and a controller running it only accepts
+# updates signed with the same key, and never an older version (downgrade protection). CI compiles with a throwaway
+# key here and signs the unsigned app afterwards, in a job of its own (.github/workflows/build.yml): the real key never
+# meets the compile's third-party build code. No eFuses are burned: flashing over USB from the web
 # installer still works as before. Building your own? `espsecure generate-signing-key --version 2 --scheme rsa3072
 # firmware/signing_key.pem` makes a key of your own (keep it: updates to your controller then need it).
 esp32:

@@ -79,7 +79,8 @@ void CookAssistant::recovery_save_(bool force) {
   this->rec_last_ = b;
   // The program's place, written with the record, so a timed step resumes from the same moment.
   const auto rs = this->runner_.state();
-  if (rs == cook::ProgramRunner::State::RUNNING || rs == cook::ProgramRunner::State::PAUSED)
+  if (rs == cook::ProgramRunner::State::RUNNING || rs == cook::ProgramRunner::State::PAUSED ||
+      this->runner_.keep_probe() >= 0)
     this->save_program_state_(false);
   this->recovery_pref_.save(&b);
   if (changed)
@@ -128,6 +129,7 @@ void CookAssistant::begin_recovery_(bool controller, float outage_min, bool gril
   this->rec_food_sent_ = 0;
   this->rec_power_tries_ = 0;
   this->rec_outage_min_ = outage_min;
+  this->rec_began_min_ = this->now_min_();
   this->rec_pit_c_ = pit_c;
   this->rec_pre_sp_c_ = this->rec_last_.pit_sp_c;
   this->rec_sp_at_link_ = NAN;
@@ -150,6 +152,8 @@ void CookAssistant::finish_recovery_(int priority, const std::string &problem) {
   const bool prog = st == cook::ProgramRunner::State::RUNNING || st == cook::ProgramRunner::State::PAUSED;
   const bool controller = this->rec_controller_;
   this->rec_ = Rec::NONE;
+  if (this->prog_restored_)
+    this->restore_turbo_(false);  // left paused: no Turbo
   this->prog_restored_ = false;  // a program left paused stays paused; never resumed later by a stale record
   if (!problem.empty())
     this->grill_was_on_ = false;  // no automatic power-on for the rest of this cook until the grill is seen on again
@@ -226,6 +230,8 @@ void CookAssistant::recovery_tick_() {
                                                     std::to_string(this->runner_.step() + 1) + "; resume it to continue."
                                               : ""),
                    2, "power_cut");
+      if (this->prog_restored_)
+        this->restore_turbo_(false);
       this->prog_restored_ = false;
     }
   }
@@ -349,10 +355,14 @@ void CookAssistant::recovery_tick_() {
       if (this->prog_restored_) {
         this->prog_restored_ = false;
         if (this->prog_restored_running_) {
-          const float off = std::isnan(this->rec_outage_min_) ? 0.0f : this->rec_outage_min_;
+          // The outage, plus the time spent here getting the grill back (link, power-on, settling): the
+          // program was paused through it, and a timed step should still end when it would have.
+          const float off = (std::isnan(this->rec_outage_min_) ? 0.0f : this->rec_outage_min_) +
+                            float(std::max(0.0, this->now_min_() - this->rec_began_min_));
           this->runner_.restore(this->prog_restored_step_, this->prog_restored_elapsed_ + off, this->now_min_(), true);
           this->save_program_state_();
         }
+        this->restore_turbo_(this->prog_restored_running_);  // a sear resumes with its Turbo; paused, it's off
       }
       const auto st = this->runner_.state();
       float want = st == cook::ProgramRunner::State::RUNNING ? this->runner_.commanded_pit() : this->rec_pit_c_;

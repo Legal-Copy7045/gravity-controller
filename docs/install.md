@@ -67,11 +67,15 @@ collide. A second one needs its own build with a different `name`, and then a Ho
   is then the only way alerts reach your phone: **without Home Assistant, local only means no alerts at all** (Setup →
   Connectivity says so). Without Home Assistant, clock times (`at 17:30`, the serve-by planner) need the internet clock,
   so they stop too, and after a power cut the grill isn't turned back on automatically (the outage can't be measured).
+  Requests already waiting when you turn it on are dropped too. One exception: an update that was already found before
+  you turned it on can still be installed by hand (Install downloads it); no new update is looked for. After a Home
+  Assistant restart, the integration counts a controller it hasn't seen yet as local only until it connects.
 - **Connectivity:** one line (Setup → This controller) shows the grill link, the controller's Wi-Fi, Home Assistant
   and the internet. During a cook you're told if Home Assistant goes away (alerts then come straight to your phone,
-  if a direct route is set up) and, when the controller's Wi-Fi comes back, how long it was offline. A Wi-Fi that
-  worked and then stays stuck for 20 minutes with no cook restarts the controller (at most every 6 hours and 3 times in
-  a row; never during a cook, and never a controller that hasn't joined its Wi-Fi yet).
+  if a direct route is set up and Local only is off) and, when the controller's Wi-Fi comes back, how long it was
+  offline. A Wi-Fi that worked and then stays stuck for 20 minutes with no cook restarts the controller; a second
+  restart in a row waits for 2 hours of Wi-Fi down, a third for 6 hours, and then it stops trying (never during a
+  cook, and never a controller that hasn't joined its Wi-Fi yet).
 
 **Logs.** The controller's page doesn't show its log. Use the web installer's **Logs & console** over USB (click
 **Install**, connect, then *Logs & console*), the ESPHome dashboard's *Logs* if you build it yourself, or the

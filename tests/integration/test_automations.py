@@ -109,12 +109,12 @@ async def test_ai_advisor_only_for_a_cook(hass: HomeAssistant):
     assert any("Nothing's cooking" in c[2].get("value", "") for c in calls), calls
     # A serve-by next week isn't "planned" yet either.
     week = dt_util.now() + dt.timedelta(days=7)
-    hass.states.async_set("input_datetime.smoker_serve_time", week.strftime("%Y-%m-%d %H:%M:%S"))
+    hass.states.async_set("input_datetime.smoker_serve_time", week.strftime("%Y-%m-%d %H:%M:%S"), {"timestamp": week.timestamp()})
     await hass.services.async_call("script", "smoker_ai_advise", {}, blocking=True)
     assert not [c for c in calls if c[0] == "esphome"], calls
     # Tomorrow's cook is.
     soon = dt_util.now() + dt.timedelta(hours=20)
-    hass.states.async_set("input_datetime.smoker_serve_time", soon.strftime("%Y-%m-%d %H:%M:%S"))
+    hass.states.async_set("input_datetime.smoker_serve_time", soon.strftime("%Y-%m-%d %H:%M:%S"), {"timestamp": soon.timestamp()})
     try:
         await hass.services.async_call("script", "smoker_ai_advise", {}, blocking=False)
         for _ in range(20):

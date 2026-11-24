@@ -14,7 +14,8 @@ So each event is checked here:
 * it carries the event secret, once the controller has shown it knows it.
 
 The secret: a random value this integration makes once (kept in .storage/smoker_event_secret, never in a state that
-other devices or users can read) and hands to the controller with its `set_event_secret` action whenever that action
+other devices or users can read; the raw esphome.smoker_* events that carry it are visible to admins on the event bus,
+and the package keeps them out of the recorder) and hands to the controller with its `set_event_secret` action whenever that action
 is there (firmware that has it keeps the secret in flash and adds "secret" to every smoker event). Until the
 controller has sent one event with the right secret, events without one are still taken (older firmware keeps working);
 from the first good one on, an event without the secret, or with a wrong one, is dropped.
@@ -32,6 +33,7 @@ import logging
 import secrets
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.const import EVENT_SERVICE_REGISTERED
 from homeassistant.core import Event, EventOrigin, HomeAssistant, callback
 from homeassistant.helpers.storage import Store
@@ -111,10 +113,17 @@ class ControllerEvents:
         """Hand the secret to the controller (when its firmware has the action)."""
         if not self.hass.services.has_service(*SET_SECRET):
             return
-        try:
-            await self.hass.services.async_call(*SET_SECRET, {"secret": self.secret}, blocking=True)
-        except Exception as err:  # noqa: BLE001 - the controller may be offline; it's sent again when it reconnects
-            _LOGGER.debug("Couldn't give the controller its event secret: %s", err)
+        # From firmware 1.4.1 the controller replaces a secret only when the call carries the current one ("old"):
+        # this integration's own (the same) on every reconnection. Older firmware has no "old" field.
+        for data in ({"secret": self.secret, "old": self.secret}, {"secret": self.secret}):
+            try:
+                await self.hass.services.async_call(*SET_SECRET, data, blocking=True)
+                return
+            except vol.Invalid:
+                continue  # older firmware: no "old"
+            except Exception as err:  # noqa: BLE001 - the controller may be offline; sent again when it reconnects
+                _LOGGER.debug("Couldn't give the controller its event secret: %s", err)
+                return
 
     @callback
     def _service_registered(self, event: Event) -> None:

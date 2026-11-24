@@ -19,7 +19,7 @@
 - feature: "Hold mode (keep foodN T) and Turbo steps in programs"
   since: 1.4.0
   docs: docs/cook-programs.md
-  match: ["^sim:scenarios: scenario 0:", "^manual:.*keep"]
+  match: ["^sim:scenarios: scenario (0|10):", "^manual:.*keep"]
 - feature: "Predictions: finish time, stall, rest and pull-at, weather-aware"
   since: 0.2.0
   docs: docs/features-0.2.md
@@ -47,7 +47,7 @@
 - feature: "Local only: no internet connections when switched on (default off)"
   since: 1.4.0
   docs: docs/features.md
-  match: ["^core:core tests: local only", "local only", "local_only"]
+  match: ["^core:core tests: local only", "local only", "local_only", "update checks go nowhere"]
 - feature: "Controller page security: PIN, other-origin and CSRF protection, secrets never shown"
   since: 0.2.30
   docs: docs/standalone.md

@@ -514,6 +514,10 @@ void Standalone::loop() {
   if (!this->prov_checked_ && App.is_setup_complete()) {
     this->prov_checked_ = true;
     if (!this->hw_reset_) this->close_provisioning_("a software restart");
+    // A PIN set on the device page (in any earlier start): the window would let anyone on the Wi-Fi past it after
+    // every power cut or plug-in. To add the controller to Home Assistant later, clear the PIN first (BOOT button
+    // for 10 s), then power it off and on.
+    else if (this->guard_ != nullptr && this->guard_->pin_set()) this->close_provisioning_("the device page has a PIN");
   }
   if (this->close_prov_.exchange(false)) this->close_provisioning_("the device page's PIN was set");
   if (this->save_pending_.exchange(false))
@@ -617,7 +621,8 @@ void Standalone::close_provisioning_(const char *why) {
     return;
 #endif
   pm->set_timeout(1);  // the manager closes it on its next loop (its close is protected; this is its own timer)
-  ESP_LOGW(TAG, "Setup window closed (%s): to add the controller to Home Assistant, power it off and on first", why);
+  ESP_LOGW(TAG, "Setup window closed (%s): to add the controller to Home Assistant, power it off and on first (with a "
+                "device page PIN set, hold BOOT for 10 s to clear it before that)", why);
 #else
   (void) why;
 #endif
@@ -748,7 +753,30 @@ std::string Standalone::factory_reset_prompt() {
   return this->reset_refused_;
 }
 
-bool Standalone::set_event_secret(const std::string &secret) {
+static bool same_secret(const std::string &a, const std::string &b) {
+  if (a.size() != b.size())
+    return false;
+  uint8_t d = 0;  // constant time
+  for (size_t i = 0; i < a.size(); i++)
+    d |= uint8_t(a[i] ^ b[i]);
+  return d == 0;
+}
+
+bool Standalone::ha_secret_ok(const std::string &given) const {
+  // Only the Smoker integration knows the event secret: any other Home Assistant user calling the controller's raw
+  // action (non-admins can call every ESPHome action) doesn't. No secret yet (an integration older than 1.4.1, or
+  // none): Home Assistant's API key is all there is.
+  return this->event_secret_.empty() || same_secret(given, this->event_secret_);
+}
+
+bool Standalone::set_event_secret(const std::string &secret, const std::string &old) {
+  // Replacing a secret takes the current one (the integration sends it as `old`): otherwise anyone in Home Assistant
+  // could swap it and the integration would drop every alert. Lost it (Home Assistant reinstalled)? Hold BOOT for
+  // 10 s (clears the PIN and this secret) or factory reset.
+  if (!this->event_secret_.empty() && !same_secret(secret, this->event_secret_) && !same_secret(old, this->event_secret_)) {
+    ESP_LOGW(TAG, "Event secret not replaced: the call didn't carry the current one");
+    return false;
+  }
   if (secret.size() > 64) {
     ESP_LOGW(TAG, "Event secret refused: longer than 64 characters");
     return false;
@@ -937,17 +965,22 @@ void Standalone::fetch_weather_() {
 
 bool Standalone::is_local_url(const std::string &url) { return local_url::is_local(url); }
 
+bool Standalone::refuse_local_only_(const Job &j) {
+  if (!this->local_only_ || is_local_url(j.url))
+    return false;
+  ESP_LOGI(TAG, "%s: not sent (local only: no internet)", j.what.c_str());
+  std::lock_guard<std::mutex> r(this->results_lock_);  // the HTTP task reads these (status_json_)
+  if (j.what == "ntfy") this->last_result_[0] = "not sent: local only";
+  else if (j.what == "pushover") this->last_result_[1] = "not sent: local only";
+  else if (j.what == "telegram") this->last_result_[2] = "not sent: local only";
+  if (j.what.rfind("ai:", 0) == 0 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0)
+    this->done_.push_back({j.what, 0, std::string()});
+  return true;
+}
+
 void Standalone::queue_(Job j) {
-  if (this->local_only_ && !is_local_url(j.url)) {
-    ESP_LOGI(TAG, "%s: not sent (local only: no internet)", j.what.c_str());
-    std::lock_guard<std::mutex> r(this->results_lock_);  // the HTTP task reads these (status_json_)
-    if (j.what == "ntfy") this->last_result_[0] = "not sent: local only";
-    else if (j.what == "pushover") this->last_result_[1] = "not sent: local only";
-    else if (j.what == "telegram") this->last_result_[2] = "not sent: local only";
-    if (j.what.rfind("ai:", 0) == 0 || j.what.rfind("share:", 0) == 0 || j.what.rfind("unshare:", 0) == 0)
-      this->done_.push_back({j.what, 0, std::string()});
+  if (this->refuse_local_only_(j))
     return;
-  }
 #ifdef USE_ESP32
   {
     const int lane = j.lane ? 1 : 0;
@@ -1005,6 +1038,9 @@ void Standalone::worker_lane_(int lane) {
       j = std::move(this->jobs_[lane].front());
       this->jobs_[lane].pop_front();
     }
+    // Local only turned on while it waited: not sent after all.
+    if (this->refuse_local_only_(j))
+      continue;
     std::string resp;
     esp_http_client_config_t cfg{};
     cfg.url = j.url.c_str();
@@ -1212,8 +1248,10 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
     return this->curve_json_(path.substr(8, path.size() - 14), status);  // a cook's replay (standalone_replay.cpp)
   if (method == "GET" && path == "community")
     return this->community_json_();
-  if (method == "GET" && path == "ai")
+  if (method == "GET" && path == "ai") {
+    this->ai_req_authed_ = authed;  // (an answer made with the journal's notes is for an unlocked page only)
     return this->ai_json_();
+  }
   if (method != "POST") {
     status = 404;
     return err_json("not found");

@@ -199,6 +199,9 @@ bool Standalone::ai_ask_(const std::string &kind, const std::string &system, con
     }).c_str();
   }
   this->ai_busy_ |= 1u << this->ai_kind_(kind);
+  // Whether this question carries the journal's notes (kept from a locked page): its answer then is too.
+  const uint8_t bit = kind == "advise" ? 1 : kind == "plan" ? 2 : 0;
+  if (bit) this->ai_asked_private_ = this->ai_ctx_notes_ ? (this->ai_asked_private_ | bit) : (this->ai_asked_private_ & ~bit);
   this->ai_error_.clear();
   this->queue_(std::move(j));
   ESP_LOGI(TAG, "Asking %s (%s): %s", p.c_str(), model.c_str(), kind.c_str());
@@ -217,9 +220,14 @@ void Standalone::ai_done_(const std::string &what, int code, const std::string &
   JsonDocument d = json::parse_json(body);
   std::string text, err;
   if (code < 200 || code >= 300) {
-    const char *m = d["error"]["message"] | (const char *) nullptr;
-    err = code == 0 ? "Couldn't reach the AI (no internet?)"
-                    : std::string("The AI said ") + std::to_string(code) + (m ? std::string(": ") + m : "");
+    // Fixed words per status, never the provider's own message: it can quote part of the key (OpenAI's 401 does), and
+    // anyone on the Wi-Fi can read /local/ai.
+    err = code == 0                    ? "Couldn't reach the AI (no internet?)"
+          : code == 401 || code == 403 ? "The AI refused the key (check it in Setup > AI)"
+          : code == 429                ? "The AI says too many requests or no credit left (429): try later"
+          : code == 404                ? "The AI doesn't know that model (404): pick another in Setup > AI"
+          : code >= 500                ? "The AI is having trouble (" + std::to_string(code) + "): try again later"
+                                       : "The AI refused the request (" + std::to_string(code) + ")";
   } else if (p == "claude") {
     if (std::string(d["stop_reason"] | "") == "refusal") err = "The AI declined to answer this one";
     for (JsonObject b : d["content"].as<JsonArray>())
@@ -248,7 +256,10 @@ void Standalone::ai_done_(const std::string &what, int code, const std::string &
     if (kind == "test") this->ai_test_ = err;
     return;
   }
-  if (kind == "advise") this->ai_advice_ = out;
+  if (kind == "advise") {
+    this->ai_advice_ = out;
+    this->ai_advice_private_ = this->ai_asked_private_ & 1;
+  }
   else if (kind == "plan") {
     // The AI's program in this controller's syntax, with any pit temperature moved into the grill's range (it has
     // asked for a 150 °F keep-warm before), so Load as program works. Unreadable: shown, but no Load button.
@@ -267,6 +278,7 @@ void Standalone::ai_done_(const std::string &what, int code, const std::string &
       serializeJson(pl, out);
     }
     this->ai_plan_ = out;
+    this->ai_plan_private_ = (this->ai_asked_private_ & 2) != 0;
     this->ai_load_.clear();
   }
   else if (kind == "label") this->ai_labels_ = out;
@@ -389,8 +401,12 @@ std::string Standalone::ai_json_() {
   }).c_str();
   out.pop_back();
   auto add = [&](const char *k, const std::string &v) { if (!v.empty()) out += std::string(",\"") + k + "\":" + v; };
-  add("advice", this->ai_advice_);
-  add("plan", this->ai_plan_);
+  // An answer that used the journal's notes is for an unlocked page only (journal_json_ hides the notes too).
+  const bool hide = !this->ai_req_authed_;
+  add("advice", hide && this->ai_advice_private_ ? std::string() : this->ai_advice_);
+  add("plan", hide && this->ai_plan_private_ ? std::string() : this->ai_plan_);
+  if (hide && ((this->ai_advice_private_ && !this->ai_advice_.empty()) || (this->ai_plan_private_ && !this->ai_plan_.empty())))
+    out += ",\"private\":\"Unlock to see the AI's latest answer: it used your journal notes\"";
   add("labels", this->ai_labels_);
   return out + "}";
 }
@@ -423,6 +439,14 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
   if (path == "ai/test") {
     if (!this->ai_ask_("test", "Reply ONLY with the JSON object {\"ok\": true}.", "Are you there?", "", why)) return err(400, why);
     return this->ai_json_();
+  }
+  // Without the PIN (a PIN is set and this browser isn't unlocked), asking the AI is open like reading, but it spends
+  // the owner's credits: 5 questions a day from locked pages, out of the 40.
+  if (!this->ai_req_authed_ && (path == "ai/advise" || path == "ai/plan" || path == "ai/label")) {
+    const uint32_t day = ::time(nullptr) > 1700000000 ? uint32_t(::time(nullptr) / 86400) : millis() / 86400000u;
+    if (day != this->ai_open_day_) { this->ai_open_day_ = day; this->ai_open_today_ = 0; }
+    if (this->ai_open_today_ >= 5) return err(429, "That's 5 AI questions today without the PIN: unlock to ask more");
+    this->ai_open_today_++;
   }
   if (path == "ai/advise") {
     if (!this->ai_cook_on_()) return err(400, "Nothing's cooking or planned: start a cook, or set Serve by under Plan a cook");

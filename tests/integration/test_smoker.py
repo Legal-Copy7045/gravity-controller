@@ -476,6 +476,24 @@ async def test_controller_events_checked_and_signed(hass: HomeAssistant, tmp_pat
     hass.services.async_register("esphome", "gravity980_set_event_secret", set_secret)
     await hass.async_block_till_done()
     assert pushed == [c.secret, c.secret]
+    # 1.4.1 firmware: the current secret goes along as "old" (the controller replaces a secret only with it);
+    # older firmware's action has no "old" and gets the secret alone.
+    import voluptuous as vol
+    full = []
+
+    async def set_secret_old_fw(call: ServiceCall):
+        full.append(dict(call.data))
+
+    hass.services.async_remove("esphome", "gravity980_set_event_secret")
+    hass.services.async_register("esphome", "gravity980_set_event_secret", set_secret_old_fw,
+                                 schema=vol.Schema({vol.Required("secret"): str}))
+    await hass.async_block_till_done()
+    assert full == [{"secret": c.secret}]
+    hass.services.async_remove("esphome", "gravity980_set_event_secret")
+    hass.services.async_register("esphome", "gravity980_set_event_secret", set_secret_old_fw,
+                                 schema=vol.Schema({vol.Required("secret"): str, vol.Required("old"): str}))
+    await hass.async_block_till_done()
+    assert full[-1] == {"secret": c.secret, "old": c.secret}
 
 
 async def test_install_package_checks(hass: HomeAssistant, tmp_path):
@@ -529,8 +547,11 @@ async def test_set_device_pin(hass: HomeAssistant, tmp_path, hass_admin_user, ha
         await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": "482913"}, blocking=True, context=admin)
     sent = []
 
+    secrets_sent = []
+
     async def set_pin(call: ServiceCall):
         sent.append(call.data["pin"])
+        secrets_sent.append(call.data.get("secret"))
 
     hass.services.async_register("esphome", "gravity980_set_device_pin", set_pin)
     await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": "k3v9-x2q7"}, blocking=True, context=admin)
@@ -538,6 +559,9 @@ async def test_set_device_pin(hass: HomeAssistant, tmp_path, hass_admin_user, ha
     await hass.services.async_call(DOMAIN, "set_device_pin", {"pin": ""}, blocking=True, context=admin)    # clears it
     await hass.services.async_call(DOMAIN, "set_device_pin", {}, blocking=True, context=admin)
     assert sent == ["k3v9-x2q7", "482913", "", ""]
+    # The event secret goes along (the controller takes a PIN only from the integration, not from any HA user).
+    from custom_components.smoker.controller_events import DATA as EVENTS
+    assert secrets_sent and all(x == hass.data[EVENTS].secret and len(x) >= 32 for x in secrets_sent)
     # The controller's rules: 6 to 32 characters, not repeated or in sequence. Refused here, never sent.
     for bad in ("12345", "123456", "654321", "aaaaaaa", "abcdefg", "x" * 33, "s3cr3t-but-far-too-long-for-the-pin"):
         assert pin_problem(bad)

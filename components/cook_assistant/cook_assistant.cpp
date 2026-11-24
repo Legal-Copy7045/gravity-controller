@@ -19,7 +19,7 @@ struct ProgramBlob {
   char text[PROGRAM_MAX];
 };
 struct StateBlob {
-  uint8_t running;  // 0 none, 1 running, 2 paused
+  uint8_t running;  // 0 none, 1 running, 2 paused, 3 finished on a keep step (still keeping a food warm)
   uint8_t step;
   uint16_t reserved;
   float step_elapsed_min;
@@ -894,8 +894,11 @@ void CookAssistant::check_alerts_() {
       const float over = pit - sp;
       // (Turbo quiets it for its first 30 minutes only: a sear is short.)
       const bool quiet = (this->turbo_commanded_ && now - this->turbo_on_at_ < 30) || now - this->sp_changed_at_ < 10;
+      // A lid opening and the 10 minutes after it (fresh air flares the fire) don't count, as for the other fire
+      // alerts; above the grill's own maximum it alerts whenever the lid is closed.
       const bool away = !lid_open && this->cook_active_ && !quiet &&
-                        ((over > 28.0f && rising) || (over > 56.0f && !falling) || pit > this->pit_max_c_ + 8.0f);
+                        ((!lid_grace && ((over > 28.0f && rising) || (over > 56.0f && !falling))) ||
+                         pit > this->pit_max_c_ + 8.0f);
       if (away) {
         if (this->runaway_since_ < 0)
           this->runaway_since_ = now;
@@ -1067,13 +1070,13 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
               this->fmt_temp_(st.keep_c) + " changed to " + this->fmt_temp_(to);
       st.keep_c = to;
     }
-    if (st.turbo >= 0)
-      turbo = st.turbo == 1;
-    if (turbo && (st.hold || i + 1 == prog.steps.size())) {
-      st.turbo = 0;
-      turbo = false;
-      note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": Turbo turned off (it can't stay on)";
+    // No Turbo at all: the fan flat out takes the pit past any limit, so it would undo the AI max pit.
+    if (st.turbo == 1 && !turbo) {
+      turbo = true;
+      note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) +
+              ": Turbo left out (an AI's program can't use it: it would take the pit past the AI max pit)";
     }
+    st.turbo = -1;
   }
   fixed = cook::format_program(prog, this->probe_keys(), this->fahrenheit_);
   if (fixed.size() >= PROGRAM_MAX) {
@@ -1193,6 +1196,19 @@ void CookAssistant::skip_step() {
   auto o = this->runner_.skip(this->now_min_());
   this->apply_outputs_(o);
 }
+void CookAssistant::restore_turbo_(bool running) {
+  // turbo_commanded_ lives in RAM: after a restart, take it from the program (the last `turbo on|off` up to its step).
+  if (!this->runner_.turbo_in_effect())
+    return;
+  this->turbo_commanded_ = true;
+  if (!running) {
+    this->turbo_off_();
+    return;
+  }
+  this->turbo_on_at_ = this->now_min_();
+  for (auto *t : this->turbo_triggers_)
+    t->trigger(true);
+}
 void CookAssistant::turbo_off_() {
   if (!this->turbo_commanded_)
     return;
@@ -1210,7 +1226,10 @@ void CookAssistant::stop_program() {
 void CookAssistant::save_program_state_(bool sync) {
   StateBlob s{};
   auto st = this->runner_.state();
-  s.running = st == cook::ProgramRunner::State::RUNNING ? 1 : st == cook::ProgramRunner::State::PAUSED ? 2 : 0;
+  s.running = st == cook::ProgramRunner::State::RUNNING  ? 1
+              : st == cook::ProgramRunner::State::PAUSED ? 2
+              : this->runner_.keep_probe() >= 0          ? 3  // finished on `keep`: it still holds the food
+                                                         : 0;
   s.step = uint8_t(this->runner_.step());
   s.step_elapsed_min = float(this->runner_.step_elapsed_min(this->now_min_()));
   s.pit_c = this->runner_.commanded_pit();
@@ -1226,6 +1245,17 @@ void CookAssistant::restore_program_state_() {
   StateBlob s{};
   if (!this->state_pref_.load(&s) || s.running == 0 || !this->runner_.loaded())
     return;
+  if (s.running == 3) {
+    // Finished on a keep step ("Keep Food 1 warm"): it goes on keeping the food, as before the restart.
+    this->runner_.restore(s.step, s.step_elapsed_min, this->now_min_(), false, true);
+    ESP_LOGW(TAG, "Restored program: still keeping a food at its temperature (step %u)", s.step + 1);
+    this->set_timeout(30000, [this]() {
+      this->notify("Controller restarted", "It goes on keeping the food at its temperature (step " +
+                                               std::to_string(this->runner_.step() + 1) + ").",
+                   1, "program");
+    });
+    return;
+  }
   // Resume as paused: a reboot mid-cook should not silently change anything;
   // the user (or HA automation) resumes. The setpoint stays on the grill.
   this->runner_.restore(s.step, s.step_elapsed_min, this->now_min_(), false);
@@ -1238,6 +1268,7 @@ void CookAssistant::restore_program_state_() {
     return;  // a cook to recover: power-cut recovery resumes it (cook_assistant_recovery.cpp) and says so
   this->prog_restored_ = false;
   this->set_timeout(30000, [this]() {
+    this->restore_turbo_(false);  // a step that had Turbo on: the grill may still have it on; paused means off
     this->notify("Controller restarted", "The cook program was restored at step " +
                                              std::to_string(this->runner_.step() + 1) + " and is paused. Resume it to continue.",
                  1, "program");

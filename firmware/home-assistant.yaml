@@ -79,21 +79,27 @@ api:
                     secret: !lambda return id(local).event_secret();
     # The Smoker integration's secret (it sets it on every connection): every event the controller fires carries it,
     # so the integration can tell them from forged ones. Kept in flash; never shown or logged. Empty clears it.
+    # Replacing it takes the current one as `old` (so no other Home Assistant user can swap it and silence alerts).
     - action: set_event_secret
       variables:
         secret: string
+        old: string
       then:
-        - lambda: id(local).set_event_secret(secret);
+        - lambda: id(local).set_event_secret(secret, old);
     # Set or replace the device page's PIN from Home Assistant (the Smoker integration's smoker.set_device_pin, admin
-    # only), whenever: Home Assistant holds the API key, so it doesn't need the first PIN's 15-minute window or the
+    # only, which adds the event secret: every Home Assistant user can call this raw action, only the integration
+    # knows the secret), whenever: Home Assistant holds the API key, so it doesn't need the first PIN's 15-minute window or the
     # current PIN. Same rules as on the page (6 to 32 characters, not 123456 or 111111); empty clears it. Every
     # browser has to unlock again. Refused until Home Assistant has adopted the controller (its API has a key). The
     # result: the log and the "Device page PIN" sensor (never the PIN).
     - action: set_device_pin
       variables:
         pin: string
+        secret: string
       then:
-        - lambda: id(local).set_pin_from_ha(pin);
+        - lambda: |-
+            if (id(local).ha_secret_ok(secret)) id(local).set_pin_from_ha(pin);
+            else ESP_LOGW("standalone", "Device page PIN not changed: use Smoker: Set the device page PIN (admin)");
 
 time:
   - platform: homeassistant

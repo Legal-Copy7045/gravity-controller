@@ -17,11 +17,17 @@ One record per cook, and only rounded numbers and how it turned out:
 
 **Never shared:**
 - dates or times;
-- where you are (your location or IP address);
+- where you are (your location);
 - your notes, photos or scanned labels;
 - names;
 - Home Assistant or device identifiers;
 - anything that links two cooks together.
+
+**What the service can see anyway:** an upload comes from your home's internet connection, so the service sees its IP
+address and when the record arrived, as any website you visit does (the record itself never carries it). Automatic sharing
+waits a random 0 to 6 hours after your feedback settles before sending each cook, so the arrival time says little about
+when you cooked; cooks shared one after another from the same connection could still be guessed to be the same
+household's while the address is visible.
 
 The full field list, and how the service treats each cook, are in Open Pitmaster's
 [PRIVACY.md](https://github.com/Legal-Copy7045/open-pitmaster/blob/main/PRIVACY.md). The service refuses any record

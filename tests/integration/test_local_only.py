@@ -16,13 +16,18 @@ async def test_local_only_follows_the_controllers_switch(hass: HomeAssistant):
                                  model="legal-copy7045.gravity980-bridge")
     r = ents.async_get_or_create("switch", "esphome", "smoker-local-only", config_entry=e, device_id=d.id,
                                  original_name="Local only (no internet)")
-    assert not local_only(hass)  # no state yet
+    assert local_only(hass)  # not seen since Home Assistant started: fails closed
     hass.states.async_set(r.entity_id, "off")
     assert not local_only(hass)
     hass.states.async_set(r.entity_id, "on")
     assert local_only(hass)
     hass.states.async_set(r.entity_id, "unavailable")  # the controller went offline: still local only
     assert local_only(hass)
+    hass.states.async_set(r.entity_id, "off")
+    assert not local_only(hass)
+    hass.states.async_set(r.entity_id, "unavailable")  # offline with it off: still off
+    assert not local_only(hass)
+    hass.states.async_set(r.entity_id, "on")
     # Another device's switch with the same name doesn't count.
     other = MockConfigEntry(domain="esphome", title="plug", data={"host": "plug.local"}, state=ConfigEntryState.NOT_LOADED)
     other.add_to_hass(hass)

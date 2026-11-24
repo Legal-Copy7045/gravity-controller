@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.4.1] - 2026-11-24
+
+Fixes from the first full regression run (26 findings from the bug and security reviews; report in regression/RUNS.md).
+Update the integration and the controller together: the controller's PIN and event-secret actions changed.
+
+- **Hold mode survives a restart:** a *Keep Food 1 warm* program (finished on its keep step) is no longer lost when the
+  controller restarts or the power is cut; it goes on keeping the food and says so. A keep step restored mid-program no
+  longer brings back an earlier step's pit target (which paused the program or fought the keep).
+- **Turbo after a restart:** a sear's Turbo is switched off when the program comes back paused, and sent again when
+  power-cut recovery resumes it; pause and stop turn it off again after a restart.
+- **Power-cut recovery** counts the time spent reconnecting and turning the grill back on, so a timed step ends when it
+  would have (a `for 30m` hold still restarts its count).
+- **Running-away alert** keeps the 10-minute grace after a lid opening, like the other fire alerts (above the grill's
+  maximum it still alerts straight away).
+- **AI programs can't use Turbo** (the fan flat out goes past the AI max pit): the package's plan check refuses it and
+  the controller leaves it out of an AI's plan, with a note.
+- **Notification buttons:** a button's one-time code works only for the buttons that notification carried (a charcoal
+  alert's code can't start a program).
+- **Local only:** no update check leaves the home network (the start-up check and checks from Home Assistant go
+  nowhere); requests already waiting are dropped when it's turned on; the integration counts a controller it hasn't
+  seen since Home Assistant started as local only; the "Home Assistant can't be reached" notice isn't sent when no
+  direct route can work.
+- **Device page PIN:** with a PIN set, the 15-minute setup window after a power-on closes straight away (anyone on the
+  Wi-Fi could otherwise reach the controller without a key; to add it to Home Assistant later, clear the PIN with the
+  BOOT button first). The address that last unlocked the page is never held by a flood of wrong guesses from others.
+- **Home Assistant users:** setting the device page PIN and replacing the event secret now need the Smoker
+  integration's secret, so a non-admin can't do either through the controller's raw actions; the *Clear the device
+  page PIN* and *Factory reset* buttons are no longer offered to Home Assistant (BOOT button, device page, or *Smoker:
+  Set the device page PIN* as an admin). Holding BOOT for 10 s also forgets the event secret, so a reinstalled
+  integration can pair again. The controller's raw events (which carry the secret) are kept out of the recorder.
+- **AI on the controller:** pages without the PIN can ask 5 questions a day (of the 40); an answer that used your
+  journal notes is shown to unlocked pages only; the provider's own error text is never shown or logged (it can quote
+  part of the key).
+- **Watchdog:** a second restart in a row waits for 2 hours of Wi-Fi down and a third for 6 hours (the old 6-hour
+  spacing was lost at each restart). The update guard no longer rolls back a firmware that safe mode has confirmed.
+- **Serve-by time** is read in Home Assistant's time zone by the package (the reminders could fire at the wrong time
+  when the system's zone differed).
+- **Grill photo:** the controller's page loads it only from a host on the home network.
+- **Sharing:** automatic sharing waits a random 0-6 hours more, and the docs say plainly that the service sees your IP
+  address and the upload time (never in the record).
+- **Release signing:** the firmware is compiled with a throwaway key and signed afterwards in a job of its own, so the
+  real key never meets the compile's third-party build code.
+- Docs: plain HTTP and the lockout exception for the device page; comments that said keys need a PIN without one.
+- Regression suite: scenario 10 (a sear and a keep program across a restart), new unit and template checks.
+
 ## [1.4.0] - 2026-11-24
 
 - **Power-cut recovery** (*Resume after a power cut*, on by default): after a cut during a cook of up to an hour, the

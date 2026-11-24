@@ -537,12 +537,15 @@ function placeSections() {
 // (pit, food) · hopper tower (charcoal) · ash box (fan). Tap a part to jump to its section.
 const photoBad = {};
 // The grill photo is loaded by the owner's browser, so only from this controller or the Smoker integration's own
-// photo URL (/api/smoker/grill_photo/image/..., any host): "Grill photo URL" can't send the browser anywhere else.
+// photo URL (/api/smoker/grill_photo/image/...) on a host in the home network: "Grill photo URL" (which anyone who can
+// change it could set) can't send the browser to a server on the internet.
+const localHost = h => /^(localhost|127(\.\d+){3}|10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2}|169\.254(\.\d+){2}|\[(fd[0-9a-f]{2}|fe80):[0-9a-f:]*\])$/i.test(h)
+  || /^[a-z0-9-]+$/i.test(h) || /\.(local|lan|home\.arpa|internal|home)$/i.test(h);
 const photoOk = u => {
   try {
     const x = new URL(u, location.href);
     if (!/^https?:$/.test(x.protocol) || x.username || x.password) return false;
-    return x.origin === location.origin || x.pathname.startsWith('/api/smoker/grill_photo/image/');
+    return x.origin === location.origin || (x.pathname.startsWith('/api/smoker/grill_photo/image/') && localHost(x.hostname));
   } catch (e) { return false; }
 };
 window.__gxPhotoBad = url => { if (url && !photoBad[url]) { photoBad[url] = true; render(); } };  // unreachable: the drawing
@@ -1237,7 +1240,7 @@ function renderLocal() {
   const L = LOCAL;
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
-  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or press "Clear the device page PIN" in Home Assistant (or set a new one there: Smoker: Set the device page PIN).</p>';
+  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or set a new one (or clear it) from Home Assistant: Smoker: Set the device page PIN, as an admin.</p>';
   // The first PIN can only be set within 15 minutes of the controller being powered on (first_pin: seconds left; older
   // firmware doesn't say), so whoever is on the Wi-Fi later can't claim the page.
   const closed = L.first_pin === 0, left = L.first_pin > 0 ? Math.ceil(L.first_pin / 60) : 0;
@@ -1986,6 +1989,7 @@ function renderAI() {
     ${adv ? `<p style="margin:0 0 6px">${esc(adv.summary || '')}</p>${adv.suggestion ? `<p class="note" style="margin:0 0 6px"><b>Next:</b> ${esc(adv.suggestion)}</p>` : ''}
       ${typeof adv.finish_estimate_min === 'number' ? row('AI\'s finish estimate', '~' + mins(adv.finish_estimate_min)) : ''}${aiRecs(adv.recommendations)}`
     : '<p class="note" style="margin-top:0">Ask during a cook: it reads the pit, the probes, the weather, this grill\'s past cooks and your journal.</p>'}
+    ${A.private ? `<p class="note">${esc(A.private)}</p>` : ''}
     ${err}
     ${A.cook_on === false ? '<p class="note">The AI only works on a cook: it waits until one is underway, or planned (Serve by, under Plan a cook), so it never spends your credits on an idle grill.</p>' : ''}
     <div class="btns"><button class="btn pri" data-a="aiadvise"${busy.advise || A.cook_on === false ? ' disabled' : ''}>${busy.advise ? 'Thinking…' : 'Ask now'}</button></div>

@@ -2,7 +2,7 @@
 // Everything the controller needs to run without Home Assistant (docs/standalone.md):
 //  - the device page's PIN (pin_auth.h): once set, every change made through the device page needs it. The first one
 //    can only be set within 15 minutes of a restart or of clearing it; without one the page stays open to changes
-//    (the owner's choice), but keys and settings can't be stored;
+//    (the owner's choice), keys and settings included: nothing is locked until a PIN is set;
 //  - write-only secrets (notification keys, AI key): stored in flash, never sent back out, only "set / not set";
 //  - notifications straight to a phone (ntfy, Pushover, Telegram), routed via Home Assistant, direct, or both;
 //  - weather and the forecast from Open-Meteo for a location stored only here;
@@ -216,7 +216,9 @@ class Standalone : public Component {
   // --- the secret Home Assistant's Smoker integration sets (action set_event_secret) and checks on every event the
   // controller fires (smoker_notify, smoker_context, smoker_cook_complete): so a forged event is told apart. Stored
   // in flash, never shown in an entity, /local/ or the log. "" = none (the events then carry no secret).
-  bool set_event_secret(const std::string &secret);
+  bool set_event_secret(const std::string &secret, const std::string &old = "");
+  /// The call carries the event secret (or none is set yet): it comes from the Smoker integration.
+  bool ha_secret_ok(const std::string &given) const;
   const std::string &event_secret() const { return this->event_secret_; }
 
   // --- one-time move of the old "ntfy topic" text entity into the secret store ---
@@ -236,6 +238,7 @@ class Standalone : public Component {
   void save_();
   void apply_tz_();
   void queue_(Job j);
+  bool refuse_local_only_(const Job &j);  // local only: a request off the home network is answered "not sent"
   void worker_();
   static void worker_task_(void *arg);
   static void worker_task_ai_(void *arg);
@@ -403,6 +406,10 @@ class Standalone : public Component {
   // Whether the journal's notes go into the AI's context: not for a question from a locked page (the notes are only
   // shown to an unlocked page, and a prompt could ask the AI to repeat them).
   bool ai_ctx_notes_{true}, ai_req_authed_{true}, ai_defer_notes_{true};
+  bool ai_advice_private_{false}, ai_plan_private_{false};  // the answer used the journal's notes (unlocked pages only)
+  uint8_t ai_asked_private_{0};                             // bit 1 advise, 2 plan: asked with the notes
+  uint16_t ai_open_today_{0};                                // questions from locked pages today (at most 5)
+  uint32_t ai_open_day_{0};
   int ai_kind_(const std::string &k) const;
   bool ai_ask_(const std::string &kind, const std::string &system, const std::string &user, const std::string &image_b64,
                std::string &why);

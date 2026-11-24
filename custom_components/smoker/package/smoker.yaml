@@ -22,6 +22,12 @@ recorder:
   exclude:
     entities:
       - input_text.smoker_notify_codes
+    # The controller's own events carry the Smoker integration's event secret: not kept in the history database (the
+    # integration passes them on, without it, as smoker_controller_*).
+    event_types:
+      - esphome.smoker_notify
+      - esphome.smoker_context
+      - esphome.smoker_cook_complete
 
 # ------------------------------------------------------------------- helpers
 
@@ -483,7 +489,9 @@ template:
           {% set f1 = states('sensor.smoker_food_1_estimated_total_cook_time') %}
           {% set ns.total = ns.total if ns.total is not none else (f1 | float if is_number(f1) else none) %}
           {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
-          {% set ts = as_datetime(serve) | as_local if serve not in ['unknown', 'unavailable', ''] else none %}
+          {# The helper's timestamp is worked out in Home Assistant's time zone (its state string has none). #}
+          {% set sts = state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0) %}
+          {% set ts = as_datetime(sts) | as_local if serve not in ['unknown', 'unavailable', ''] and sts > 0 else none %}
           {% if ts and ts > now() and ns.total is not none %}
             {# + 45 min to light the grill and come up to temperature #}
             {{ (ts - timedelta(minutes=ns.total + rest + 45)).isoformat() }}
@@ -496,7 +504,7 @@ template:
         unique_id: smoker_serve_together
         icon: mdi:timeline-clock
         state: >
-          {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) %}
+          {% set serve = (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) %}
           {% set ns = namespace(n=0) %}
           {% for n in range(1, 7) if serve > 0 %}
             {% set v = states('sensor.smoker_food_' ~ n ~ '_estimated_total_cook_time') %}
@@ -504,10 +512,10 @@ template:
           {% endfor %}
           {{ ns.n }}
         attributes:
-          serve: "{{ as_timestamp(states('input_datetime.smoker_serve_time'), 0) | int }}"
+          serve: "{{ (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) | int }}"
           rest_minutes: "{{ states('input_number.smoker_rest_minutes') | float(60) | int }}"
           foods: >
-            {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) %}
+            {% set serve = (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) %}
             {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
             {% set ns = namespace(l=[]) %}
             {% for n in range(1, 7) if serve > 0 %}
@@ -560,10 +568,21 @@ script:
                 {% set out.l = out.l + [b] %}
               {% endif %}
             {% endfor %}
-            {{ {'list': out.l, 'ours': out.ours} }}
+            {# The actions this code is good for, two letters each (the button automation accepts only these). #}
+            {% set m = {'SMOKER_START_PROGRAM': 'SP', 'SMOKER_RESUME_PROGRAM': 'RP', 'SMOKER_PIT_PLUS_25': 'PU', 'SMOKER_PIT_MINUS_25': 'PD', 'SMOKER_PIT_HOLD': 'PH', 'SMOKER_FUEL_FULL': 'FF'} %}
+            {% set tg = namespace(s='') %}
+            {% for b in given if b is mapping and (b.action | default('')) is string and b.action.startswith('SMOKER_') %}
+              {% set a = b.action.split('__')[0] %}
+              {% set n = a[-1:] %}
+              {% set tg.s = tg.s ~ (m[a] if a in m else ('F' ~ n) if a is match('^SMOKER_FOOD_PLUS_5_FOOD[1-6]$')
+                                  else ('U' ~ n) if a is match('^SMOKER_PULLED_FOOD[1-6]$')
+                                  else ('W' ~ n) if a is match('^SMOKER_WRAPPED_FOOD[1-6]$') else '') %}
+            {% endfor %}
+            {{ {'list': out.l, 'ours': out.ours, 'tags': tg.s[:12]} }}
       - if: "{{ buttons.ours }}"
         then:
-          # Remember the code (with the time), keeping the last few younger than 2 hours (6 fit in the helper).
+          # Remember the code with the time and the actions it was issued for, keeping the last few younger than 2
+          # hours (5 fit in the helper).
           - action: input_text.set_value
             continue_on_error: true
             target: {entity_id: input_text.smoker_notify_codes}
@@ -571,10 +590,10 @@ script:
               value: >
                 {% set t = as_timestamp(now()) | int %}
                 {% set keep = namespace(l=[]) %}
-                {% for p in states('input_text.smoker_notify_codes').split(' ') if p is match('^[A-Za-z][A-Za-z0-9]{23}:[0-9]+$') %}
+                {% for p in states('input_text.smoker_notify_codes').split(' ') if p is match('^[A-Za-z][A-Za-z0-9]{23}:[0-9]+:[A-Z0-9]*$') %}
                   {% if t - (p.split(':')[1] | int(0)) < 7200 %}{% set keep.l = keep.l + [p] %}{% endif %}
                 {% endfor %}
-                {{ (keep.l[-5:] + [code ~ ':' ~ t]) | join(' ') }}
+                {{ (keep.l[-4:] + [code ~ ':' ~ t ~ ':' ~ buttons.tags]) | join(' ') }}
       # EDIT: your phone's notify action (Developer tools > Actions, type notify.mobile_app to find it).
       - action: notify.mobile_app_your_phone
         data:
@@ -622,6 +641,8 @@ script:
                 {% elif not (s[5:] | trim) is match('^[\\w .,&()/+°-]{0,40}$') %}{% set ns.why = 'the name is too long or odd' %}{% endif %}
               {% elif not s is match('(pit|hold|set|notify|alert|shutdown|stop|off|then)\\b') %}
                 {% set ns.why = 'a step starts with "' ~ (s.split(' ')[0])[:20] ~ '", not an action' %}
+              {% elif s is search('(?<![a-z0-9_])turbo(?![a-z0-9_])') %}
+                {% set ns.why = "it uses Turbo (an AI plan can't: the fan flat out takes the pit past the AI max pit)" %}
               {% elif not s is match('^[a-z0-9_ \\t.,:>=<°"]*$') %}
                 {% set ns.why = 'a step has something other than steps and conditions in it' %}
               {% else %}
@@ -851,7 +872,7 @@ script:
       - if:
           - condition: template
             value_template: >
-              {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) - as_timestamp(now()) %}
+              {% set serve = (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) - as_timestamp(now()) %}
               {{ not is_state('binary_sensor.smoker_cook_active', 'on') and not (0 < serve < 172800) }}
         then:
           - action: input_text.set_value
@@ -1059,10 +1080,18 @@ automation:
         value_template: &smoker_code_ok >
           {% set raw = trigger.event.data.action | default('') | string %}
           {% set code = raw.split('__')[1] if raw.count('__') == 1 else '' %}
+          {% set a = raw.split('__')[0] %}
+          {% set m = {'SMOKER_START_PROGRAM': 'SP', 'SMOKER_RESUME_PROGRAM': 'RP', 'SMOKER_PIT_PLUS_25': 'PU', 'SMOKER_PIT_MINUS_25': 'PD', 'SMOKER_PIT_HOLD': 'PH', 'SMOKER_FUEL_FULL': 'FF'} %}
+          {% set n = a[-1:] %}
+          {% set tag = m[a] if a in m else ('F' ~ n) if a is match('^SMOKER_FOOD_PLUS_5_FOOD[1-6]$')
+                       else ('U' ~ n) if a is match('^SMOKER_PULLED_FOOD[1-6]$')
+                       else ('W' ~ n) if a is match('^SMOKER_WRAPPED_FOOD[1-6]$') else '' %}
           {% set ns = namespace(ok=false) %}
-          {% if raw.startswith('SMOKER_') and code is match('^[A-Za-z][A-Za-z0-9]{23}$') %}
-            {% for p in states('input_text.smoker_notify_codes').split(' ') if p is match('^[A-Za-z][A-Za-z0-9]{23}:[0-9]+$') %}
-              {% if p.split(':')[0] == code and as_timestamp(now()) - (p.split(':')[1] | int(0)) < 7200 %}{% set ns.ok = true %}{% endif %}
+          {% if raw.startswith('SMOKER_') and tag and code is match('^[A-Za-z][A-Za-z0-9]{23}$') %}
+            {% for p in states('input_text.smoker_notify_codes').split(' ') if p is match('^[A-Za-z][A-Za-z0-9]{23}:[0-9]+:[A-Z0-9]*$') %}
+              {# The code, younger than 2 hours, and issued for this very action (a charcoal alert's code can't start a program). #}
+              {% if p.split(':')[0] == code and as_timestamp(now()) - (p.split(':')[1] | int(0)) < 7200
+                    and tag in (p.split(':')[2] | regex_findall('..')) %}{% set ns.ok = true %}{% endif %}
             {% endfor %}
           {% endif %}
           {{ ns.ok }}
@@ -1174,7 +1203,7 @@ automation:
         # Only while a cook is underway or planned (serve-by in the next two days): editing a probe's cut on an idle
         # grill doesn't spend AI credits.
         value_template: >
-          {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) - as_timestamp(now()) %}
+          {% set serve = (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) - as_timestamp(now()) %}
           {{ is_state('binary_sensor.smoker_cook_active', 'on') or 0 < serve < 172800 }}
     actions:
       - delay: "00:02:00"   # let a burst of edits settle
@@ -1550,7 +1579,7 @@ automation:
       - set_conversation_response: >
           {% set s = states('sensor.smoker_start_cooking_by') %}
           {% if s not in ['unknown', 'unavailable', 'None', ''] %}Light it around {{ (as_datetime(s) | as_local).strftime('%-I:%M %p') }}
-          to serve at {{ (as_datetime(states('input_datetime.smoker_serve_time')) | as_local).strftime('%-I:%M %p') }}.{% else %}Set a serve time and the cut and weight on a food card, and I'll work it out.{% endif %}
+          to serve at {{ (as_datetime(state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) | as_local).strftime('%-I:%M %p') }}.{% else %}Set a serve time and the cut and weight on a food card, and I'll work it out.{% endif %}
 
   # ---------------- Charcoal stock, cost per cook, reorder ----------------
   - id: smoker_charcoal_burn
@@ -1885,9 +1914,9 @@ automation:
           title: Time to light the smoker
           message: >
             {# the cook time the planner used: serve-by, less the rest and 45 min to come up to temperature #}
-            {% set h = (as_timestamp(states('input_datetime.smoker_serve_time'), 0) - as_timestamp(states('sensor.smoker_start_cooking_by'), 0)) / 3600
+            {% set h = ((state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) - as_timestamp(states('sensor.smoker_start_cooking_by'), 0)) / 3600
                        - states('input_number.smoker_rest_minutes') | float(60) / 60 - 0.75 %}
-            To serve at {{ (states('input_datetime.smoker_serve_time') | as_datetime | as_local).strftime('%H:%M') }},
+            To serve at {{ (as_datetime(state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) | as_local).strftime('%H:%M') }},
             start now (about {{ [h, 0] | max | round(1) }} h
             cook + {{ states('input_number.smoker_rest_minutes') | int }} min rest).
           priority: 1

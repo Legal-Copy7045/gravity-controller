@@ -6,11 +6,12 @@
 //    from that client, forgotten a day after its last wrong one), so one machine on the Wi-Fi can't lock everyone
 //    out; plus a backstop for everyone together: 50 wrong PINs an hour (each forgiven after 72 s). The backstop holds
 //    only clients with wrong PINs of their own, so a machine (or a few) guessing can't keep the owner out; once more
-//    clients have guessed than are remembered (CLIENTS), it holds everyone until it drains, as before;
+//    clients have guessed than are remembered (CLIENTS), it holds everyone until it drains, except the address that
+//    last logged in with the right PIN (the owner's device);
 //  - a PIN that can't be one (empty, too short or too long) is refused without hashing or counting;
 //  - the first PIN: only within 15 minutes of the controller being powered on or of the PIN being cleared (BOOT
 //    button, Home Assistant), so whoever happens to be on the Wi-Fi later can't claim the page. Without a PIN the page stays
-//    open to changes, as before (the owner's choice; keys and settings still need one). Home Assistant (trusted through
+//    open to changes, keys and settings included (the owner's choice: nothing is locked until a PIN is set). Home Assistant (trusted through
 //    its API key) can set or replace it at any time (replace_pin);
 //  - sessions: 32 random bytes as hex, 12 h, renewed on use, at most 4 (the oldest is dropped). Expired ones are
 //    dropped by tick() (so an idle one can't come back when millis() wraps); kept across a restart with the time
@@ -159,6 +160,7 @@ class Guard {
   std::vector<Client> clients_;
   bool global_on_{false};
   uint32_t global_until_{0};  // when everyone's wrong PINs are all forgiven (a leaky bucket, GLOBAL_LEAK_MS each)
+  std::string trusted_ip_;     // the client that last logged in with the right PIN (exempt from the overflow hold)
   bool overflow_{false};      // a guessing client was dropped from clients_ while the bucket was filling: hold everyone
   bool first_open_{false};
   uint32_t first_from_{0};

@@ -622,7 +622,7 @@ void ProgramRunner::stop() {
   pause_reason_.clear();
 }
 
-void ProgramRunner::restore(size_t step, double step_elapsed_min, double now_min, bool running) {
+void ProgramRunner::restore(size_t step, double step_elapsed_min, double now_min, bool running, bool finished) {
   if (!loaded() || step >= prog_.steps.size())
     return;
   step_ = step;
@@ -632,6 +632,14 @@ void ProgramRunner::restore(size_t step, double step_elapsed_min, double now_min
   // Walk back for the most recent explicit setpoint.
   for (int i = int(step); i >= 0 && std::isnan(commanded_pit_); i--)
     commanded_pit_ = prog_.steps[i].pit_c;
+  if (prog_.steps[step].keep_probe >= 0)
+    commanded_pit_ = NAN;  // as enter_step_: a keep step's pit is the controller's to move, not a target to defend
+  if (finished) {
+    state_ = State::FINISHED;
+    pause_reason_.clear();
+    last_tick_min_ = -1;
+    return;
+  }
   state_ = running ? State::RUNNING : State::PAUSED;
   paused_at_min_ = now_min;
   last_tick_min_ = -1;

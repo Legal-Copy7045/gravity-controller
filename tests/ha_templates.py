@@ -106,15 +106,23 @@ async def main():
     b = render(nv["buttons"], actions=given, code=code)
     check(b["ours"] and b["list"][0]["action"] == "SMOKER_PIT_HOLD__" + code and b["list"][1]["action"] == "URI",
           f"coded buttons {b!r}")
-    check(render(nv["buttons"], code=code) == {"list": [], "ours": False}, "no buttons -> nothing to remember")
+    check(b["tags"] == "PH", f"coded buttons remember their actions: {b['tags']!r}")
+    b = render(nv["buttons"], code=code, actions=[{"action": "SMOKER_FOOD_PLUS_5_FOOD3"}, {"action": "SMOKER_WRAPPED_FOOD6"},
+                                                   {"action": "SMOKER_START_PROGRAM"}])
+    check(b["tags"] == "F3W6SP", f"food buttons remember their actions: {b['tags']!r}")
+    b = render(nv["buttons"], code=code)
+    check(b["list"] == [] and not b["ours"], "no buttons -> nothing to remember")
 
     # 2d. a button counts only with a code remembered in the last 2 hours
     cond = autos["smoker_notification_actions"]["conditions"][0]["value_template"]
     import time as _t
     now_s = int(_t.time())
     A, B, C = "a" * 23 + "1", "B" * 23 + "2", "c" * 24
-    hass.states.async_set("input_text.smoker_notify_codes", f"{A}:{now_s - 8000} {B}:{now_s - 60}")
+    hass.states.async_set("input_text.smoker_notify_codes", f"{A}:{now_s - 8000}:SP {B}:{now_s - 60}:SPPH")
     for action, want in [("SMOKER_START_PROGRAM__" + B, True), ("SMOKER_START_PROGRAM__" + A, False),
+                         ("SMOKER_PIT_HOLD__" + B, True),
+                         # A code works only for the buttons its notification carried.
+                         ("SMOKER_PIT_PLUS_25__" + B, False), ("SMOKER_FUEL_FULL__" + B, False),
                          ("SMOKER_START_PROGRAM", False), ("SMOKER_START_PROGRAM__" + C, False),
                          ("SMOKER_START_PROGRAM__" + B.lower(), False), ("SMOKER_START_PROGRAM__" + B[:16], False),
                          ("OTHER__" + B, False), ("SMOKER_X__" + B + "__y", False)]:
@@ -141,7 +149,11 @@ async def main():
                       # Words that only contain pit/hold/set are not actions the controller knows (refused anyway).
                       ("pit 250 until food1 >= 165; setpit 900", "not an action"),
                       # A pit with no readable number after it is refused, never skipped.
-                      ('notify "a"pit "b"', "can't be read"), ("pit 250 notify 'x'pit", "can't be read")]:
+                      ('notify "a"pit "b"', "can't be read"), ("pit 250 notify 'x'pit", "can't be read"),
+                      # Turbo (the fan flat out) would take the pit past the cap: never in an AI plan.
+                      ("pit 225 turbo on until after 10h; turbo off; hold 225", "Turbo"),
+                      ('pit 225 notify "x"turbo on until after 1h', "Turbo"),
+                      ('pit 225 notify "turbo is fun" until after 1h', "")]:
         got = str(render(pv, program=prog, explanation="Fine.", max_pit=400.0) or "")
         check((bad in got) if bad else got == "", f"plan check {prog!r} -> {got!r}")
     hass.states.async_set("number.smoker_pit_target", "107", {"unit_of_measurement": "°C", "min": 93, "max": 371})
@@ -188,7 +200,10 @@ async def main():
     # 6. serve together: when each food goes on, the light-up time, and the "put it on" reminders (once per food)
     import datetime as dtm
     serve = (now + dtm.timedelta(hours=14)).replace(microsecond=0)
-    hass.states.async_set("input_datetime.smoker_serve_time", serve.strftime("%Y-%m-%d %H:%M:%S"))
+    # The state is a naive local string; the helper's timestamp attribute is the real moment (Home Assistant's zone).
+    # The string here is deliberately 5 h off, so a template that parses it instead of the timestamp fails.
+    hass.states.async_set("input_datetime.smoker_serve_time", (serve + dtm.timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S"),
+                          {"timestamp": serve.timestamp(), "has_date": True, "has_time": True})
     hass.states.async_set("input_number.smoker_rest_minutes", "45")
     for n, total, weight, prot in ((1, "760", "8.2", "Pork shoulder"), (3, "300", "3.5", "Poultry"), (4, "420", "0", "Brisket"),
                                    (2, "unknown", "5", "Auto")):

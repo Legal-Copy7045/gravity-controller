@@ -117,8 +117,11 @@ void Standalone::loop_watch_(uint32_t now) {
       const uint32_t down = now - this->wifi_down_at_;
       // Only a Wi-Fi that worked since this start and then got stuck: a controller not set up yet, or one whose network
       // is gone, keeps its setup hotspot and its Bluetooth link to the grill instead of restarting.
-      if (down > 20 * 60000 && !cooking && this->wifi_was_up_ && restarts_in_a_row() < 3 &&
-          (this->wifi_reboot_at_ == 0 || now - this->wifi_reboot_at_ > 6 * 3600000UL)) {
+      // Each restart in a row waits longer (20 min, then 2 h, then 6 h of Wi-Fi down): the count survives the restart
+      // (RTC memory), a clock wouldn't.
+      static const uint32_t WAIT_MIN[3] = {20, 120, 360};
+      const uint32_t n = restarts_in_a_row();
+      if (n < 3 && down > WAIT_MIN[n] * 60000UL && !cooking && this->wifi_was_up_) {
         this->wifi_reboot_at_ = now ? now : 1;
         restarts_in_a_row()++;
         ESP_LOGW(TAG, "Wi-Fi down for %u min and no cook: restarting the controller", unsigned(down / 60000));
@@ -153,11 +156,13 @@ void Standalone::loop_watch_(uint32_t now) {
         this->ha_down_at_ = now ? now : 1;
       if (cooking && !this->ha_down_told_ && now - this->ha_down_at_ > 5 * 60000) {
         this->ha_down_told_ = true;
-        // Straight to the phone (the Home Assistant route is what's missing).
-        this->notify("Home Assistant can't be reached",
-                     "The controller hasn't heard from Home Assistant for 5 minutes. The cook carries on and alerts come "
-                     "straight to this phone until it's back.",
-                     1, "ha_link");
+        // Straight to the phone (the Home Assistant route is what's missing). With Local only on there is no direct
+        // route either (ntfy, Pushover and Telegram are on the internet): the Connectivity line says so instead.
+        if (!this->local_only_)
+          this->notify("Home Assistant can't be reached",
+                       "The controller hasn't heard from Home Assistant for 5 minutes. The cook carries on and alerts "
+                       "come straight to this phone until it's back.",
+                       1, "ha_link");
       }
     }
   }

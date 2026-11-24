@@ -62,7 +62,13 @@ How it's protected:
   isn't allowed until Home Assistant has adopted the controller. The controller's **Device page PIN** sensor says
   "set" or "not set" (and why a PIN from Home Assistant was refused), never the PIN.
 - **Lockout:** 5 wrong PINs from one device lock that device out for 30 s, then 60 s, doubling up to an hour; other
-  devices aren't affected. Empty or malformed PINs aren't counted.
+  devices aren't affected. Empty or malformed PINs aren't counted. One exception: if more than 16 devices guess wrong
+  PINs within the hour, every device waits until the wrong guesses drain (at most about an hour), except the one that
+  last unlocked the page with the right PIN.
+- **Plain HTTP:** the page is served over http:// on your network (a controller can't hold a trusted certificate), so
+  the PIN and the session travel unencrypted over your Wi-Fi. Anyone who knows your Wi-Fi password could in principle
+  read them; the PIN protects against other people's devices, guests and web pages, not against someone already able
+  to read your Wi-Fi traffic. The session stays in the browser's local storage for 12 hours after its last use.
 - **Sessions:** unlocking gives this browser a random 256-bit session, valid for 12 hours after its last change. At
   most 4 are live, and changing the PIN ends them all.
 - **Other websites:** they can't send changes on your behalf; the web server refuses cross-origin requests.
@@ -70,8 +76,9 @@ How it's protected:
   written to the logs.
 
 **Forgotten the PIN?** Hold the controller's **BOOT** button for 10 seconds (and let go before 30 s: that's the
-factory reset), or press **Clear the device page PIN** in Home Assistant, or set a new one straight away from Home
-Assistant (**Smoker: Set the device page PIN**). Your keys and settings are kept.
+factory reset), or set a new one (or clear it, with an empty PIN) straight away from Home Assistant (**Smoker: Set the
+device page PIN**, admin only). Your keys and settings are kept. (From 1.4.1 there is no "Clear the device page PIN" or
+"Factory reset" button in Home Assistant: Home Assistant lets every one of its users press any button.)
 
 ## Notifications straight to your phone
 

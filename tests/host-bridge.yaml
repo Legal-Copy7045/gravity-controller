@@ -19,6 +19,9 @@ api:
     - action: resume_program
       then:
         - lambda: id(smoker).resume_program();
+    - action: stop_program
+      then:
+        - lambda: id(smoker).stop_program();
     - action: fuel_level
       variables: {percent: float}
       then:

@@ -10,14 +10,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 NAME = "Local only (no internet)"
-MESSAGE = "Local only is on for the controller: nothing is sent to the internet. Turn it off under Setup to use this."
+MESSAGE = ("Local only is on for the controller (or it hasn't been seen since Home Assistant started): nothing is sent "
+           "to the internet. Turn it off under Setup, with the controller on, to use this.")
 
 
-_LAST: dict[str, bool] = {}  # entity id -> last known on/off (fails closed while the controller is offline)
+# entity id -> last known on/off. Kept in memory only, so after a Home Assistant restart a controller that is switched
+# off counts as local only until it's seen (fails closed: no upload goes out on a guess).
+_LAST: dict[str, bool] = {}
 
 
 def local_only(hass: HomeAssistant) -> bool:
-    """True if any Smoker controller has "Local only" on (or had it on when it was last seen)."""
+    """True if any Smoker controller has "Local only" on, had it on when it was last seen, or hasn't been seen since
+    Home Assistant started."""
     from .watchdog import is_smoker_device
 
     devs, ents = dr.async_get(hass), er.async_get(hass)
@@ -32,6 +36,6 @@ def local_only(hass: HomeAssistant) -> bool:
         st = hass.states.get(ent.entity_id)
         if st is not None and st.state in ("on", "off"):
             _LAST[ent.entity_id] = st.state == "on"
-        if _LAST.get(ent.entity_id, False):
+        if _LAST.get(ent.entity_id, True):
             return True
     return False

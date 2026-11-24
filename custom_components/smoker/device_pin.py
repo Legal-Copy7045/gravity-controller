@@ -60,7 +60,15 @@ async def async_setup_device_pin(hass: HomeAssistant) -> None:
             raise HomeAssistantError(
                 "The smoker controller isn't connected, or its firmware doesn't have this action yet: update the "
                 "firmware (Settings > Devices, the Smoker's Firmware update)")
-        await hass.services.async_call(*SET_PIN, {"pin": pin}, blocking=True)
+        # The event secret goes along: the controller (1.4.1+) takes a PIN only from a call that carries it, so a
+        # non-admin calling the controller's raw action can't (older firmware has no "secret" field).
+        from .controller_events import DATA as EVENTS
+
+        ce = hass.data.get(EVENTS)
+        try:
+            await hass.services.async_call(*SET_PIN, {"pin": pin, "secret": ce.secret if ce else ""}, blocking=True)
+        except vol.Invalid:
+            await hass.services.async_call(*SET_PIN, {"pin": pin}, blocking=True)
         _LOGGER.info("Device page PIN %s: the controller's \"Device page PIN\" sensor shows the result",
                      "clear sent to the controller" if pin == "" else "sent to the controller")
 

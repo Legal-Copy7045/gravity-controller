@@ -74,6 +74,18 @@ void Standalone::loop_guard_(uint32_t now) {
       this->notify("Update rolled back", msg, 1, "update");
   }
 #if defined(USE_ESP32) && defined(USE_OTA_ROLLBACK)
+  static uint32_t state_checked = 0;
+  if (this->on_trial_ && now - state_checked > 10000) {
+    state_checked = now;
+    // Safe mode confirms the image itself after 15 min (boot_is_good_after): from then on it isn't on trial, and a
+    // rollback (which ESP-IDF would perform on a confirmed image too) is off the table.
+    esp_ota_img_states_t st;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == nullptr || esp_ota_get_state_partition(running, &st) != ESP_OK || st != ESP_OTA_IMG_PENDING_VERIFY) {
+      this->on_trial_ = false;
+      ESP_LOGI(TAG, "New firmware confirmed (by safe mode)");
+    }
+  }
   if (!this->on_trial_)
     return;
   bool wifi = false;

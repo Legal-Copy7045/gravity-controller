@@ -48,6 +48,9 @@ CUTS = {"Pork shoulder", "Brisket", "Ribs", "Beef roast", "Poultry", "Sausage", 
 TIMEOUT = ClientTimeout(total=20)
 READY_AFTER = 12 * 3600  # a cook without feedback is offered this long after it ended
 SETTLE = 600  # automatic sharing waits this long after the last star/tag/note change (seconds)
+# ...and then a random 0-6 h more per cook, so when a record arrives says little about when the cook happened (the
+# service sees the upload's time and the home's IP address, never in the record: docs/sharing.md).
+JITTER = 6 * 3600
 # The sharing service stores at most one cook a minute from each client (429 otherwise) and has a daily cap for
 # everyone together (503 "too many uploads today"): uploads are spaced at least this far apart, and a 429/503 leaves
 # the cook waiting to be sent later (never marked as failed).
@@ -211,8 +214,15 @@ class Sharing:
         since = float(self.data.get("auto_since") or time.time())
         now = time.time()
         # Wait SETTLE s after the last star/tag/note change, so a cook goes out with all its feedback at once.
-        return [e for e in self.journal.data["entries"] if now - self._touched.get(e["id"], 0) >= SETTLE
-                and float(e.get("ended") or 0) >= since and self.status(e) == "pending"]
+        hold = self.__dict__.setdefault("_hold", {})
+        out = []
+        for e in self.journal.data["entries"]:
+            if not (now - self._touched.get(e["id"], 0) >= SETTLE and float(e.get("ended") or 0) >= since
+                    and self.status(e) == "pending"):
+                continue
+            if now >= hold.setdefault(e["id"], now + secrets.randbelow(JITTER + 1)):
+                out.append(e)
+        return out
 
     async def share_ready(self) -> int:
         """Send the cooks waiting to be shared automatically, one per pass: a backlog drains one cook a minute (the

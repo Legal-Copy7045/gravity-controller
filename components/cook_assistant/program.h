@@ -124,8 +124,18 @@ class ProgramRunner {
   /// Pit plan from the current step onwards as seen by one probe, for the predictor.
   std::vector<PlanSegment> plan_for_probe(int probe, double now_min, float probe_target_c) const;
 
-  /// Restore after a reboot.
-  void restore(size_t step, double step_elapsed_min, double now_min, bool running);
+  /// Restore after a reboot: running, paused, or (finished) still on its final keep/hold step.
+  void restore(size_t step, double step_elapsed_min, double now_min, bool running, bool finished = false);
+  /// The program's Turbo is on at the current step (the last `turbo on|off` up to it said on).
+  bool turbo_in_effect() const {
+    if (!loaded() || state_ == State::IDLE)
+      return false;
+    int t = -1;
+    for (size_t i = 0; i <= step_ && i < prog_.steps.size(); i++)
+      if (prog_.steps[i].turbo >= 0)
+        t = prog_.steps[i].turbo;
+    return t == 1;
+  }
 
  protected:
   RunnerOutputs enter_step_(size_t idx, double now_min);

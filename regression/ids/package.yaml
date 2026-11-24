@@ -1,6 +1,6 @@
 # Stable check IDs for the package stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: PKG-082
+# highest issued: PKG-090
 PKG-001: "ha_check: integration import + page build"
 PKG-002: "ha_check: HA config check with the package"
 PKG-003: "button key SMOKER_FOOD_PLUS_5_FOOD1"
@@ -83,3 +83,11 @@ PKG-079: "put it on: marked as sent"
 PKG-080: "put it on: not again once sent"
 PKG-081: "put it on: message"
 PKG-082: "put it on: a new serve time starts afresh"
+PKG-083: "coded buttons remember their actions"
+PKG-084: "food buttons remember their actions"
+PKG-085: "button 'SMOKER_PIT_HOLD__BBBBBBBBBBBBBBBBBBBBBBB2' accepted: True"
+PKG-086: "button 'SMOKER_PIT_PLUS_25__BBBBBBBBBBBBBBBBBBBBBBB2' accepted: False"
+PKG-087: "button 'SMOKER_FUEL_FULL__BBBBBBBBBBBBBBBBBBBBBBB2' accepted: False"
+PKG-088: "plan check 'pit 225 turbo on until after 10h; turbo off; hold 225'"
+PKG-089: "plan check 'pit 225 notify \"x\"turbo on until after 1h'"
+PKG-090: "plan check 'pit 225 notify \"turbo is fun\" until after 1h'"
