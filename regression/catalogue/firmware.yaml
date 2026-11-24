@@ -19,7 +19,7 @@
 - feature: "Hold mode (keep foodN T) and Turbo steps in programs"
   since: 1.4.0
   docs: docs/cook-programs.md
-  match: ["^sim:scenarios: scenario (0|10):", "^manual:.*keep"]
+  match: ["^sim:scenarios: scenario (0|10|11):", "^manual:.*keep"]
 - feature: "Predictions: finish time, stall, rest and pull-at, weather-aware"
   since: 0.2.0
   docs: docs/features-0.2.md
