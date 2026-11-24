@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.3] - 2026-11-24
+
+- **Fixed: "Plan with AI" said "The AI's program couldn't be read (unexpected 'notify' at end of step)".** The AI
+  put a step's reminder after its condition (`pit 275 until food1 >= 165 notify "Wrap with sauce"`); the controller
+  and both step editors now take a notification there too.
 ## [1.3.2] - 2026-11-24
 
 - **Credits:** the README now credits everyone whose published work this project used (cg980app for the protocol,

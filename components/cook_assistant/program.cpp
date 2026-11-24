@@ -295,6 +295,17 @@ bool parse_step(const std::string &text, const std::vector<std::string> &probes,
     }
     break;
   }
+  // A notification after the conditions ("pit 275 until food1 >= 165 notify \"Wrap it\"", as an AI writes it) is
+  // the step's notification, as if it came first.
+  if (t[i].kind == Tok::WORD && (t[i].text == "notify" || t[i].text == "alert") && step.notify.empty()) {
+    i++;
+    if (t[i].kind != Tok::STR) {
+      err = "notify needs a quoted message";
+      return false;
+    }
+    step.notify = t[i].text;
+    i++;
+  }
   if (t[i].kind != Tok::END) {
     err = "unexpected '" + t[i].text + "' at end of step";
     return false;

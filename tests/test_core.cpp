@@ -492,6 +492,14 @@ static void test_regressions() {
   CHECK(!cook::parse_program("pit 30m", probes, true, p, err));
   CHECK(!cook::parse_program("pit 250 until after 2F", probes, true, p, err));
   CHECK(!cook::parse_program("pit 250 until after 17:30", probes, true, p, err));
+  {  // a notification after the conditions (the AI planner writes it that way) is the step's notification
+    cook::Program n;
+    CHECK(cook::parse_program("pit 275 until food1 >= 165 notify \"Wrap with sauce\"; pit 275 until food1 >= 203 or food2 >= 203 alert 'Done'",
+                              probes, true, n, err));
+    CHECK(n.steps.size() == 2 && n.steps[0].notify == "Wrap with sauce" && n.steps[1].notify == "Done");
+    CHECK(n.steps[0].until.size() == 1 && n.steps[1].until.size() == 2);
+    CHECK(!cook::parse_program("pit 275 notify \"a\" until food1 >= 165 notify \"b\"", probes, true, n, err));
+  }
 
   // Briefly stepping the target below the current temperature doesn't record a cook.
   {
