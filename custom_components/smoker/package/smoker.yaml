@@ -197,6 +197,12 @@ input_text:
     name: Smoker voice pit change waiting for confirmation
     max: 255
     icon: mdi:microphone-question
+  # Serve together: which foods' "put it on" notifications went out, and for which serve time ("<serve time>:<slots>",
+  # written by "Smoker - put the next food on").
+  smoker_put_on_sent:
+    name: Smoker put-on reminders sent
+    max: 32
+    icon: mdi:bell-check
 
 input_datetime:
   smoker_ai_finish:
@@ -459,20 +465,60 @@ template:
           {% set ts = state_attr('input_datetime.smoker_ai_finish', 'timestamp') %}
           {{ (ts | as_datetime | as_local).isoformat() if ts and ts > as_timestamp(now()) - 3600
              and is_state('binary_sensor.smoker_cook_active', 'on') else none }}
-      # "Ready by" planner: when to light the grill to serve at input_datetime.smoker_serve_time.
+      # "Ready by" planner: when to light the grill to serve at input_datetime.smoker_serve_time, from the longest
+      # estimated whole cook among the foods with a weight set (with several foods, the first one to go on: see "Smoker
+      # serve together"); with no weight set anywhere, Food 1's estimate.
       - name: Smoker start cooking by
         unique_id: smoker_start_by
         device_class: timestamp
         icon: mdi:fire-alert
         state: >
           {% set serve = states('input_datetime.smoker_serve_time') %}
-          {% set total = states('sensor.smoker_food_1_estimated_total_cook_time') %}
+          {% set ns = namespace(total=none) %}
+          {% for n in range(1, 7) %}
+            {% set v = states('sensor.smoker_food_' ~ n ~ '_estimated_total_cook_time') %}
+            {% if is_number(v) and v | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0
+                  and (ns.total is none or v | float > ns.total) %}{% set ns.total = v | float %}{% endif %}
+          {% endfor %}
+          {% set f1 = states('sensor.smoker_food_1_estimated_total_cook_time') %}
+          {% set ns.total = ns.total if ns.total is not none else (f1 | float if is_number(f1) else none) %}
           {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
           {% set ts = as_datetime(serve) | as_local if serve not in ['unknown', 'unavailable', ''] else none %}
-          {% if ts and ts > now() and is_number(total) %}
+          {% if ts and ts > now() and ns.total is not none %}
             {# + 45 min to light the grill and come up to temperature #}
-            {{ (ts - timedelta(minutes=total|float + rest + 45)).isoformat() }}
+            {{ (ts - timedelta(minutes=ns.total + rest + 45)).isoformat() }}
           {% else %}{{ none }}{% endif %}
+      # Serve together: several foods, one serve time. When each food goes on (epoch seconds) so that everything is
+      # ready together: its estimated whole cook plus the rest before the serve-by time, earliest first. Only the foods
+      # set up for the cook (a weight set, as the controller's own planner) that have an estimate. The dashboard's Plan
+      # card shows it as a timeline; "Smoker - put the next food on" sends a notification at each.
+      - name: Smoker serve together
+        unique_id: smoker_serve_together
+        icon: mdi:timeline-clock
+        state: >
+          {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) %}
+          {% set ns = namespace(n=0) %}
+          {% for n in range(1, 7) if serve > 0 %}
+            {% set v = states('sensor.smoker_food_' ~ n ~ '_estimated_total_cook_time') %}
+            {% if is_number(v) and v | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0 %}{% set ns.n = ns.n + 1 %}{% endif %}
+          {% endfor %}
+          {{ ns.n }}
+        attributes:
+          serve: "{{ as_timestamp(states('input_datetime.smoker_serve_time'), 0) | int }}"
+          rest_minutes: "{{ states('input_number.smoker_rest_minutes') | float(60) | int }}"
+          foods: >
+            {% set serve = as_timestamp(states('input_datetime.smoker_serve_time'), 0) %}
+            {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
+            {% set ns = namespace(l=[]) %}
+            {% for n in range(1, 7) if serve > 0 %}
+              {% set total = states('sensor.smoker_food_' ~ n ~ '_estimated_total_cook_time') %}
+              {% if is_number(total) and total | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0 %}
+                {% set prot = states('select.smoker_food_' ~ n ~ '_protein') %}
+                {% set ns.l = ns.l + [{'slot': n, 'name': prot if prot not in ['Auto', 'unknown', 'unavailable', ''] else 'Food ' ~ n,
+                                        'total': total | float | round(0) | int, 'on': (serve - (total | float + rest) * 60) | round(0) | int}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.l | sort(attribute='on') }}
 
 # ------------------------------------------------------------------- scripts
 
@@ -1819,11 +1865,61 @@ automation:
         data:
           title: Time to light the smoker
           message: >
+            {# the cook time the planner used: serve-by, less the rest and 45 min to come up to temperature #}
+            {% set h = (as_timestamp(states('input_datetime.smoker_serve_time'), 0) - as_timestamp(states('sensor.smoker_start_cooking_by'), 0)) / 3600
+                       - states('input_number.smoker_rest_minutes') | float(60) / 60 - 0.75 %}
             To serve at {{ (states('input_datetime.smoker_serve_time') | as_datetime | as_local).strftime('%H:%M') }},
-            start now (about {{ (states('sensor.smoker_food_1_estimated_total_cook_time') | float(0) / 60) | round(1) }} h
+            start now (about {{ [h, 0] | max | round(1) }} h
             cook + {{ states('input_number.smoker_rest_minutes') | int }} min rest).
           priority: 1
           tag: plan
+
+  # Serve together: a notification when each food should go on the grill so that everything is ready at the serve-by
+  # time ("Smoker serve together"). Once per food and serve time (input_text.smoker_put_on_sent); never after the
+  # serve time. "Smoker - time to light the grill" comes 45 minutes before the first.
+  - id: smoker_put_on_reminder
+    alias: Smoker - put the next food on
+    mode: queued
+    triggers:
+      - trigger: template
+        value_template: >
+          {% set serve = state_attr('sensor.smoker_serve_together', 'serve') | int(0) %}
+          {% set sent = states('input_text.smoker_put_on_sent') %}
+          {% set done = sent.split(':')[1] if sent.startswith(serve ~ ':') else '' %}
+          {% set t = as_timestamp(now()) %}
+          {{ serve > t and (state_attr('sensor.smoker_serve_together', 'foods') or [])
+             | selectattr('on', 'le', t) | rejectattr('slot', 'in', done | list | map('int') | list) | list | count > 0 }}
+    actions:
+      - variables:
+          serve: "{{ state_attr('sensor.smoker_serve_together', 'serve') | int(0) }}"
+          rest: "{{ state_attr('sensor.smoker_serve_together', 'rest_minutes') | int(60) }}"
+          done: >
+            {% set sent = states('input_text.smoker_put_on_sent') %}
+            {{ sent.split(':')[1] if sent.startswith(serve ~ ':') else '' }}
+          due: >
+            {{ (state_attr('sensor.smoker_serve_together', 'foods') or []) | selectattr('on', 'le', as_timestamp(now()))
+               | rejectattr('slot', 'in', (done | string) | list | map('int') | list) | list }}
+      - condition: template
+        value_template: "{{ serve > as_timestamp(now()) and due | count > 0 }}"
+      # Marked as sent first: the notifications below can't go out twice for the same food (the trigger re-checks).
+      - action: input_text.set_value
+        target: {entity_id: input_text.smoker_put_on_sent}
+        data:
+          value: "{{ serve ~ ':' ~ (done | string) ~ (due | map(attribute='slot') | join('')) }}"
+      - repeat:
+          for_each: "{{ due }}"
+          sequence:
+            - action: script.smoker_notify
+              continue_on_error: true
+              data:
+                title: "{{ repeat.item.name }}: on the grill now"
+                message: >
+                  Put {{ repeat.item.name if repeat.item.name.startswith('Food ') else 'the ' ~ repeat.item.name | lower }} on now
+                  {%- if not repeat.item.name.startswith('Food ') %} (Food {{ repeat.item.slot }}){% endif %} so everything is
+                  ready to serve at {{ serve | timestamp_custom('%-I:%M %p') }}: about
+                  {{ (repeat.item.total / 60) | round(1) }} h on the grill plus a {{ rest }} min rest.
+                priority: 1
+                tag: "put_on_{{ repeat.item.slot }}"
 
   - id: smoker_controller_offline
     alias: Smoker - controller offline during a cook
