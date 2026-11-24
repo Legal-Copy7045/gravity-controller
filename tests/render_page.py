@@ -1039,20 +1039,27 @@ def main():
                         failures.append(f"this cook vs your best: {bl}")
                     # One-page cook summary: opens with the facts and a chart; Close hides it.
                     # (through the page's delegated handler: buttons carry the cook's id in data-a, not in an onclick)
-                    if not fr.evaluate("""(() => { const b = document.querySelector('[data-act="summary"][data-a="abc123def456"]');
-                            if (!b) return false; b.click(); return true; })()"""):
+                    # (A live redraw can replace the journal's buttons between finding one and the click, and on a slow CI
+                    # machine building the summary takes a few seconds: up to 3 tries.)
+                    opened, found = False, False
+                    for _ in range(3):
+                        found = fr.evaluate("""(() => { const b = document.querySelector('[data-act="summary"][data-a="abc123def456"]');
+                                if (!b) return false; b.click(); return true; })()""") or found
+                        try:
+                            fr.wait_for_function("(() => { const s = document.getElementById('summary'); return s && !s.hidden && /Total/.test(s.textContent); })()", timeout=6000)
+                            opened = True
+                            break
+                        except Exception:
+                            pass
+                    if not found:
                         failures.append("cook summary: no Summary button with the cook's id in data-a")
-                    # (it builds the summary after reading the cook's curve: up to a few seconds on a slow CI machine)
-                    try:
-                        fr.wait_for_function("(() => { const s = document.getElementById('summary'); return s && !s.hidden && /Total/.test(s.textContent); })()", timeout=8000)
-                    except Exception:
-                        pass
                     sm = fr.evaluate("(() => { const s = document.getElementById('summary'); return s ? [!s.hidden, s.textContent] : [false, 'no #summary']; })()")
                     if not sm[0] or "Total" not in sm[1] or "Great bark" not in sm[1] or "Print or save as PDF" not in sm[1]:
                         failures.append(f"cook summary: {sm[1][:160]!r}")
-                    fr.click("#summary .sum-tools button:has-text('Close')"); time.sleep(0.2)
-                    if not fr.evaluate("document.getElementById('summary').hidden"):
-                        failures.append("cook summary: Close didn't close it")
+                    if opened:
+                        fr.click("#summary .sum-tools button:has-text('Close')", timeout=5000); time.sleep(0.2)
+                        if not fr.evaluate("document.getElementById('summary').hidden"):
+                            failures.append("cook summary: Close didn't close it")
                     # Supplies: the Charcoal card shows the stock and the last cook; Bought a bag adds one bag.
                     if "Bought a bag" not in fr.inner_text("#fuelcard") or "3.1 kg" not in fr.inner_text("#fuelcard"):
                         failures.append(f"charcoal stock rows: {fr.inner_text('#fuelcard')[-200:]!r}")
