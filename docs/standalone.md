@@ -2,7 +2,7 @@
 
 The controller runs a cook on its own:
 - the grill link over Bluetooth or Wi-Fi;
-- probes: the grill's own, a Govee H5198 read directly, and wired probes;
+- probes: the ones plugged into the grill's controller, and a Govee H5198 read directly;
 - cook programs, finish-time predictions and learning, and the charcoal gauge;
 - its own web page (`http://gravity980.local`).
 
@@ -191,6 +191,6 @@ The new owner sets their own PIN within 15 minutes of powering it on (the restar
 
 | Feature | Without Home Assistant |
 |---|---|
-| Thermometers that live in Home Assistant (e.g. the Govee via its integration) | Use the H5198 directly (Bluetooth) or wired probes |
+| Thermometers that live in Home Assistant (e.g. the Govee via its integration) | Use the H5198 directly (Bluetooth), or the grill's own probes |
 | Voice ("when is it done?") | Not available |
 | "Controller offline" alert | A controller can't report its own power cut; Home Assistant (or a ping service) can |

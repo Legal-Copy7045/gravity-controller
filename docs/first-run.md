@@ -60,10 +60,10 @@ button turns red and says *Tap again*), the second does it. The controller enfor
 Home Assistant or an automation does nothing. Turning on works while the grill is in standby with its Bluetooth
 awake.
 
-## 4. Measurements for phase 2 (developers)
+## 4. Measurements for a future controller (developers)
 
-Only if you want to help with the replacement controller: see
-[design.md §13](design.md#13-first-run-measurements-for-phase-2).
+Only if you want to help design a future controller of its own (not needed for the bridge): see
+[design.md §12](design.md#12-measurements-for-a-future-controller).
 
 ## 5. A first cook
 

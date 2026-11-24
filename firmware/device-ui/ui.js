@@ -1338,7 +1338,7 @@ function renderSetup(u) {
   for (let i = 1; i <= 6; i++) {
     const L = 'Food ' + i, e = E('select', L + ' probe'); if (!e) continue;
     const t = S(L + ' temperature');
-    rows += `<div class="row"><span>${esc(L)} <span class="muted small">${t != null ? fmt(t) + esc(u) : 'no reading'}</span></span><span>${/^Wired/.test(str(e)) ? EXP('Wired probes need the ADS1115 add-on and calibrating against a thermometer you trust.') + ' ' : ''}${sel('select', L + ' probe')}</span></div>`;
+    rows += `<div class="row"><span>${esc(L)} <span class="muted small">${t != null ? fmt(t) + esc(u) : 'no reading'}</span></span><span>${sel('select', L + ' probe')}</span></div>`;
   }
   put('sources', `<h3>Probe sources</h3>${rows || '<p class="note" style="margin-top:0">This controller has fixed probes.</p>'}
     ${h5 ? row('H5198 thermometer', on(h5) ? 'receiving' + (rssi != null ? ' · ' + fmt(rssi) + ' dBm' : '') : 'not heard') + `<p class="note">${EXP('Direct H5198 readings follow Home Assistant\'s Govee decoder but haven\'t been checked against its display on a real cook yet.')} "Home Assistant" sources need Home Assistant running; the rest work without it.</p>` : ''}`);

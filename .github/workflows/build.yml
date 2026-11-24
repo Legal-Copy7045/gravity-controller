@@ -148,8 +148,6 @@ jobs:
         with:
           path: ~/.cache/esphome
           key: esphome-release-${{ env.ESPHOME_VERSION }}-${{ runner.os }}-${{ hashFiles('.github/requirements/firmware.txt') }}
-      - name: Validate the optional wired-probes add-on
-        run: esphome config tests/configs/wired-check.yaml
       - name: Validate the controller without Home Assistant (base.yaml alone, no API)
         run: esphome config tests/configs/no-ha.yaml
       - name: Assemble site

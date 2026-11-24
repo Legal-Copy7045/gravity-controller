@@ -174,10 +174,9 @@ The controller has six food slots, **Food 1** to **Food 6**. Each slot reads one
 
 | Source | What it is | Defaults |
 |---|---|---|
-| Grill probe 1 / 2 | The Gravity 980's own food probes (through the bridge). The slot's target is kept in step with the grill's, both ways. | Food 1, Food 2 |
+| Grill probe 1 / 2 | The food probes plugged into the Gravity 980's controller (read through the bridge). The slot's target is kept in step with the grill's, both ways. | Food 1, Food 2 |
 | Home Assistant | Any temperature sensor in Home Assistant, e.g. a Govee H5198 through Home Assistant's **Govee Bluetooth** integration. If the thermometer has its own alarm (Govee: `…_temperature_alarm_probe_N`), that becomes the slot's target when you change it there. | Food 3–6 (the H5198's probes 1–4) |
 | H5198 probe 1–4 | A **Govee H5198** read directly over Bluetooth by the controller (no Home Assistant needed; finer, 0.01 °C readings). | |
-| Wired probe 1–4 | NTC meat probes plugged into the controller itself (optional ADS1115 add-on, below). | |
 
 Every slot gets the same predictions, stall detection, pull-at and rest coaching, and can be used in cook programs
 (`food3 >= 165`).
@@ -189,8 +188,7 @@ entities are named differently, pick them in the list, or change the defaults in
 probe N* template sensors. Behind the scenes slot N follows the helper *Smoker external probe N entity*. A Govee probe
 that's unplugged reports exactly 0 °C (32 °F); that's treated as no reading.
 
-**Without Home Assistant.** The grill's probes, the H5198 read directly, and wired probes all work with Home Assistant
-down: the controller keeps predicting, running programs and sending ntfy alarms. Only *Home Assistant* sources need it.
+**Without Home Assistant.** The grill's probes and the H5198 read directly both work with Home Assistant down: the controller keeps predicting, running programs and sending ntfy alarms. Only *Home Assistant* sources need it.
 
 **H5198 direct.** Nothing to set up: the controller uses the first H5198 that sends probe readings (*H5198
 connected* / *H5198 signal* show it) and remembers it once it has been heard steadily for a minute. A probe reading
@@ -208,23 +206,6 @@ broadcasts. If readings stay empty, add `log_raw: true` under `govee_h5198:`, re
 [open an issue](https://github.com/Legal-Copy7045/gravity-controller/issues/new/choose) (template: *Grill data*) with
 the logged packets.
 
-
-**Wired probes (optional hardware).** Up to four standard 2.5 mm NTC food probes on the controller: an **ADS1115**
-module on I2C (SDA GPIO8, SCL GPIO9 by default) and, per probe, a 100 kΩ 0.1 % resistor from 3.3 V to the ADS1115
-input, with the probe jack from that input to GND (diagram in `firmware/wired-probes.yaml`). Build from the ESPHome
-dashboard and add the package next to the main one:
-
-```yaml
-packages:
-  smoker: github://Legal-Copy7045/gravity-controller/firmware/core.yaml@main
-  wired: github://Legal-Copy7045/gravity-controller/firmware/wired-probes.yaml@main
-```
-
-Then pick *Wired probe N* as a slot's source. Without the add-on those sources simply read nothing. The default curve
-suits common 100 kΩ (B 3950) probes; for yours, either set `wired_r25` / `wired_b` (substitutions) from the probe's
-datasheet, or calibrate: note the probe's resistance (the ADS1115 voltage in the logs) in ice water, at room
-temperature and in boiling water, and use ESPHome's three-point `calibration:` on the `ntc` sensors. Until then,
-treat wired readings as experimental and check them against a thermometer you trust.
 
 ## Before you sell or give away your controller
 

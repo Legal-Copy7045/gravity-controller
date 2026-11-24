@@ -1,8 +1,8 @@
 # Hardware shortlist (draft BOM)
 
-Parts for the **phase 2 replacement controller** (planned). The phase 1 bridge needs only the ESP32-S3 board: see the
-[README](../README.md#what-you-need). These are prototype-friendly breakout modules first; a custom PCB can replace
-them in phase 4.
+**Future work, not needed today.** Parts for a future controller of its own ([design notes](../docs/design.md)).
+Today's bridge needs only the ESP32-S3 board: see the [README](../README.md#what-you-need). These are
+prototype-friendly breakout modules first; a custom PCB can replace them in stage 4.
 Prices are rough US street prices (Amazon/AliExpress/Adafruit/DigiKey) (generic vs branded) for budgeting only. ⚠ marks a choice that
 depends on the measurement session ([design.md §9](../docs/design.md#9-measurement-session-grill-out)).
 
@@ -36,7 +36,7 @@ depends on the measurement session ([design.md §9](../docs/design.md#9-measurem
 | Meat probes | **ThermoWorks Pro-Series** or **Inkbird**-style 2.5 mm NTC food probes | Cheap, replaceable, standard plugs. Reuse the stock 980 probes if they fit ⚠ | 10–26 ea |
 | Air/zone probes | Pro-Series-style **high-temp air probe with grate clip** (rated ~370 °C) | Left/right/top-rack zones | 13–26 ea |
 | Chute thermocouple | K-type, stainless sheath, **≥ 1000 °C rated**, mini-K plug | Sits in/near the burning charcoal | 10–20 |
-| Hopper-wall probes (phase 3) | 2–3 × NTC or K-type surface/clip probes | Burn-front estimate | 6–13 ea |
+| Hopper-wall probes (stage 3) | 2–3 × NTC or K-type surface/clip probes | Burn-front estimate | 6–13 ea |
 
 ## Hopper level (back of the list)
 

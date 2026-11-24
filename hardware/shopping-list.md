@@ -6,20 +6,20 @@ before ordering.
 
 Prices are rough US street prices for budgeting.
 
-## Phase 1: the bridge (all you need today)
+## Today: the bridge (all you need)
 
 | Qty | Part | Notes | Have? | ~$ |
 |---|---|---|---|---|
 | 1 | **ESP32-S3 N16R8** board (16 MB flash, 8 MB octal PSRAM, DevKitC-1 style, BOOT button on GPIO0) | The firmware is built for it. Keep the BOOT button reachable in the box | | 8–20 |
-| 1 | Screwless terminal base for the board | Optional, makes phase 2 wiring easier | | 0–8 |
 | 1 | USB-C charger (5 V, 1 A is plenty) + USB-C cable | Powers the bridge near the grill; a data cable for the first flash | ♻️ | 0–10 |
 | 1 | Small weatherproof box (IP65, ~100×68×50 mm) + cable gland | Keep the ESP32 out of rain and heat. Mount it away from the firebox; plastic so Bluetooth/Wi-Fi get out | | 8–15 |
 
 That's it: the bridge talks to the stock controller wirelessly. **Total ≈ $15–50.**
 
-## Phase 2: replacement controller (keeps the stock fan)
+## Future: a controller of its own (not needed today)
 
-Buy after the measurement session ([design.md §9](../docs/design.md#9-measurement-session-grill-out)) — the ⚠ rows
+**Future work.** Nothing in today's firmware uses these parts; they're for building a controller that replaces the
+stock one ([design notes](../docs/design.md)). Buy only after the measurement session ([design.md §9](../docs/design.md#9-measurement-session-grill-out)) — the ⚠ rows
 depend on what the measurements show.
 
 ### Core electronics
@@ -88,7 +88,7 @@ The hopper gets too hot for a laser (ToF) sensor without a cooled/remote-optics 
 from fan duty and burn time comes first (software only), then 2–3 clip-on probes on the outside of the hopper wall
 (burn-front estimate, uses spare ADS1115 channels).
 
-## Phase 2 total (new parts only)
+## Future controller total (new parts only)
 
 Roughly **$100–170** for electronics and connectors, plus **$60–130** for zone probes and the chute thermocouple,
 assuming the ♻️ items come from your parts box.

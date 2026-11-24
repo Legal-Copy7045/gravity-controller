@@ -5,8 +5,9 @@
 Local, cloud-free control and monitoring for the **Char-Griller Gravity Fed 980** charcoal smoker, built on an
 **ESP32-S3** with **ESPHome** and **Home Assistant**.
 
-**Phase 1 (this release): bridge.** The ESP32-S3 talks to the grill's *stock* controller over Wi-Fi (TCP) and/or
-Bluetooth. **It needs only the ESP32-S3 board**: no wiring, nothing inside the grill. Home Assistant is optional (see
+**Today: a bridge.** The ESP32-S3 talks to the grill's *stock* controller over Wi-Fi (TCP) and/or Bluetooth; the
+grill's controller still runs the fire. **It needs only the ESP32-S3 board**: no wiring, nothing inside the grill, no
+probes of its own. Home Assistant is optional (see
 [Running without Home Assistant](docs/standalone.md)). It adds:
 
 - **Learning cook-time prediction** for every food probe: a physics model (warming → stall → finishing) fitted to the
@@ -20,8 +21,8 @@ Bluetooth. **It needs only the ESP32-S3 board**: no wiring, nothing inside the g
   critical alarms when Home Assistant is down.
 - **Home Assistant AI** (any `ai_task` entity): plan a cook from a sentence, a second-opinion ETA every 30 minutes,
   a review after each cook.
-- **Six food probe slots**, each reading the grill's own probes, a **Govee H5198** directly over Bluetooth, or any
-  temperature entity in Home Assistant. Plus a **Bluetooth proxy**: the closest radio to the grill.
+- **Six food probe slots**, each reading a probe plugged into the grill's controller, a **Govee H5198** directly over
+  Bluetooth, or any temperature entity in Home Assistant. Plus a **Bluetooth proxy**: the closest radio to the grill.
 - **Charcoal fuel gauge** from what you tell it (started ¾ full, topped up to ½, finished with ⅛), learning your
   grill's burn rate; low-fuel and "won't last to the finish" alerts.
 - **Forecast-aware** finish times, a **pull-temperature and rest coach** (learned carryover and cooling), a
@@ -32,10 +33,13 @@ Bluetooth. **It needs only the ESP32-S3 board**: no wiring, nothing inside the g
   the app does); switch to **Advanced** for programs, AI, charcoal, planning and the journal.
 - **Dashboard**: a phone-friendly Home Assistant sidebar page, with AI recommendations (prep, lighting time, wrap point, weather effects).
 - **Its own web page** at `http://gravity980.local`, working without Home Assistant or the internet, with a PIN.
-- **Updates over the air** from GitHub Pages; **browser installer** for the first flash.
+- **Signed updates over the air**, optionally automatic while the grill is idle; **browser installer** for the first
+  flash.
 
-**Phase 2 (planned): replacement controller** driving the stock fan directly, with extra zone probes. See
-[docs/design.md](docs/design.md) and [hardware/shopping-list.md](hardware/shopping-list.md).
+**Future (not built): a controller of its own** that would replace the stock one, drive the stock fan itself and take
+probes wired straight into it (more food probes, zone probes, a chute thermocouple), maybe with a display. It needs
+hardware the project hasn't built yet. What's built and what's future: [docs/features.md](docs/features.md); the
+design: [docs/design.md](docs/design.md).
 
 Estimates that need history (finish times, pull-at, the charcoal gauge) and anything from the AI are marked
 **Experimental** until the controller has learned enough; see
@@ -52,7 +56,7 @@ Estimates that need history (finish times, pull-at, the charcoal gauge) and anyt
 - A **Char-Griller Gravity 980**. Other models are untested: reports welcome.
 - Optional: Home Assistant 2025.11 or newer, a Govee H5198 thermometer.
 
-That's all for phase 1. Parts for the planned replacement controller: [hardware/shopping-list.md](hardware/shopping-list.md).
+That's all. (Parts lists for a future controller of its own, not needed today: [hardware/](hardware/BOM.md).)
 
 ## Quick start
 
@@ -78,7 +82,8 @@ Problems, or grill data to share (another model, odd readings): [open an issue](
 | `tools/fake_grill.py` | Simulated stock controller for testing without the grill |
 | `tools/ble_probe.py` | Laptop tool to investigate the grill's Bluetooth protocol |
 | `tests/` | Unit tests, end-to-end test (native firmware ↔ simulator), HA config check, dashboard render test |
-| `docs/` | Install, first run, standalone use, features, protocol, programs, predictor, design and research; [embedding the page in another dashboard](docs/home-dashboards.md) (integrators) |
+| `hardware/` | Parts lists for a future controller of its own (not needed today) |
+| `docs/` | Install, first run, standalone use, features (today and future), protocol, programs, predictor, future design and research; [embedding the page in another dashboard](docs/home-dashboards.md) (integrators) |
 
 ## Development
 

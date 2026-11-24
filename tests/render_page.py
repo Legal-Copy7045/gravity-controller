@@ -86,9 +86,9 @@ STATES = dict([
     st("sensor.smoker_food_3_time_remaining_early", 15, "Smoker Food 3 time remaining (early)", **MIN),
     st("sensor.smoker_food_3_time_remaining_late", 30, "Smoker Food 3 time remaining (late)", **MIN),
     st("select.smoker_food_3_protein", "Poultry", "Smoker Food 3 protein", options=["Auto", "Poultry"]),
-    st("select.smoker_food_1_probe", "Grill probe 1", "Smoker Food 1 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant", "Wired probe 1", "Wired probe 2", "Wired probe 3", "Wired probe 4"]),
-    st("select.smoker_food_2_probe", "Wired probe 1", "Smoker Food 2 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant", "Wired probe 1", "Wired probe 2", "Wired probe 3", "Wired probe 4"]),
-    st("select.smoker_food_3_probe", "Home Assistant", "Smoker Food 3 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant", "Wired probe 1", "Wired probe 2", "Wired probe 3", "Wired probe 4"]),
+    st("select.smoker_food_1_probe", "Grill probe 1", "Smoker Food 1 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
+    st("select.smoker_food_2_probe", "H5198 probe 1", "Smoker Food 2 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
+    st("select.smoker_food_3_probe", "Home Assistant", "Smoker Food 3 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
     st("input_text.smoker_external_probe_3_entity", "sensor.example_probe", "Smoker external probe 3 entity"),
     st("sensor.example_probe", 171, "Example Probe", **F),
     st("sensor.example_probe_alarm", 203, "Example Probe alarm", **F),
@@ -657,7 +657,7 @@ def main():
                 if (src.count("<select") != 4 or 'value="sensor.example_probe" selected' not in src or "H5198 probe 4" not in src
                         or "Porch temperature" not in src or "example_probe_alarm" in src):
                     failures.append(f"{scheme}/{name}: probe sources: {src[:160]!r}")
-                if src.count("chip exp") != 2:  # the H5198 note + Food 2 on a wired probe
+                if src.count("chip exp") != 1:  # the H5198 note
                     failures.append(f"{scheme}/{name}: experimental chips in probe sources: {src.count('chip exp')}")
                 if "Home Assistant" not in checks["probes"]:
                     failures.append(f"{scheme}/{name}: Food 3's source not shown on its card")

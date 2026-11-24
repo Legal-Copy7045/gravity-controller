@@ -1,7 +1,24 @@
-# Gravity 980 replacement controller: design plan
+# A future controller of its own: design notes
 
-Status: **phase 2 plan** (phase 1, the bridge to the stock controller, is built: see the README). Draft, before hardware measurements. Items marked ⚠ depend on the measurements in
-[§9](#9-measurement-session-grill-out).
+**Future work, not built.** Today the project is a bridge: an ESP32-S3 board that talks to the Gravity 980's own
+controller, which still runs the fire ([features.md](features.md#today-a-bridge-to-the-grills-own-controller)). This
+page is the plan for a controller that would replace the stock one. It's a draft written before the grill's probes,
+fan and lid switch have been measured; items marked ⚠ depend on those measurements ([§9](#9-measurement-session-grill-out)).
+
+## What it might look like
+
+- **One box where the stock controller sits:** an ESP32-S3 on an interface board in a weatherproof enclosure, powered
+  from the grill's 12 V supply, with panel sockets for the probes and a harness to the stock fan and lid switch.
+- **It runs the fire itself:** a PID loop drives the stock fan (no Wi-Fi or Home Assistant needed), with a lid-open
+  pause, a lighting ramp and hardware safety (fan off while it boots or crashes, a lid interlock, a fuse).
+- **More probes:** the stock pit probe, food probes and zone probes plugged into the controller, and a thermocouple
+  in the charcoal chute for fire health.
+- **Optional at the grill:** a small display and a knob or buttons, a buzzer or speaker and a status light.
+- **The same software as today:** predictions, programs, alerts, the charcoal gauge, the journal, AI, the
+  controller's page, the dashboard and the Home Assistant entities carry over unchanged. The cook assistant reads
+  ordinary sensors, so it doesn't care whether a temperature came over the bridge or from a wired probe.
+
+Phases and exit criteria: [§10](#10-build-stages). Feature list: [features.md](features.md#future-a-controller-of-its-own).
 
 ## 1. Goals
 
@@ -11,10 +28,10 @@ Status: **phase 2 plan** (phase 1, the bridge to the stock controller, is built:
 | G2 | Pit control that works with no Wi-Fi or HA | PID loop runs on the ESP32; HA only changes setpoints |
 | G3 | Extra probes for zone temperatures | 4 meat + 4 zone NTC channels, plus 2 thermocouple channels (§5) |
 | G4 | Hopper fuel level (low priority) | Fuel-use estimate and burn-front probes first; ToF last (§6) |
-| G5 | Logging and stall detection in HA | Native ESPHome API, HA recorder, derivative sensors (§8) |
-| G6 | Phone control with a mobile-friendly UI, °C/°F configurable | HA Companion app dashboard as the main UI; on-device web UI as a fallback (§7) |
-| G7 | Notifications | HA Companion actionable notifications; ntfy direct from the ESP for critical alarms (§7.3) |
-| G9 | Probe-driven cook programs | Multi-step rules, e.g. "meat ≥ 165 °F for 30 min → pit 300 °F" (features.md, C-group) |
+| G5 | Logging and stall detection | Built for the bridge (§7) |
+| G6 | Phone control with a mobile-friendly UI, °C/°F configurable | Built for the bridge: the dashboard and the controller's page (§7) |
+| G7 | Notifications | Built for the bridge (§7), plus fan/probe/overtemperature alarms |
+| G9 | Probe-driven cook programs | Built for the bridge ([cook-programs.md](cook-programs.md)); runs unchanged |
 | G8 | Safe | Hardware fan-off default, lid interlock, overtemp/probe-fault cut-off, fuse (§4.4) |
 
 ## 2. Architecture
@@ -62,7 +79,7 @@ Part-level shortlist with alternatives and prices: [hardware/BOM.md](../hardware
 | NTC probes | 2 × ADS1115 (I²C, 0x48/0x49) = 8 channels | Ratiometric dividers, 0.1 % bias resistors (§5.2) |
 | Hopper level | VL53L1X ToF (I²C) behind a heat-resistant window in the hopper lid | §6 |
 | Lid/hopper switch | Stock switch → GPIO with RC filter and pull-up | Hardware interlock too (§4.4) |
-| Local UI (optional) | 1.3" OLED (SH1106) and a rotary encoder | For when the phone isn't handy; phase 4 |
+| Local UI (optional) | 1.3" OLED (SH1106) and a rotary encoder | For when the phone isn't handy; stage 4 |
 | Buzzer | 5 V active buzzer through an NPN transistor | |
 | Connectors | 2.5 mm mono jacks (NTC probes), mini-K thermocouple jacks, GX12 for the fan/switch harness | ⚠ match the stock plugs where reusing |
 | Protection | 3 A blade fuse on 12 V, reverse-polarity MOSFET or diode, TVS on 12 V | |
@@ -143,42 +160,13 @@ The 980 hopper holds ~7 kg (16 lb) of briquettes, with the lid at the top and a 
 HA derives the **burn rate** (kg/h) from the level history and fan duty, and from that **time to empty**. It sends a
 "refill hopper" notification about 60 minutes before the hopper runs out.
 
-## 7. Phone UI and notifications
+## 7. Pages, notifications and logging
 
-### 7.1 Primary: HA Companion app
-- A dedicated "Smoker" dashboard: big pit temp and setpoint (thermostat card), meat probe tiles with targets,
-  zone temps, hopper gauge, fan %, cook timer, and history graphs. It's mobile-first (sections/tile cards).
-- Remote access via Nabu Casa (confirmed).
-
-### 7.2 Fallback: on-device web UI
-- ESPHome `web_server` (v3) on the ESP, at `http://smoker.local`. It shows every entity and allows setpoint changes, and works with HA down.
-  It's usable on a phone, but basic.
-- Optional later: a custom single-page mobile UI served by the ESP, using `web_server` `js_url`/`css_url`, for a polished
-  look without HA. **Recommendation:** skip it unless HA access is a problem; the HA dashboard covers this.
-
-### 7.3 Notifications
-| Event | Channel | Priority |
-|---|---|---|
-| Meat probe target reached / within 3 °C | HA → Companion | normal, actionable ("+5 °C", "dismiss") |
-| Pit out of band > 10 min | HA → Companion | high |
-| Stall started / ended | HA → Companion | normal |
-| Hopper low / ETA < 60 min | HA → Companion | high |
-| Lid left open > 2 min | HA → Companion | high |
-| Fire out (pit falling with fan ≥ 90 % for 10 min) | HA → Companion **and** ESP → ntfy | critical |
-| Overtemp / probe fault / fan fault | HA → Companion **and** ESP → ntfy | critical (bypasses Do Not Disturb) |
-| Controller offline during an active cook | HA → Companion | high |
-
-The ESP→ntfy path (ESPHome `http_request` to ntfy.sh or a self-hosted ntfy) means the critical alarms
-still reach your phone if HA is down. It's optional; decide whether you want it.
-
-## 8. HA side: logging, stall detection, cook sessions
-- **Recorder** keeps everything; long-term statistics are on for all temperatures. InfluxDB/Grafana is optional.
-- **Cook session:** an `input_boolean.smoker_cook_active` plus input_datetime start, set automatically when the pit passes 80 °C
-  with the controller running. It's used to scope alarms and to annotate history.
-- **Stall detection** (per meat probe): a `derivative` sensor (°C/h, 20 min window). The stall is flagged when the probe is between 63 and 80 °C, the rate is
-  below 2 °C/h for 20 min, and the probe has risen at least 15 °C since the cook started. It clears when the rate goes above 5 °C/h. Duration is tracked.
-- **ETA to target:** a linear fit over the last 30 min, suppressed during a stall.
-- **Fire health:** pit and chute thermocouple trends against fan duty.
+Already built for the bridge and reused as they are: the Home Assistant dashboard and the controller's own page,
+notifications (Home Assistant, ntfy, Pushover, Telegram), cook sessions, stall detection, predictions and the
+journal ([features.md](features.md#today-a-bridge-to-the-grills-own-controller)). A future controller adds its own
+alarms to them: fan fault, probe fault, overtemperature (critical, also sent directly by the controller), and hopper
+low.
 
 ## 9. Measurement session (grill out)
 Bring a multimeter, a phone camera, and an IR thermometer if you have one.
@@ -196,9 +184,9 @@ Bring a multimeter, a phone camera, and an IR thermometer if you have one.
 9. If you light it: IR temperatures of the hopper lid underside, the hopper wall at the top/middle/bottom, and the controller's mounting area.
 10. The **ESP32-S3 board:** exact model or a photo of both sides.
 
-## 10. Build phases
+## 10. Build stages
 
-| Phase | Scope | Exit criteria |
+| Stage | Scope | Exit criteria |
 |---|---|---|
 | 0 | Measurements (§9), finalise the drive method and probe front-ends | Probe types known, fan behaviour characterised |
 | 1 | Bench prototype on breadboard: ESP32-S3 + fan driver + pit probe + lid switch; ESPHome PID, safety cut-offs, HA entities, web_server | Holds 110 °C ±5 °C on an empty burn, with no wires outside a temporary enclosure |
@@ -207,30 +195,20 @@ Bring a multimeter, a phone camera, and an IR thermometer if you have one.
 | 4 | Perfboard or PCB, weatherproof enclosure with panel connectors, optional OLED/encoder | Mounted in place of the stock controller |
 
 ## 11. Decisions so far
-- **Board:** an ESP32-S3 N16R8 DevKitC-1-style board (GPIO 35–37 reserved for the PSRAM; BOOT on GPIO0).
-- **Phase 1 first:** a bridge to the stock controller (Wi-Fi + Bluetooth) carries all the software features — prediction, programs, alerts, dashboard — and collects real cook data before the hardware is replaced. The cook assistant reads ordinary sensors, so it moves to the replacement controller unchanged.
-- **Bluetooth proxy** on the controller, for the Govee H5198 and other thermometers at the grill.
-- **Alarm and status light:** a MAX98357A amplifier + speaker and a WS2812B ring.
-- **Remote access:** Nabu Casa → the Companion app works away from home with no extra setup.
-- **ntfy:** yes, as a direct ESP→phone path for critical alarms.
-- **Local UI:** a "current temp" display is enough; a knob or buttons are a nice-to-have.
-- **Units:** °C or °F, user-configurable (device setting, mirrored in HA).
-- **Hopper ToF sensor:** moved to the back of the list (the hopper runs too hot); the burn-front and fuel-estimate methods come first.
-- **Cook programs:** probe-driven, multi-step cook automation is wanted. See [features.md](features.md) for the feature list awaiting prioritisation.
+- **Board:** an ESP32-S3 N16R8 DevKitC-1-style board (GPIO 35–37 reserved for the PSRAM; BOOT on GPIO0), the same as
+  the bridge.
+- **The bridge came first (built):** it carries all the software features and collects real cook data before any
+  hardware is replaced.
+- **Bluetooth proxy** on the controller, for the Govee H5198 and other thermometers at the grill (built).
+- **ntfy:** a direct controller → phone path for critical alarms (built).
+- **Alarm and status light:** a MAX98357A amplifier + speaker and a WS2812B ring (future).
+- **Local UI:** a "current temperature" display is enough; a knob or buttons are a nice-to-have (future).
+- **Hopper distance sensor:** at the back of the list (the hopper runs too hot); burn-front probes and the
+  fuel estimate come first.
 
-## 12. Proposed repo layout
-```
-esphome/smoker.yaml                 # main device config
-esphome/packages/*.yaml             # fan, probes, hopper, safety split into packages
-homeassistant/packages/smoker.yaml  # helpers, derivative/stall sensors, automations
-homeassistant/dashboards/smoker.yaml
-hardware/                           # schematic (KiCad), BOM, wiring diagrams, photos
-docs/                               # research, design, calibration logs
-```
+## 12. Measurements for a future controller
 
-## 13. First-run measurements for phase 2
-
-For developers helping with the replacement controller (owners using the bridge don't need this). With the grill
+For developers helping with a future controller (owners using the bridge don't need this). With the grill
 unplugged, follow the list in [§9](#9-measurement-session-grill-out). The most useful numbers:
 
 - pit-probe resistance;

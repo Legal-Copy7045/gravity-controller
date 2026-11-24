@@ -1,5 +1,7 @@
 # Gravity 980 local controller: research notes
 
+Early research, kept for the record. What's built today and what's future: [features.md](features.md).
+
 Goal: local, cloud-free control and monitoring of a **Char-Griller Gravity Fed 980** using an
 **ESP32-S3**, integrated with Home Assistant for logging, alarms and stall detection.
 
@@ -68,8 +70,9 @@ Reuse the stock **fan, pit probe, meat probes, door switch and 12 V PSU**, and r
 Run A first, logging stock behaviour and building the HA dashboards and stall logic. Then swap to B.
 The HA entity names stay the same, so dashboards and automations carry over.
 
-**Decision (updated):** phase 1 = Option A (bridge, now built — wireless, Wi-Fi + Bluetooth); phase 2 = Option B, full replacement keeping the stock fan. See [design.md](design.md).
-quickly. Phase 2 happens once the probe types are measured.
+**Decision:** Option A, the bridge, is what's built today (Wi-Fi + Bluetooth, no wiring). Option B, a controller
+of its own that keeps the stock fan, is future work: it needs the probes, fan and lid switch measured first. See
+[design.md](design.md) and [features.md](features.md).
 
 ## 5. Home Assistant features (either option)
 - **Logging:** the recorder plus InfluxDB/Grafana or HA history graphs, with a "cook session" helper to tag runs.
@@ -91,12 +94,3 @@ quickly. Phase 2 happens once the probe types are measured.
    `nc <grill-ip> 3333 | xxd` should print a frame about every second.
 7. ESP32-S3 board model: dev kit, PSRAM, USB-C. Most S3 boards are fine. Avoid GPIO 26-32 (flash/PSRAM) and the
    strapping pins 0, 3, 45 and 46.
-
-## 7. Proposed repo layout
-```
-esphome/gravity980-bridge.yaml        # Option A
-esphome/gravity980-controller.yaml    # Option B
-esphome/components/cg980/             # TCP protocol external component
-homeassistant/packages/bbq.yaml       # stall/derivative sensors, alarms, automations
-hardware/                             # schematic, BOM, wiring
-```

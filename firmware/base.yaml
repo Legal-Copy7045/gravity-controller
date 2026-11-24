@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "1.2.1"
+  project_version: "1.3.0"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -271,46 +271,6 @@ sensor:
     id: outdoor_wind
     internal: true
     update_interval: never
-  # Wired probe 1: no reading unless firmware/wired-probes.yaml (ADS1115 + NTC probes) is included.
-  - platform: template
-    id: wired_probe1
-    name: Wired probe 1
-    unit_of_measurement: "°C"
-    device_class: temperature
-    accuracy_decimals: 1
-    update_interval: never
-    lambda: return NAN;
-    internal: true
-  # Wired probe 2: no reading unless firmware/wired-probes.yaml (ADS1115 + NTC probes) is included.
-  - platform: template
-    id: wired_probe2
-    name: Wired probe 2
-    unit_of_measurement: "°C"
-    device_class: temperature
-    accuracy_decimals: 1
-    update_interval: never
-    lambda: return NAN;
-    internal: true
-  # Wired probe 3: no reading unless firmware/wired-probes.yaml (ADS1115 + NTC probes) is included.
-  - platform: template
-    id: wired_probe3
-    name: Wired probe 3
-    unit_of_measurement: "°C"
-    device_class: temperature
-    accuracy_decimals: 1
-    update_interval: never
-    lambda: return NAN;
-    internal: true
-  # Wired probe 4: no reading unless firmware/wired-probes.yaml (ADS1115 + NTC probes) is included.
-  - platform: template
-    id: wired_probe4
-    name: Wired probe 4
-    unit_of_measurement: "°C"
-    device_class: temperature
-    accuracy_decimals: 1
-    update_interval: never
-    lambda: return NAN;
-    internal: true
   - platform: template
     id: ext_probe1
     internal: true
@@ -835,18 +795,6 @@ cook_assistant:
           temperature: ext_probe1
           target: ext_probe1_target
           unit: ${weather_temperature_unit}
-        - name: Wired probe 1
-          temperature: wired_probe1
-          unit: C
-        - name: Wired probe 2
-          temperature: wired_probe2
-          unit: C
-        - name: Wired probe 3
-          temperature: wired_probe3
-          unit: C
-        - name: Wired probe 4
-          temperature: wired_probe4
-          unit: C
       source:
         name: Food 1 probe
       default_source: Grill probe 1
@@ -917,18 +865,6 @@ cook_assistant:
           temperature: ext_probe2
           target: ext_probe2_target
           unit: ${weather_temperature_unit}
-        - name: Wired probe 1
-          temperature: wired_probe1
-          unit: C
-        - name: Wired probe 2
-          temperature: wired_probe2
-          unit: C
-        - name: Wired probe 3
-          temperature: wired_probe3
-          unit: C
-        - name: Wired probe 4
-          temperature: wired_probe4
-          unit: C
       source:
         name: Food 2 probe
       default_source: Grill probe 2
@@ -999,18 +935,6 @@ cook_assistant:
           temperature: ext_probe3
           target: ext_probe3_target
           unit: ${weather_temperature_unit}
-        - name: Wired probe 1
-          temperature: wired_probe1
-          unit: C
-        - name: Wired probe 2
-          temperature: wired_probe2
-          unit: C
-        - name: Wired probe 3
-          temperature: wired_probe3
-          unit: C
-        - name: Wired probe 4
-          temperature: wired_probe4
-          unit: C
       source:
         name: Food 3 probe
       default_source: Home Assistant
@@ -1081,18 +1005,6 @@ cook_assistant:
           temperature: ext_probe4
           target: ext_probe4_target
           unit: ${weather_temperature_unit}
-        - name: Wired probe 1
-          temperature: wired_probe1
-          unit: C
-        - name: Wired probe 2
-          temperature: wired_probe2
-          unit: C
-        - name: Wired probe 3
-          temperature: wired_probe3
-          unit: C
-        - name: Wired probe 4
-          temperature: wired_probe4
-          unit: C
       source:
         name: Food 4 probe
       default_source: Home Assistant
@@ -1163,18 +1075,6 @@ cook_assistant:
           temperature: ext_probe5
           target: ext_probe5_target
           unit: ${weather_temperature_unit}
-        - name: Wired probe 1
-          temperature: wired_probe1
-          unit: C
-        - name: Wired probe 2
-          temperature: wired_probe2
-          unit: C
-        - name: Wired probe 3
-          temperature: wired_probe3
-          unit: C
-        - name: Wired probe 4
-          temperature: wired_probe4
-          unit: C
       source:
         name: Food 5 probe
       default_source: Home Assistant
@@ -1245,18 +1145,6 @@ cook_assistant:
           temperature: ext_probe6
           target: ext_probe6_target
           unit: ${weather_temperature_unit}
-        - name: Wired probe 1
-          temperature: wired_probe1
-          unit: C
-        - name: Wired probe 2
-          temperature: wired_probe2
-          unit: C
-        - name: Wired probe 3
-          temperature: wired_probe3
-          unit: C
-        - name: Wired probe 4
-          temperature: wired_probe4
-          unit: C
       source:
         name: Food 6 probe
       default_source: Home Assistant

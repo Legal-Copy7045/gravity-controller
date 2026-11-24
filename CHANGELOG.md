@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.0] - 2026-11-24
+
+- **The documentation now separates what's built from what's future.** Today the project is a bridge: an ESP32-S3
+  board that talks to the grill's own controller and has no probes or wiring of its own. A controller of its own
+  (driving the fan, probes wired into it, a display) is future work: see *Features: today and in the future*
+  (docs/features.md) and the design notes (docs/design.md).
+- **Removed: the optional wired-probes add-on** (an ADS1115 board on the controller, *Wired probe 1-4*). It needed
+  hardware the project doesn't make yet; probes wired to the controller are now part of the future plans. The probes
+  plugged into the grill's own controller (*Grill probe 1/2*) and the pit probe are unchanged. A food slot that was
+  set to a wired probe goes back to its default source.
 ## [1.2.1] - 2026-11-24
 
 - **Automatic updates on the Home Assistant dashboard:** the Smoker dashboard (Setup → Controller) now has the

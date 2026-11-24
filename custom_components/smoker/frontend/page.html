@@ -353,7 +353,7 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
     <h2 class="sec"><svg class="ic"><use href="#i-setup"/></svg>Setup</h2>
     <div class="grid">
       <section class="tc" id="controlcard"></section>
-      <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant · wired</small></h3><div id="sources"></div></section>
+      <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant</small></h3><div id="sources"></div></section>
       <section class="tc"><h3>Controller</h3><div id="diag"></div></section>
       <section class="tc" id="photocard"></section>
       <section class="tc" id="sharecard"></section>
@@ -1491,7 +1491,7 @@ function renderSources() {
     const ha = st.state === 'Home Assistant';
     const txtE = byName('Smoker external probe ' + (i + 1) + ' entity', ['input_text']);
     return `<div class="row"><span>${esc(p.label)} <span class="muted small">${t != null ? fmt(t) + esc(TU()) : 'no reading'}</span></span>
-      <span>${/^Wired/.test(st.state) ? EXP('Wired probes need the ADS1115 add-on and calibrating against a thermometer you trust.') + ' ' : ''}<select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></span></div>` +
+      <span><select onchange="act.source('${p.key}', this.value)">${opts.map(o => `<option ${st.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></span></div>` +
       (ha && txtE ? haPicker(i + 1, val(txtE) || '') : ha ? pkgNote('Reading a Home Assistant thermometer') : '');
   }).join('');
   const conn = val(E('H5198 connected', ['binary_sensor'])), rssi = num(E('H5198 signal', ['sensor']));

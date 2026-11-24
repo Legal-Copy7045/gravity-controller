@@ -1,115 +1,55 @@
-# Feature list (for prioritisation)
+# Features: today and in the future
 
-Each feature has an ID so priorities can be assigned (e.g. Must / Should / Later).
-The **Dep** column lists hard dependencies.
+## Today: a bridge to the grill's own controller
 
-## P: Pit control and safety
+The controller is an **ESP32-S3 board and nothing else**. It has no probes, fan driver or wiring of its own: it talks to
+the Gravity 980's stock controller over Wi-Fi and/or Bluetooth, like the Char-Griller app does. The grill's
+controller still runs the fire (fan, pit temperature, lid switch). Everything the bridge reads comes from the grill,
+from a Govee H5198 nearby, or from Home Assistant.
 
-| ID | Feature | Dep |
+| Area | What it does today |
+|---|---|
+| Grill link | Reads the grill over Wi-Fi (TCP) or Bluetooth, or both; falls back between them |
+| Control | Pit and food targets, Turbo, the timer, power on/off (two taps within 10 s), like the Char-Griller app |
+| Temperatures | The pit probe and the two food probes **plugged into the grill's controller**; a Govee H5198 read directly over Bluetooth; any temperature sensor in Home Assistant. Six food slots, each reading one of these |
+| Predictions | Finish time per food (warming → stall → finishing) with an early/late range, learned from your past cooks, weather-aware; stall detection and stall remaining |
+| Cook programs | Multi-step programs run on the controller (`pit 250 until food1 >= 165 for 30m; ...`), presets, manual override and resume, restore after a restart |
+| Alerts | Done/almost done, stall, probe slipped out, pit off target, fire may be out, lid open, connection lost, low charcoal; through Home Assistant, ntfy, Pushover or Telegram |
+| Charcoal | A fuel gauge from what you tell it (levels, top-ups), learning your burn rate |
+| Planning | "Ready by" planner, pull-temperature and rest coach, kitchen timer |
+| AI (optional) | Plan a cook from a sentence, a second-opinion estimate, recommendations, a review after the cook (Home Assistant's AI task, or Gemini/Claude/OpenAI from the controller) |
+| Journal | Every cook saved with ratings, notes, photos read by AI, curve comparison, sharing |
+| Pages | The controller's own page (works without Home Assistant or the internet, optional PIN for changes) and the Home Assistant dashboard; Basic and Advanced modes |
+| Voice | Assist: "when is the brisket done?", "set the smoker to 275" |
+| Updates | Signed over-the-air updates from this project's releases, optionally automatic while idle; web installer for the first flash |
+
+Details: [features-0.2.md](features-0.2.md), [cook-programs.md](cook-programs.md), [standalone.md](standalone.md).
+
+## Future: a controller of its own
+
+These need hardware the project hasn't built yet: a board that replaces the grill's controller (or sits beside it)
+and drives the stock fan itself. Nothing below is in the firmware today. The design notes are in
+[design.md](design.md); parts lists in [hardware/](../hardware/BOM.md).
+
+| ID | Feature | Needs |
 |---|---|---|
-| P1 | Pit temperature control (PID) driving the stock fan, setpoint from HA, phone, web UI or knob | |
-| P2 | Fan kick-start and minimum duty (keeps a 3-wire fan spinning at low speed) | P1 |
-| P3 | Lid-open handling: fan stops, PID frozen, recovery period after closing (avoids the 980's overshoot spikes) | P1 |
-| P4 | Start-up / ignition mode: full fan until lit, then a setpoint ramp to limit overshoot | P1 |
-| P5 | Shutdown / burn-out mode: fan off, alarms quiet, logs closed | P1 |
-| P6 | Safety cut-offs: overtemp, pit probe open/short, frozen reading; fan off at boot/crash (hardware); lid interlock (hardware) | |
-| P7 | Fan health monitoring (current sense): dead, unplugged or seized fan | P1 |
-| P8 | PID autotune, with gains stored on the device and editable in HA | P1 |
-| P9 | Selectable control source: pit probe, a zone probe, or the average of several | P1, T3 |
+| F1 | Pit temperature control (PID) driving the stock fan, with fan kick-start and a minimum speed | Fan driver |
+| F2 | Lid-open handling: fan stops, the loop pauses, then a recovery period (avoids the 980's overshoot spikes) | Fan driver, lid switch input |
+| F3 | Lighting mode (full fan until lit, then a ramp) and a burn-out/shutdown mode | Fan driver |
+| F4 | Hardware safety: fan off while the board boots or crashes, lid interlock, overtemperature and probe-fault cut-offs, fuse | Fan driver, interface board |
+| F5 | Fan health: dead, unplugged or seized fan (current sensing) | Current monitor |
+| F6 | PID autotune and per-fuel tuning (briquettes vs lump) | F1 |
+| F7 | Probes wired to the controller itself: four more food probes (2.5 mm) | Probe inputs (ADC) |
+| F8 | Zone probes (left, right, top rack) and control on a chosen zone or an average | Probe inputs (ADC) |
+| F9 | A thermocouple in the charcoal chute: fire health, flare-up detection | Thermocouple input |
+| F10 | Hopper level: burn-front probes on the hopper wall; a distance sensor last (the hopper runs hot) | Probe inputs, sensor |
+| F11 | A display, buttons or a knob, a buzzer or speaker and a status light on the controller | Display, buzzer |
+| F12 | A weatherproof enclosure with panel connectors, mounted where the stock controller sits | PCB, enclosure |
+| F13 | A motorised damper on the fan intake (tighter control at low temperatures) | Servo, mounting |
 
-## T: Temperature inputs
+What carries over: the cook assistant (predictions, programs, alerts, charcoal, journal, AI) reads ordinary sensors,
+so it moves to a future controller unchanged, and so do the Home Assistant entities, the dashboards and the
+controller's own page. Today's bridge is also collecting the real cook data the design needs.
 
-| ID | Feature | Dep |
-|---|---|---|
-| T1 | Stock pit probe | |
-| T2 | 4 wired food probes (2.5 mm NTC) | |
-| T3 | Up to 4 wired zone/ambient probes (left, right, top rack, etc.) | |
-| T4 | Charcoal chute thermocouple (fire health, flare-up detection) | |
-| T5 | **External probes as inputs**: wireless probes you already own (via their HA integration, or directly over BLE where supported) usable in alerts and cook programs | ⚠ which probes do you have? |
-| T6 | Per-probe calibration, offsets and naming ("Brisket point", "Left grate") | |
-| T7 | °C / °F configurable, applied everywhere (device display, web UI, HA, notifications) | |
-
-## C: Cook programs and automation
-
-| ID | Feature | Dep |
-|---|---|---|
-| C1 | Per-probe targets with alerts (done, approaching, too hot) | T2 |
-| C2 | **Cook programs**: ordered steps of *trigger → actions*. Triggers: probe ≥/≤ T, held for N min; elapsed time; clock time; stall started/ended; step entered. Actions: set pit temp, notify, buzzer, hold/keep-warm, shutdown, go to step | P1, T2 |
-| C3 | Program library: save, edit and pick programs from the phone (e.g. pork butt, brisket, ribs), with a step-by-step "now on step 3 of 5" view | C2 |
-| C4 | Programs run **on the controller**, so they continue if Wi-Fi/HA drops (wired probes only; external probes pause their triggers when unavailable) | C2 |
-| C5 | Keep-warm / hold: when the food is done, drop the pit to a hold temp | C2 |
-| C6 | Manual override at any time: changing the setpoint pauses the program, with a "resume program" option | C2 |
-| C7 | Ad-hoc HA automations/blueprints using controller entities (anything HA can do) | P1 |
-
-Example (your case) as a C2 program:
-```
-Step 1  pit 250 °F          until  probe "Pork" ≥ 165 °F for 30 min
-Step 2  pit 300 °F          until  probe "Pork" ≥ 200 °F
-Step 3  pit 160 °F (hold)   notify "Pork done – resting"
-```
-
-## A: Analytics and logging
-
-| ID | Feature | Dep |
-|---|---|---|
-| A1 | Cook session logging (automatic start/stop, history graphs per cook) | |
-| A2 | Stall detection per food probe (start, end, duration) | T2 |
-| A3 | ETA to target per food probe (suppressed during a stall) | T2 |
-| A4 | Fire-out detection (pit falling while the fan is high; chute TC dropping) | P1, (T4) |
-| A5 | Fuel-use estimate from fan duty and time → "about X h of charcoal left" (no hopper sensor) | P1 |
-| A6 | Hopper burn-front probes on the hopper wall (measured level, no optics) | T3 channels |
-| A7 | Hopper ToF level sensor (**back of the list**: heat) | |
-| A8 | Cook history export (CSV) and per-cook notes/annotations | A1 |
-
-## U: User interface
-
-| ID | Feature | Dep |
-|---|---|---|
-| U1 | HA mobile dashboard via the Companion app (Nabu Casa remote access): pit, probes, zones, program status, graphs | |
-| U2 | On-device web UI at `gravity980.local` (works without HA, LAN only) | |
-| U3 | On-device display: current pit temp (plus setpoint/probes if a larger OLED) | |
-| U4 | Knob or buttons on the device for the setpoint and alarm silence | U3 |
-| U5 | Device buzzer for alarms, with silence from the phone or a button | |
-
-## N: Notifications
-
-| ID | Feature | Dep |
-|---|---|---|
-| N1 | HA Companion notifications: probe done, stall, out-of-band pit, lid open, program step changes | U1 |
-| N2 | Actionable notifications ("+25 °F", "Skip to next step", "Silence") | N1 |
-| N3 | ntfy direct from the controller for critical alarms (fire out, overtemp, probe/fan fault, controller lost HA) | |
-| N4 | Quiet hours and per-alert enable/disable | N1 |
-
-## H: Hardware and platform
-
-| ID | Feature | Dep |
-|---|---|---|
-| H1 | Breadboard prototype (fan, pit probe, lid switch) | measurements |
-| H2 | Perfboard/PCB, weatherproof enclosure, panel connectors | H1 |
-| H3 | OTA firmware updates and a Wi-Fi fallback hotspot | |
-| H4 | External antenna if Wi-Fi is weak on the grill | test |
-| H5 | Motorised damper on the fan intake (tighter control at low temps) | P1 |
-
-## X: Further ideas (added later)
-
-| ID | Feature | Dep |
-|---|---|---|
-| X1 | "Ready by" planner: enter a serve time and the cook plan, get a "light the grill by" time and reminders | A3, C2 |
-| X2 | Rest timer and carry-over: once off the grill, track the rest with a probe still in, and alert at the rest target | T2 |
-| X3 | Probe sanity checks: a probe that suddenly jumps to pit temperature (it slipped out of the meat) or reads implausibly; alert instead of acting on it | T2, C2 |
-| X4 | Grease-fire / flare-up detection: fast pit or chute rise with the lid closed and the fan low → critical alert | T4 |
-| X5 | Power-loss / reboot recovery: resume the program and setpoint after a brown-out or crash, if the pit is still hot | C2 |
-| X6 | Weather compensation: use HA weather (ambient, wind) as a feed-forward term, plus rain alerts during a cook | P1 |
-| X7 | Fuel profiles (briquettes vs lump) with separate PID gains and fuel-burn rates | P8, A5 |
-| X8 | Maintenance counters: burn hours since the ash bin was emptied, the fan was cleaned or the probes were calibrated | A1 |
-| X9 | HA Assist voice queries: "what's the brisket at?", "set the smoker to 275" | U1 |
-| X10 | Cook comparison: overlay this cook's curves on a previous one | A1 |
-| X11 | Diagnostics: Wi-Fi signal, controller board temperature, uptime, fan current trend | |
-
-## Design notes for C2 (cook programs)
-- **Where it runs:** on the ESP32 (custom ESPHome component). It is robust without HA, and HA just shows and edits it.
-  The alternative, running programs as HA scripts/automations, is quicker to build and easy to edit, but stops if HA or Wi-Fi drops mid-cook.
-- **How programs are edited:** a compact JSON program stored on the device, edited from an HA dashboard card or the device web UI.
-  A few presets are built in.
-- **External probes (T5):** the ESP subscribes to the HA entity (ESPHome `homeassistant` sensor). If the value goes stale,
-  triggers that depend on it pause and you get a notification, instead of acting on old data.
+Before any of this can start, the grill's probes, fan and lid switch have to be measured: see
+[design.md §9](design.md#9-measurement-session-grill-out).
