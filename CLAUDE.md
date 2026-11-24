@@ -46,3 +46,10 @@ feature PR keeps it current: add tests for the feature, a `regression/catalogue/
 them, a `regression/manual.yaml` entry for what only the real grill can show, and commit new IDs in
 `regression/ids/`. IDs are append-only. `regression/out/` is git-ignored; `regression/RUNS.md` keeps one public-safe
 entry per run. Live checks are read-only and take the Home Assistant URL from the environment, never the repo.
+
+## Security posture (docs/security.md)
+
+Convenient, not full of holes, never a way in for code. Keep the hard lines (signed updates only, no LAN firmware
+upload, other websites refused, keys write-only, AI/outside data treated as data, pinned CI); don't add friction
+(PINs, windows, hidden buttons) against people the owner already trusts. Reviews use this threat model.
+

@@ -124,8 +124,8 @@ Then:
 **The controller's own page:** open `http://gravity980.local` (or its IP; on a phone, Android especially, the IP is
 more reliable) for a phone page served by the controller itself: connection status first, the grill with live
 readings, food, pit target and program, charcoal and setup. It works without Home Assistant and without the internet,
-and loads nothing from other sites. A PIN is optional: to lock changes, set one there (Setup → This page's PIN) within
-15 minutes of powering on ([details](standalone.md#the-device-pages-pin)), or set it from Home Assistant at any time:
+and loads nothing from other sites. A PIN is optional: to lock changes, set one there (Setup → This page's PIN) whenever
+you like ([details](standalone.md#the-device-pages-pin)), or set it from Home Assistant at any time:
 Developer tools → Actions, **Smoker: Set the device page PIN** (`smoker.set_device_pin`, admin only; empty clears it).
 
 ## 3. Home Assistant package

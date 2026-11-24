@@ -151,9 +151,8 @@ void Guard::open_first_pin_() {
 }
 
 uint32_t Guard::first_pin_for() const {
-  if (this->pin_set() || !this->first_open_) return 0;
-  const uint32_t gone = this->now_() - this->first_from_;
-  return gone < FIRST_PIN_MS ? (FIRST_PIN_MS - gone + 999) / 1000 : 0;
+  // From 1.4.2 the first PIN can be set whenever none is set (convenience over a 15-minute window): 1 = open.
+  return this->pin_set() ? 0 : 1;
 }
 
 std::string Guard::set_pin(const std::string &pin, const std::string &current, const std::string &client) {
@@ -164,8 +163,6 @@ std::string Guard::set_pin(const std::string &pin, const std::string &current, c
       this->fail_(client);  // counts as a wrong PIN (adds to the lockout)
       return "The current PIN is wrong";
     }
-  } else if (this->first_pin_for() == 0) {
-    return FIRST_PIN_CLOSED;  // anyone on the Wi-Fi could otherwise claim the page
   }
   std::string why = pin_problem(pin);
   if (!why.empty()) return why;

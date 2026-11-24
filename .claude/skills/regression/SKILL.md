@@ -48,6 +48,9 @@ Start two general-purpose agents with a brief that gives them the code, not your
   workflow secrets).
 
 Both: read-only, no test suites (ports are in use), verify each finding end to end, nothing identifying the owner.
+Give both the threat model in `docs/security.md`: convenience matters more than hardening against people the owner
+already trusts; what must never happen is a way in for someone else's code, a leaked key, or bad outside data pushing
+the grill past safe limits. Findings outside that model are `info` at most, and a fix must not add friction for it.
 
 ## 4. Report
 

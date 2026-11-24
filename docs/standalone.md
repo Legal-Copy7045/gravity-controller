@@ -26,7 +26,7 @@ This page covers what replaces Home Assistant for the rest. Everything here also
 3. The list goes away once the grill, alerts and time zone are done, or with **Hide this**. Open `http://gravity980.local/?start` to
    see it again.
 
-**Want a PIN? Set it soon after plugging it in:** the first PIN can only be set within 15 minutes of power-on (see below).
+**Want a PIN?** Set it on the page whenever you like (see below).
 Mount the controller so you can still reach its **BOOT** button: it clears a forgotten PIN and allows Bluetooth Wi-Fi
 setup.
 
@@ -54,11 +54,10 @@ How it's protected:
 - **Hashed, never stored:** the PIN is hashed with PBKDF2-HMAC-SHA256 (20,000 rounds, random salt). Only the salt
   and the hash are stored.
 - **Rules:** at least 6 characters; repeated or sequential ones (111111, 123456) are refused.
-- **Setting the first PIN:** only within 15 minutes of powering the controller on (or of holding its BOOT button
-  for 10 s, which clears a forgotten PIN), so someone else on your Wi-Fi can't set one first and lock you out. A
-  restart from the page doesn't reopen that window; unplugging it does. With Home Assistant, you can also set (or
-  replace) it at any time from there: **Smoker: Set the device page PIN** (`smoker.set_device_pin`, admin only). Home
-  Assistant holds the controller's API key, so it's trusted to do this without the window or the current PIN; it
+- **Setting the first PIN:** whenever none is set (before 1.4.2 only within 15 minutes of power-on). If someone else
+  on your Wi-Fi set one first, it would only lock the page: hold BOOT for 10 s, or clear it from Home Assistant. With
+  Home Assistant, you can also set (or replace) it at any time from there: **Smoker: Set the device page PIN** (`smoker.set_device_pin`, admin only). Home
+  Assistant holds the controller's API key, so it's trusted to do this without the current PIN; it
   isn't allowed until Home Assistant has adopted the controller. The controller's **Device page PIN** sensor says
   "set" or "not set" (and why a PIN from Home Assistant was refused), never the PIN.
 - **Lockout:** 5 wrong PINs from one device lock that device out for 30 s, then 60 s, doubling up to an hour; other
@@ -68,8 +67,8 @@ How it's protected:
 - **Plain HTTP:** the page is served over http:// on your network (a controller can't hold a trusted certificate), so
   the PIN and the session travel unencrypted over your Wi-Fi. Anyone who knows your Wi-Fi password could in principle
   read them; the PIN protects against other people's devices, guests and web pages, not against someone already able
-  to read your Wi-Fi traffic. The session stays in the browser's local storage for 12 hours after its last use.
-- **Sessions:** unlocking gives this browser a random 256-bit session, valid for 12 hours after its last change. At
+  to read your Wi-Fi traffic. The session stays in the browser's local storage for a week after its last use.
+- **Sessions:** unlocking gives this browser a random 256-bit session, valid for a week after its last change. At
   most 4 are live, and changing the PIN ends them all.
 - **Other websites:** they can't send changes on your behalf; the web server refuses cross-origin requests.
 - **Keys are write-only:** notification and AI keys can be replaced or removed, never read back, and they're never
@@ -77,8 +76,8 @@ How it's protected:
 
 **Forgotten the PIN?** Hold the controller's **BOOT** button for 10 seconds (and let go before 30 s: that's the
 factory reset), or set a new one (or clear it, with an empty PIN) straight away from Home Assistant (**Smoker: Set the
-device page PIN**, admin only). Your keys and settings are kept. (From 1.4.1 there is no "Clear the device page PIN" or
-"Factory reset" button in Home Assistant: Home Assistant lets every one of its users press any button.)
+device page PIN**, admin only), or press **Clear the device page PIN** in Home Assistant. Your keys and settings are
+kept.
 
 ## Notifications straight to your phone
 
@@ -192,7 +191,7 @@ go to the provider and aren't kept on the controller.
    so anyone who had the board in their hands could have read them, the Wi-Fi password included; change that too if
    you lost the controller rather than reset it.
 
-The new owner sets their own PIN within 15 minutes of powering it on (the restart after the reset doesn't count).
+The new owner sets their own PIN on the page whenever they like.
 
 ## Still needs Home Assistant
 

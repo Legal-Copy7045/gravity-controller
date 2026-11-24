@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.2] - 2026-11-24
+
+Convenience over lock-down, where the lock-down only guarded against people you already trust (docs/security.md now
+sets out what's guarded firmly and what isn't).
+
+- **Home Assistant buttons back:** *Clear the device page PIN* and *Factory reset* (still two presses within 10 s).
+- **Device page PIN:** set it whenever you like (no more 15-minute window after power-on); a browser stays unlocked
+  for a week instead of 12 hours.
+- New docs/security.md: the threat model the regression suite's security review now uses. The hard lines stay:
+  signed updates only, no firmware upload over the network, other websites refused, keys write-only, AI and outside
+  data treated as data.
+
 ## [1.4.1] - 2026-11-24
 
 Fixes from the first full regression run (26 findings from the bug and security reviews; report in regression/RUNS.md).

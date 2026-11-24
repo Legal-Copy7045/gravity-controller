@@ -984,10 +984,10 @@ static void test_pin_auth() {
   clock += 61000;
   t = g.login("739215");
   CHECK(t.size() == 64 && g.locked_for() == 0);
-  // Sessions last 12 h from their last use.
-  clock += 11UL * 3600 * 1000;
+  // Sessions last a week from their last use.
+  clock += SESSION_MS - 3600UL * 1000;
   CHECK(g.check(t));
-  clock += 13UL * 3600 * 1000;
+  clock += SESSION_MS + 3600UL * 1000;
   CHECK(!g.check(t));
   // Sessions survive a restart: saved, then restored into a new Guard (12 h from then); junk is ignored.
   t = g.login("739215");
@@ -1020,22 +1020,15 @@ static void test_pin_auth() {
   g.clear();
   CHECK(!g.pin_set() && g.login("739215") == "");
 
-  // The first PIN: only within 15 minutes of starting (or of a clear), so a late-comer on the Wi-Fi can't claim it.
+  // The first PIN: whenever none is set (1.4.2: no 15-minute window any more).
   {
     uint32_t c = 5000;
     uint8_t sd = 3;
     Guard f([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
-    CHECK(f.first_pin_for() == 900);
-    c += 14 * 60 * 1000;
-    CHECK(f.first_pin_for() == 60);
-    c += 61 * 1000;
+    CHECK(f.first_pin_for() == 1);
+    c += 3UL * 24 * 3600 * 1000;
     f.tick();
-    CHECK(f.first_pin_for() == 0 && f.set_pin("482913", "") == FIRST_PIN_CLOSED && !f.pin_set());
-    c += 0x80000000u;  // millis() wrapping doesn't reopen it
-    c += 0x7ffff000u;
-    CHECK(f.first_pin_for() == 0);
-    f.clear();  // the BOOT button or Home Assistant: open again
-    CHECK(f.first_pin_for() == 900 && f.set_pin("482913", "") == "" && f.pin_set());
+    CHECK(f.first_pin_for() == 1 && f.set_pin("482913", "") == "" && f.pin_set());
     CHECK(f.first_pin_for() == 0);
     // Changing it later needs only the current PIN, whenever.
     c += 3600 * 1000;
@@ -1127,7 +1120,7 @@ static void test_pin_auth() {
     Guard r([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
     c += 16 * 60 * 1000;
     r.tick();
-    CHECK(r.first_pin_for() == 0 && r.set_pin("482913", "") == FIRST_PIN_CLOSED);  // the page's window has closed
+    CHECK(r.first_pin_for() == 1);                                                  // none set: the page can set one
     CHECK(r.replace_pin("12345") == pin_problem("12345") && !r.pin_set());         // too short
     CHECK(r.replace_pin("654321") != "" && r.replace_pin("aaaaaa") != "" && !r.pin_set());  // too easy
     CHECK(r.replace_pin(std::string(33, 'x') + "1") != "" && !r.pin_set());        // too long
@@ -1141,7 +1134,7 @@ static void test_pin_auth() {
     CHECK(!r.check(tok) && r.generation() != gen && r.locked_for("10.0.0.66") == 0);
     CHECK(r.login("482913", "10.0.0.2") == "" && r.login("739215", "10.0.0.2").size() == 64);
     CHECK(r.replace_pin("12") != "" && r.pin_set());                               // a bad one leaves the PIN as it was
-    CHECK(r.replace_pin("") == "" && !r.pin_set() && r.first_pin_for() == 900);    // cleared (window open again)
+    CHECK(r.replace_pin("") == "" && !r.pin_set() && r.first_pin_for() == 1);      // cleared: open again
   }
 
   // Two presses within 10 s (the factory reset): the first arms, a second in time confirms, a late one arms again.
@@ -1428,7 +1421,7 @@ static void test_security_fixes() {
     std::string t = g.login("482913");
     CHECK(t.size() == 64 && g.tokens().size() == 1);
     uint32_t gen = g.generation();
-    c += SESSION_MS;  // exactly 12 h unused
+    c += SESSION_MS;  // exactly a week unused
     g.tick();
     CHECK(g.tokens().empty() && g.generation() != gen);
     t = g.login("482913");
@@ -1449,7 +1442,7 @@ static void test_security_fixes() {
     std::string t = g.login("482913");
     c += 5UL * 3600 * 1000;  // 5 h unused
     auto sv = g.saved();
-    CHECK(sv.size() == 1 && sv[0].token == t && sv[0].left_s == 7 * 3600 && sv[0].epoch_expires == 0);
+    CHECK(sv.size() == 1 && sv[0].token == t && sv[0].left_s == SESSION_MS / 1000 - 5 * 3600 && sv[0].epoch_expires == 0);
     uint32_t c2 = 10;  // the restart
     Guard r([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
     r.load(g.stored());
@@ -1457,12 +1450,12 @@ static void test_security_fixes() {
     CHECK(r.tokens().size() == 1);
     c2 += 6UL * 3600 * 1000;  // 6 more hours unused: 11 in all
     sv = r.saved();
-    CHECK(sv.size() == 1 && sv[0].left_s == 3600);
+    CHECK(sv.size() == 1 && sv[0].left_s == SESSION_MS / 1000 - 11 * 3600);
     uint32_t c3 = 10;  // and again
     Guard r2([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c3; });
     r2.load(g.stored());
     r2.restore(sv);
-    c3 += 3600 * 1000;  // 12 h since it was last used: gone
+    c3 += SESSION_MS - 11UL * 3600 * 1000;  // a week since it was last used: gone
     r2.tick();
     CHECK(r2.tokens().empty() && !r2.check(t));
     // A saved time longer than a session (tampered, or a bug) is capped; nothing left = not restored.
@@ -1485,24 +1478,24 @@ static void test_security_fixes() {
     c += 2UL * 3600 * 1000;
     epoch += 2 * 3600;
     auto sv = g.saved();
-    CHECK(sv.size() == 1 && sv[0].left_s == 10 * 3600 && sv[0].epoch_expires == 1800000000u + 12 * 3600);
+    CHECK(sv.size() == 1 && sv[0].left_s == SESSION_MS / 1000 - 2 * 3600 && sv[0].epoch_expires == 1800000000u + SESSION_MS / 1000);
     uint32_t c2 = 5, e2 = 0;  // restarted: the clock isn't set yet
     Guard r([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
     r.set_epoch_clock([&]() { return e2; });
     r.load(g.stored());
     r.restore(sv);
     CHECK(r.tokens().size() == 1);
-    e2 = 1800000000u + 13 * 3600;  // the clock comes back: it was off for 11 h, so the session is over
+    e2 = 1800000000u + SESSION_MS / 1000 + 3600;  // the clock comes back: off past the session's end, so it's over
     r.tick();
     CHECK(r.tokens().empty() && !r.check(t));
-    // A session renewed while the clock is set gets a new expiry on it (12 h from its last use).
+    // A session renewed while the clock is set gets a new expiry on it (a week from its last use).
     epoch += 3600;
     t = g.login("482913");
     c += 1000;
     CHECK(g.check(t));
     sv = g.saved();
     CHECK(!sv.empty() && sv.back().token == t);
-    CHECK(sv.back().left_s == 12 * 3600 && sv.back().epoch_expires == epoch + 12 * 3600);
+    CHECK(sv.back().left_s == SESSION_MS / 1000 && sv.back().epoch_expires == epoch + SESSION_MS / 1000);
     // Older firmware's tokens (no time saved) get only what the caller gives them.
     Guard r4([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c2; });
     r4.load(g.stored());

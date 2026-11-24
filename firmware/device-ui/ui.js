@@ -245,12 +245,12 @@ const ACT = {
   async pinset() {
     const a = ($('pin1') || {}).value || '', b = ($('pin2') || {}).value || '';
     if (a !== b) return toast('The two PINs differ');
-    try { const d = await local('pin', { pin: a, current: ($('pin0') || {}).value || '' }); TOK.set(d.token); ['pin0', 'pin1', 'pin2'].forEach(k => { const f = $(k); if (f) { f.value = ''; delete f.dataset.dirty; } }); toast('PIN set: this browser stays unlocked for 12 h'); }
+    try { const d = await local('pin', { pin: a, current: ($('pin0') || {}).value || '' }); TOK.set(d.token); ['pin0', 'pin1', 'pin2'].forEach(k => { const f = $(k); if (f) { f.value = ''; delete f.dataset.dirty; } }); toast('PIN set: this browser stays unlocked for a week'); }
     catch (e) { toast(e.message); }
     loadLocal();
   },
   async login() {
-    try { const d = await local('login', { pin: ($('pinin') || {}).value || '' }); TOK.set(d.token); const f = $('pinin'); if (f) { f.value = ''; delete f.dataset.dirty; } toast('Unlocked for 12 h in this browser'); }
+    try { const d = await local('login', { pin: ($('pinin') || {}).value || '' }); TOK.set(d.token); const f = $('pinin'); if (f) { f.value = ''; delete f.dataset.dirty; } toast('Unlocked for a week in this browser'); }
     catch (e) { toast(e.message); }
     loadLocal();
   },
@@ -291,7 +291,7 @@ const ACT = {
   async pinsheetgo() {
     const f = $('pinsheet-in'), m = $('pinsheet-msg');
     m.textContent = 'Checking…';
-    try { const d = await local('login', { pin: f.value }); TOK.set(d.token); f.value = ''; ACT.pinsheetclose(); toast('Unlocked for 12 h in this browser: you can make changes now'); loadLocal(); }
+    try { const d = await local('login', { pin: f.value }); TOK.set(d.token); f.value = ''; ACT.pinsheetclose(); toast('Unlocked for a week in this browser: you can make changes now'); loadLocal(); }
     catch (e) { m.textContent = e.message; f.select(); }
   },
   pinsheetclose() {
@@ -1240,25 +1240,24 @@ function renderLocal() {
   const L = LOCAL;
   if (!L) { ['lock', 'notif', 'place'].forEach(k => put(k, '')); return; }
   const pw = (id, ph, ac) => `<input id="${id}" type="password" autocomplete="${ac || 'current-password'}" placeholder="${esc(ph)}" aria-label="${esc(ph)}" style="width:150px">`;
-  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or set a new one (or clear it) from Home Assistant: Smoker: Set the device page PIN, as an admin.</p>';
-  // The first PIN can only be set within 15 minutes of the controller being powered on (first_pin: seconds left; older
-  // firmware doesn't say), so whoever is on the Wi-Fi later can't claim the page.
-  const closed = L.first_pin === 0, left = L.first_pin > 0 ? Math.ceil(L.first_pin / 60) : 0;
+  const forgot = '<p class="note">Forgotten it? Hold the controller\'s BOOT button for 10 seconds, or press "Clear the device page PIN" in Home Assistant (or set a new one there: Smoker: Set the device page PIN).</p>';
+  // The first PIN can be set whenever none is set (from 1.4.2; older firmware: only within 15 minutes of power-on,
+  // first_pin === 0 once that has passed).
+  const closed = L.first_pin === 0;
   if (!L.pin) put('lock', `<h3><span>Optional: lock changes on this page with a PIN</span><span class="chip">not set</span></h3>
     <p class="note" style="margin-top:0">Without a PIN everything on this page works for anyone on your Wi-Fi. A PIN stops them changing
       anything (readings stay open). 6+ characters; not 123456 or 111111.</p>
     ${closed ? `<p class="note" role="status"><b>To set it:</b> power the controller off and on (or hold its BOOT button for 10 seconds),
       then set the PIN here within 15 minutes. (A restart from this page doesn't count: anyone on your Wi-Fi could do that.)
       Or set it from Home Assistant (Smoker: Set the device page PIN).</p>`
-    : `${left ? `<p class="note">Set it within ${fmt(left)} min: after that, setting one needs the controller powered off and on first.</p>` : ''}
-    <div class="row"><span>New PIN</span><span class="entry">${pw('pin1', 'PIN', 'new-password')}</span></div>
+    : `<div class="row"><span>New PIN</span><span class="entry">${pw('pin1', 'PIN', 'new-password')}</span></div>
     <div class="row"><span>Again</span><span class="entry">${pw('pin2', 'Same PIN', 'new-password')}<button class="btn pri" data-a="pinset">Set PIN</button></span></div>`}`);
   else if (!L.authed) put('lock', `<h3><span>This page's PIN</span><span class="chip bad">locked</span></h3>
     <p class="note" style="margin-top:0">Readings are open; enter the PIN to change anything from this browser.</p>
     <div class="row"><span>PIN</span><span class="entry">${pw('pinin', 'PIN')}<button class="btn pri" data-a="login">Unlock</button></span></div>
     ${L.locked ? `<p class="note">Too many wrong PINs: try again in ${fmt(L.locked)} s.</p>` : ''}${forgot}`);
   else put('lock', `<h3><span>This page's PIN</span><span class="chip ok">unlocked</span></h3>
-    <p class="note" style="margin-top:0">This browser can make changes for 12 hours from its last change.</p>
+    <p class="note" style="margin-top:0">This browser can make changes for a week from its last change.</p>
     <div class="btns"><button class="btn" data-a="logout">Lock now</button></div>
     <details class="more" data-k="chpin"><summary>Change the PIN</summary>
       <div class="row"><span>Current</span><span class="entry">${pw('pin0', 'Current PIN')}</span></div>

@@ -9,11 +9,12 @@
 //    clients have guessed than are remembered (CLIENTS), it holds everyone until it drains, except the address that
 //    last logged in with the right PIN (the owner's device);
 //  - a PIN that can't be one (empty, too short or too long) is refused without hashing or counting;
-//  - the first PIN: only within 15 minutes of the controller being powered on or of the PIN being cleared (BOOT
-//    button, Home Assistant), so whoever happens to be on the Wi-Fi later can't claim the page. Without a PIN the page stays
+//  - the first PIN: whenever none is set (from 1.4.2; it used to be only within 15 minutes of power-on). Someone else
+//    on the Wi-Fi setting one first would only lock the page, never the controller: BOOT for 10 s or Home Assistant
+//    clears it. Without a PIN the page stays
 //    open to changes, keys and settings included (the owner's choice: nothing is locked until a PIN is set). Home Assistant (trusted through
 //    its API key) can set or replace it at any time (replace_pin);
-//  - sessions: 32 random bytes as hex, 12 h, renewed on use, at most 4 (the oldest is dropped). Expired ones are
+//  - sessions: 32 random bytes as hex, a week, renewed on use, at most 4 (the oldest is dropped). Expired ones are
 //    dropped by tick() (so an idle one can't come back when millis() wraps); kept across a restart with the time
 //    they had left (and their expiry on the clock, once it's set), never a fresh 12 h.
 
@@ -34,7 +35,7 @@ constexpr size_t CLIENTS = 16;                         // clients with wrong PIN
 constexpr uint32_t GLOBAL_MAX = 50;                    // wrong PINs an hour from everyone before everyone waits
 constexpr uint32_t GLOBAL_LEAK_MS = 3600UL * 1000 / GLOBAL_MAX;
 constexpr uint32_t FORGET_MS = 24UL * 3600 * 1000;     // a client's wrong PINs are forgotten after a quiet day
-constexpr uint32_t SESSION_MS = 12UL * 3600 * 1000;    // a session lasts this long from its last use
+constexpr uint32_t SESSION_MS = 7UL * 24 * 3600 * 1000;  // a session lasts this long from its last use (a week)
 extern const char *const FIRST_PIN_CLOSED;             // why a first PIN is refused outside its window
 
 using Digest = std::array<uint8_t, 32>;

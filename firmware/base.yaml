@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "1.4.1"
+  project_version: "1.4.2"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -431,7 +431,6 @@ text_sensor:
   - platform: template
     id: factory_reset_prompt
     name: Factory reset status
-    internal: true  # (the Factory reset button isn't offered to Home Assistant either)
     icon: mdi:delete-alert-outline
     entity_category: diagnostic
     update_interval: 2s
@@ -579,12 +578,10 @@ number:
       - lambda: id(smoker).set_ai_max_pit_c((x - 32.0f) / 1.8f);
 
 button:
-  # Forgotten the device page's PIN? Hold the controller's BOOT button for 10 s, or use Smoker: Set the device page PIN
-  # (admin only) in Home Assistant with an empty PIN. Not a Home Assistant button any more: Home Assistant lets every
-  # user press any button, so a non-admin could have cleared the PIN (internal: kept for the BOOT button's code path).
+  # Forgotten the device page's PIN? Press this in Home Assistant (or hold the controller's BOOT button for 10 s).
+  # Only once Home Assistant has adopted the controller (its API has a key): before that anyone on the Wi-Fi could.
   - platform: template
     name: Clear the device page PIN
-    internal: true
     icon: mdi:lock-reset
     entity_category: config
     on_press:
@@ -625,8 +622,6 @@ button:
   # holding the BOOT button for 30 s work too.
   - platform: template
     name: Factory reset
-    # Not offered to Home Assistant (any of its users could press it): the device page (PIN) and BOOT for 30 s.
-    internal: true
     icon: mdi:delete-forever
     entity_category: config
     on_press:
