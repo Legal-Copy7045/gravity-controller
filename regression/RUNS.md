@@ -3,6 +3,16 @@
 One entry per full run (newest first): version, totals, failing check IDs, finding IDs, report link.
 No real names, hosts or device ids: this file is public.
 
+## 2026-11-24 — 1.4.3
+
+- Totals: 491 pass, 0 fail, 9 manual, 1 skip (50 features catalogued, all passing or manual).
+- Stages: ci 16, core 12, firmware 15 (+1 skip), sim 99, device 178, page 36, integration 36, package 91, live 8,
+  manual 9.
+- Failing checks: none.
+- Findings (threat model: docs/security.md): BUG-001..003 (1 high, 2 medium), SEC-001..005 (1 low, 4 info).
+  36 security claims checked, 2 don't hold (SEC-001/004, SEC-002).
+- Report: https://claude.ai/artifact/JgWUwkGYu3pjQ3J6aCbPqu (private)
+
 ## 2026-11-24 — 1.4.2
 
 - Totals: 484 pass, 0 fail, 9 manual, 1 skip (50 features catalogued, all passing or manual).
