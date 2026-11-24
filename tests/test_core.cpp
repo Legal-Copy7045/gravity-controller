@@ -12,6 +12,7 @@
 #include "../components/cook_assistant/history.h"
 #include "../components/cook_assistant/predictor.h"
 #include "../components/cook_assistant/program.h"
+#include "../components/standalone/local_url.h"
 #include "../components/gravity980/protocol.h"
 #include "../components/standalone/pin_auth.h"
 
@@ -1136,7 +1137,22 @@ static bool flag_cmd_ran = [] {
   return true;
 }();
 
+static void test_local_url() {
+  std::printf("local only: which hosts count as the home network\n");
+  using local_url::is_local;
+  CHECK(is_local("http://192.168.1.20/topic") && is_local("https://10.0.0.5:8443/x") && is_local("http://172.16.4.1/"));
+  CHECK(is_local("http://nas.local/") && is_local("http://ntfy.lan:80/") && is_local("http://nas/") &&
+        is_local("http://box.home.arpa/"));
+  CHECK(!is_local("https://ntfy.sh/topic") && !is_local("https://api.open-meteo.com/v1") && !is_local("http://8.8.8.8/"));
+  CHECK(!is_local("http://172.32.0.1/") && !is_local("http://192.169.0.1/"));
+  // The reviewer's bypasses: credentials, a bare number (8.8.8.8 as one integer), octal, IPv6, no scheme.
+  CHECK(!is_local("http://nas:pw@ntfy.sh/") && !is_local("http://user@192.168.1.2/"));
+  CHECK(!is_local("http://134744072/") && !is_local("http://010.0.0.1/") && !is_local("http://10.0.0/"));
+  CHECK(!is_local("http://[fd00::1]/") && !is_local("192.168.1.2/x") && !is_local(std::string("http://nas\0.evil.com/", 22)));
+}
+
 int main() {
+  test_local_url();
   test_pin_auth();
   test_protocol();
   test_wifi_setup();

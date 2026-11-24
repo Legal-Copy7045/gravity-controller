@@ -1857,7 +1857,7 @@ function renderSetup(u) {
     ${fwRow()}
     ${tog('Automatic updates', 'Automatic updates', 'Installs a new release only while the grill is off and no cook or program is running (idle for an hour).')}
     ${tog('Resume after a power cut', 'Resume after a power cut', 'After a cut during a cook (up to an hour): turns the grill back on if it was on, sends the targets again and resumes the program, then tells you.')}
-    ${tog('Local only (no internet)', 'Local only (no internet)', 'No internet connections at all: no weather, AI, sharing, internet notifications or update checks. A notification server on your own network still works.')}
+    ${tog('Local only (no internet)', 'Local only (no internet)', 'No internet connections at all: no weather, AI, sharing, phone notifications (ntfy, Pushover, Telegram) or update checks. Alerts then reach you only through Home Assistant.')}
     ${T('Connectivity') ? row('Connectivity', esc(T('Connectivity'))) : ''}
     ${tog('Log raw grill data', 'Log raw grill data', 'For support: every byte from the grill goes to the controller\'s log (USB, or the ESPHome dashboard).')}
     ${E('button', 'Restart') ? `<div class="row"><span>Restart the controller<br><span class="muted small">Settings and learned cooks are kept; back in about 20 s.</span></span>

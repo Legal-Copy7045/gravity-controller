@@ -2083,7 +2083,7 @@ function renderDiag() {
     // Resume after a power cut, local only (firmware 1.4.0+), and the connectivity line.
     (rp => rp ? `<div class="row"><span>Resume after a power cut<br><span class="muted small">After a cut during a cook (up to an hour): turns the grill back on if it was on, sends the targets again and resumes the program, then tells you.</span></span>
       <button class="tg ${val(rp) === 'on' ? 'on' : ''}" role="switch" aria-checked="${val(rp) === 'on'}" data-act="toggle" data-a="${esc(rp)}" aria-label="Resume after a power cut"></button></div>` : '')(E('Resume after a power cut', ['switch'])) +
-    (lo => lo ? `<div class="row"><span>Local only (no internet)<br><span class="muted small">The controller and this integration make no internet connections: no weather, AI, sharing, internet notifications or update checks.</span></span>
+    (lo => lo ? `<div class="row"><span>Local only (no internet)<br><span class="muted small">The controller and this integration make no internet connections: no weather, AI, sharing, phone notifications from the controller or update checks. Alerts still come through Home Assistant.</span></span>
       <button class="tg ${val(lo) === 'on' ? 'on' : ''}" role="switch" aria-checked="${val(lo) === 'on'}" data-act="toggle" data-a="${esc(lo)}" aria-label="Local only"></button></div>` : '')(E('Local only (no internet)', ['switch'])) +
     (c => c && !/^(unknown|unavailable)$/.test(c) ? `<div class="row"><span>Connectivity</span><span class="r" style="white-space:normal">${esc(c)}</span></div>` : '')(val(E('Connectivity', ['sensor']))) +
     // The controller's own automatic updates (firmware 1.2.0+): it installs a release only while idle.
