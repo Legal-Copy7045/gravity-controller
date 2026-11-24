@@ -37,10 +37,20 @@ Versions are those of the current build and move with ESPHome.
 The installer site serves [ESP Web Tools](https://github.com/esphome/esp-web-tools) (Apache-2.0) from its own
 address; the site build downloads a pinned release from npm and checks its hash.
 
-## Protocol credit
+## Information used (no code copied)
 
-The stock controller's protocol was first worked out by [grzbiet/cg980app](https://github.com/grzbiet/cg980app)
-(MIT), from analysis of the official app and live testing. See [docs/protocol.md](docs/protocol.md) for what has been confirmed since.
+| Source | Licence | What was used |
+|---|---|---|
+| [grzbiet/cg980app](https://github.com/grzbiet/cg980app) | MIT | The stock controller's protocol, first worked out there from the official app and live testing. Reimplemented in C++ from its documentation; see [docs/protocol.md](docs/protocol.md) for what has been confirmed since |
+| The Char-Griller app (Android, v2.0.8) | proprietary | Read and its traffic recorded, for interoperability only: the Turbo (`FF 04 FF 1F` / `FF 04 FF 0F`) and power commands. Nothing from the app is in this repository |
+| [Bluetooth-Devices/govee-ble](https://github.com/Bluetooth-Devices/govee-ble) | Apache-2.0 | The Govee H5198 advertisement format (`components/govee_h5198/h5198_decode.h` is this project's own decoder of it) |
+| [mantellian/chargriller-980-controller](https://github.com/mantellian/chargriller-980-controller) | MIT | Research for a future controller: fan driver circuit, door-switch handling, pin plan ([docs/research.md](docs/research.md)) |
+| [HeaterMeter](https://github.com/CapnBry/HeaterMeter) | MIT | The low-frequency fan PWM approach considered for a future controller ([docs/design.md](docs/design.md)) |
+| [Open-Meteo](https://open-meteo.com/) | data: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Weather, forecast and place search on the controller ("Weather data by Open-Meteo.com") |
+
+These sources were compared with this repository (identical runs of eight or more words): only generic boilerplate
+matches (HTML headers, a CSS grid idiom, import lines). Two CI files, `.github/workflows/build.yml` and
+`.github/scripts/make_site.py`, were adapted from the same author's Magic-bHAnds project.
 
 ## Trademarks
 

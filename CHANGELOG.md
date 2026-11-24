@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2] - 2026-11-24
+
+- **Credits:** the README now credits everyone whose published work this project used (cg980app for the protocol,
+  the Char-Griller app for the Turbo and power commands, govee-ble for the H5198 format, mantellian's controller and
+  HeaterMeter for the future design, Open-Meteo for weather), and says that no code was copied. THIRD_PARTY.md lists
+  each source, its licence and what was used.
+- The controller's page credits Open-Meteo, with a link, where it shows where the weather comes from (CC BY 4.0).
 ## [1.3.1] - 2026-11-24
 
 - **Fixed: the temperature chart's time labels ran together on a phone** (both dashboards). The hour step now

@@ -99,5 +99,28 @@ python3 tests/ha_check.py && python3 tests/render_page.py
 MIT for this project's own code ([LICENSE](LICENSE)). The released firmware binary includes ESPHome's GPLv3 runtime
 and is distributed under the GPLv3, with its source in this repository: see [THIRD_PARTY.md](THIRD_PARTY.md).
 
-Protocol reverse engineering credit: [grzbiet/cg980app](https://github.com/grzbiet/cg980app) (MIT). Unofficial hobby
-project, not affiliated with Char-Griller.
+## Credits
+
+This project builds on other people's published work. Their information was used; **none of their code was copied**
+(the firmware, integration and pages were written for this project; checked against each source below).
+
+- **[grzbiet/cg980app](https://github.com/grzbiet/cg980app)** (MIT): worked out the Gravity 980 controller's
+  protocol (the Wi-Fi status frames, the target commands and the Bluetooth Wi-Fi setup). This project's own
+  implementation is in C++ and was written from that documentation; [docs/protocol.md](docs/protocol.md) records what
+  has been confirmed since.
+- **The Char-Griller app** (Android): its code was read to find the Turbo and power commands, and its traffic
+  recorded, purely for interoperability with the grill you own. Nothing from the app is included here; only the
+  protocol facts are documented.
+- **[govee-ble](https://github.com/Bluetooth-Devices/govee-ble)** (Apache-2.0), the library behind Home Assistant's
+  Govee Bluetooth integration: the Govee H5198 advertisement format. The controller's own decoder was written from
+  that format and checked against a real H5198.
+- **[mantellian/chargriller-980-controller](https://github.com/mantellian/chargriller-980-controller)** (MIT) and
+  **[HeaterMeter](https://github.com/CapnBry/HeaterMeter)**: ideas for the future controller's fan drive and
+  door-switch handling ([docs/design.md](docs/design.md)). Nothing from them is in the firmware.
+- **[Open-Meteo](https://open-meteo.com/)**: weather and place search on the controller. Weather data by
+  Open-Meteo.com, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **[ESPHome](https://esphome.io/)**, **[Home Assistant](https://www.home-assistant.io/)** and
+  **[ESP Web Tools](https://github.com/esphome/esp-web-tools)**: the platforms it's built on. Libraries and licences
+  in the firmware: [THIRD_PARTY.md](THIRD_PARTY.md).
+
+Unofficial hobby project, not affiliated with or endorsed by Char-Griller.
