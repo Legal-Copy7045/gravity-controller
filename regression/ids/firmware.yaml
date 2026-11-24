@@ -1,6 +1,6 @@
 # Stable check IDs for the firmware stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: FW-014
+# highest issued: FW-017
 FW-001: "config valid: firmware/gravity980-bridge.yaml"
 FW-002: "compiles: firmware/gravity980-bridge.yaml"
 FW-003: "config valid: tests/configs/no-ha.yaml"
@@ -14,4 +14,6 @@ FW-010: "local only switch defaults off"
 FW-011: "automatic updates switch present"
 FW-012: "power-cut resume switch present"
 FW-013: "local only: update checks go nowhere"
-FW-014: "factory reset and clear-PIN buttons not offered to Home Assistant"
+FW-015: "Home Assistant keeps the Clear PIN and Factory reset buttons (convenience, 1.4.2)"
+FW-016: "no firmware upload over the network (web_server ota off, no esphome OTA port)"
+FW-017: "Bluetooth Wi-Fi setup needs the BOOT button"

@@ -55,7 +55,7 @@
 - feature: "Signed OTA updates, downgrade protection, automatic updates while idle, rollback of a bad release"
   since: 1.3.0
   docs: docs/install.md
-  match: ["^firmware:firmware config: (signed|OTA|safe mode|automatic)", "^firmware:compiles", "^firmware:config valid", "^device:PIN: (This controller offers the firmware|Install asks|the second tap installs|the page shows it installing)", "^manual:.*(rollback|OTA|update)"]
+  match: ["^firmware:firmware config: (signed|OTA|safe mode|automatic|no firmware upload|Bluetooth Wi-Fi setup)", "^firmware:compiles", "^firmware:config valid", "^device:PIN: (This controller offers the firmware|Install asks|the second tap installs|the page shows it installing)", "^manual:.*(rollback|OTA|update)"]
 - feature: "Factory reset (two taps, PIN when locked)"
   since: 0.2.40
   docs: docs/standalone.md

@@ -333,8 +333,11 @@ def stage_firmware(st, args):
                      ("automatic updates switch present", r"id:\s*auto_update"),
                      ("power-cut resume switch present", r"resume_after_power_cut"),
                      ("local only: update checks go nowhere", r"set_source_url\(\"http://127\.0\.0\.1/local-only\"\)"),
-                     ("factory reset and clear-PIN buttons not offered to Home Assistant",
-                      r"name: Clear the device page PIN\s+internal: true[\s\S]*name: Factory reset\s+#[^\n]*\n\s+internal: true")]:
+                     ("Home Assistant keeps the Clear PIN and Factory reset buttons (convenience, 1.4.2)",
+                      r"name: Clear the device page PIN\s+icon:[\s\S]*name: Factory reset\s+icon:"),
+                     ("no firmware upload over the network (web_server ota off, no esphome OTA port)",
+                      r"ota: false"),
+                     ("Bluetooth Wi-Fi setup needs the BOOT button", r"improv_ble:\s*\n(\s*#.*\n)*\s*authorizer: boot_button")]:
         ok = re.search(pat, base) is not None
         st.add(key, f"firmware config: {key}", "pass" if ok else "fail", "" if ok else f"pattern {pat!r} not found")
 
