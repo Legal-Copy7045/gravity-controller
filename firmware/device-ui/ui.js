@@ -1253,8 +1253,9 @@ function drawChart() {
   const x = t => L + (W - L - R) * (t - t0) / Math.max(1, t1 - t0), y = v => T + (Hh - T - B) * (1 - (v - lo) / Math.max(1, hi - lo));
   let g = '';
   for (let v = lo; v <= hi; v += Math.max(25, Math.round((hi - lo) / 5 / 25) * 25)) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
-  const hstep = chartHours <= 6 ? 1 : chartHours <= 12 ? 2 : 4;
-  for (let t = Math.ceil(t0 / 3600 / hstep) * hstep * 3600; t <= t1; t += hstep * (t1 - t0 > chartHours * 3600 * 1.5 ? 2 : 1) * 3600) g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric' })}</text>`;
+  // Hour labels at least ~52 px apart (a phone-width chart would otherwise run them together).
+  const hstep = [1, 2, 3, 4, 6, 8, 12].find(h => (W - L - R) * h * 3600 / (t1 - t0) >= 52) || 24;
+  for (let t = Math.ceil(t0 / 3600 / hstep) * hstep * 3600; t <= t1; t += hstep * 3600) g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric' })}</text>`;
   const lines = series.map(s => `<path d="${s.pts.map((p, k) => (k ? 'L' : 'M') + x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1)).join('')}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? 1.5 : 2.2}"${s.dash ? ' stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`).join('');
   const planLines = plans.map(q => `<path d="${q.plan.pts.filter(p => p[0] / 1000 >= t0 - 3600 && p[0] / 1000 <= t1 + 3600).map((p, k) => (k ? 'L' : 'M') + Math.max(L, Math.min(W - R, x(p[0] / 1000))).toFixed(1) + ',' + y(p[1]).toFixed(1)).join('')}" fill="none" stroke="${COLORS[q.i]}" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round" opacity=".85"/>`).join('');
   const nowLine = t1 > now ? `<line x1="${x(now)}" x2="${x(now)}" y1="${T}" y2="${Hh - B}" stroke="var(--muted)" stroke-dasharray="1 3"/><text x="${x(now) + 4}" y="${T + 10}">now</text>` : '';

@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.1] - 2026-11-24
+
+- **Fixed: the temperature chart's time labels ran together on a phone** (both dashboards). The hour step now
+  depends on the chart's width.
 ## [1.3.0] - 2026-11-24
 
 - **The documentation now separates what's built from what's future.** Today the project is a bridge: an ESP32-S3
