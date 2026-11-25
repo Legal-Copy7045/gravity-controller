@@ -549,12 +549,15 @@ class SharingActionView(HomeAssistantView):
 async def async_setup_sharing(hass: HomeAssistant, journal, version: str) -> None:
     if DATA in hass.data:  # reloaded: views are still registered, listen again
         hass.data[DATA].attach()
-        if hass.data[DATA].community:  # its sensor was removed with the entry: put the last averages back
-            hass.data[DATA]._publish_community()
+        # Its sensor was removed with the entry: put it back (the last averages, or none yet).
+        hass.data[DATA]._publish_community()
         return
     s = Sharing(hass, journal, version)
     await s.async_load()
     hass.data[DATA] = s
+    # Always there, even with sharing off (0 cooks, nothing similar): the package's AI prompts read it, and an entity
+    # that only appears once averages have been fetched shows up as "unknown" in checks like Spook's.
+    s._publish_community()
     hass.http.register_view(SharingView())
     hass.http.register_view(SharingActionView())
 

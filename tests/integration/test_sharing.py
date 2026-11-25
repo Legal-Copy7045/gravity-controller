@@ -285,3 +285,16 @@ async def test_withdraw_reports_missing_and_busy(hass: HomeAssistant, hass_clien
     aioclient_mock.delete(f"{SHARE_URL}/v1/cooks/{'c' * 32}", status=200, json={"ok": True})
     w = await (await client.post("/api/smoker/sharing/withdraw")).json()
     assert w["removed"] == 1 and w["failed"] == 0 and sh.data["shared"] == {}
+
+
+async def test_community_sensor_exists_before_any_averages(hass: HomeAssistant, tmp_path):
+    """sensor.smoker_community is there from the start (0 cooks, nothing similar), even with sharing off and nothing
+    fetched: the package's AI prompts read it, and a sensor that appears only later shows as "unknown" (Spook)."""
+    hass.config.media_dirs = {"local": str(tmp_path / "media")}
+    assert await async_setup_component(hass, "http", {})
+    entry = MockConfigEntry(domain="smoker", data={})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    st = hass.states.get("sensor.smoker_community")
+    assert st is not None and st.state == "0" and st.attributes["similar"] == []

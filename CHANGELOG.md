@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.8] - 2026-11-25
+
+- `sensor.smoker_community` exists from the start (0 cooks, nothing similar), even with sharing off: the package's AI
+  prompts read it, and a sensor that only appeared once community averages had been fetched showed up as an unknown
+  entity in checks like Spook's.
+
 ## [1.4.7] - 2026-11-25
 
 Faster releases: the release build's longest part (the simulated-grill scenarios, ~40 min) now takes about 10.
