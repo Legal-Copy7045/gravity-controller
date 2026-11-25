@@ -3,6 +3,16 @@
 One entry per full run (newest first): version, totals, failing check IDs, finding IDs, report link.
 No real names, hosts or device ids: this file is public.
 
+## 2026-11-25 — 1.4.8 (reviews on 1.4.4)
+
+- Totals: 515 pass, 0 fail, 9 manual, 2 skip (the firmware compiles: done by the release build).
+- Stages: ci 16, core 12, firmware 13 (+2 skip), sim 112, device 178, page 36, integration 37, package 103, live 8,
+  manual 9. About 23 min locally without the compile; a release, push to verified install, about 10 min.
+- Failing checks: none (INT-013 failed once by chance: a flaky test, fixed).
+- Findings (reviewed on 1.4.4; all fixed in 1.4.5/1.4.6): BUG-001..003 (1 high, 2 low), SEC-001..006 (2 low, 4 info).
+  32 security claims checked on 1.4.4, 4 didn't hold (reworded or fixed in 1.4.6).
+- Report: https://claude.ai/artifact/UKnpszxrSkYicHpQvX7i5M (private)
+
 ## 2026-11-24 — 1.4.3
 
 - Totals: 491 pass, 0 fail, 9 manual, 1 skip (50 features catalogued, all passing or manual).

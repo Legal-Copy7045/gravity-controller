@@ -17,7 +17,7 @@ from .open_pitmaster_format import validate
 ROOT = Path(__file__).resolve().parents[2]
 SUMMARY = {"probe": "food1", "name": "Food 1", "profile": "Pork shoulder", "weight_kg": 3.82, "wrapped": True,
            "pit_c": 121.3, "target_c": 95.0, "stall_h": 3.14, "total_h": 11.63, "ambient_c": 2.4}
-ENTRY = {"id": "abc", "ended": 1795378582.0, "notes": "Great bark, at my brother Dave's", "rating": 4, **SUMMARY,
+ENTRY = {"id": "journal-entry-7q", "ended": 1795378582.0, "notes": "Great bark, at my brother Dave's", "rating": 4, **SUMMARY,
          "tags": ["great bark", "juicy", "not-a-tag"],
          "photos": ["x.jpg"], "items": [{"name": "Butt from Smith's"}]}
 
@@ -30,7 +30,8 @@ def test_anonymise_keeps_only_coarse_values():
     assert r["weight_lb"] == 8.5 and r["pit_f"] == 250 and r["target_f"] == 203 and r["stall_h"] == 3.1
     assert r["total_h"] == 11.6 and r["outside_f"] == 35 and r["season"] == "autumn" and r["rating"] == 4
     text = json.dumps(r)
-    for leak in ("Dave", "Smith", "x.jpg", "abc", "1795378582", "Food 1", "food1"):
+    # (The journal id isn't hex, so a record's random hex id can't contain it by chance: "abc" used to, once in ~150 runs.)
+    for leak in ("Dave", "Smith", "x.jpg", "journal-entry-7q", "1795378582", "Food 1", "food1"):
         assert leak not in text
     # Southern hemisphere flips the season; a fresh id every time unless one is given.
     assert anonymise(ENTRY, "0.2.25", -33.9)["season"] == "spring"

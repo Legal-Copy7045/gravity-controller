@@ -1,6 +1,6 @@
 # Stable check IDs for the package stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: PKG-095
+# highest issued: PKG-103
 PKG-001: "ha_check: integration import + page build"
 PKG-002: "ha_check: HA config check with the package"
 PKG-003: "button key SMOKER_FOOD_PLUS_5_FOOD1"
@@ -96,3 +96,11 @@ PKG-092: "Plan with AI uses the controller's check with firmware 1.4.4: True"
 PKG-093: "Plan with AI uses the controller's check with firmware 1.10.0: True"
 PKG-094: "Plan with AI uses the controller's check with firmware 1.4.3: False"
 PKG-095: "Plan with AI uses the controller's check with firmware None: False"
+PKG-096: "plan check 'pit 200 keep food1 203', controller's check False ->"
+PKG-097: "plan check [3]"
+PKG-098: "plan check [4]"
+PKG-099: "plan check 'name: Warm; pit 225 until food1 >= 195; keep food1 at 140', controller's check False ->"
+PKG-100: "read-back after loading (through the controller: True) counts as the same program: True"
+PKG-101: "read-back after loading (through the controller: False) counts as the same program: False"
+PKG-102: "through the controller, Home Assistant's second check doesn't replace the plan: False"
+PKG-103: "older firmware: a program that changed on the way is still replaced: True"
