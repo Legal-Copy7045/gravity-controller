@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.7] - 2026-11-25
+
+Faster releases: the release build's longest part (the simulated-grill scenarios, ~40 min) now takes about 10.
+
+- The failure scenarios run in three independent groups, side by side in CI (tests/e2e_scenarios.py,
+  SCENARIO_GROUP=A|B|C), next to the end-to-end test and the controller page test.
+- New option `test_timing_scale` (cook_assistant, test builds only, default 1): the test build runs the alert windows
+  and the power-cut recovery record's save interval at a tenth, so the scenarios don't sit through real-time waits.
+  Nothing changes on a real controller.
+- Scenario 10 starts its own cook before the keep-warm test, so it no longer depends on the scenarios before it.
+
 ## [1.4.6] - 2026-11-24
 
 - **AI plans in Home Assistant without the controller's check** (controller firmware older than 1.4.4, or its update
