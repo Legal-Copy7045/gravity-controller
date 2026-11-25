@@ -122,10 +122,10 @@ void CookAssistant::track_lid_(bool lid_open, double now, float pit, float sp) {
 void CookAssistant::track_stability_(bool lid_open, double now, float pit, float sp) {
   if (!this->cook_active_ || !this->pit_reached_ || std::isnan(pit) || std::isnan(sp))
     return;
-  if (now - this->st_last_min_ < 1.0)
+  if (now - this->st_last_min_ < this->w_(1.0f))
     return;
   this->st_last_min_ = now;
-  const bool grace = lid_open || (this->lid_closed_at_ >= 0 && now - this->lid_closed_at_ < 10);
+  const bool grace = lid_open || (this->lid_closed_at_ >= 0 && now - this->lid_closed_at_ < this->w_(10));
   if (grace)
     return;
   const float d = pit - sp;

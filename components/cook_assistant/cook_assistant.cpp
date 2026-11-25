@@ -847,7 +847,7 @@ void CookAssistant::check_alerts_() {
     if (out) {
       if (this->pit_off_since_ < 0)
         this->pit_off_since_ = now;
-      if (now - this->pit_off_since_ > 10 && !this->pit_band_notified_) {
+      if (now - this->pit_off_since_ > this->w_(10) && !this->pit_band_notified_) {
         this->pit_band_notified_ = true;
         this->notify("Pit temperature off", "Pit is " + this->fmt_temp_(pit) + ", target " + this->fmt_temp_(sp) + ".",
                      1, "pit_band");
@@ -858,7 +858,7 @@ void CookAssistant::check_alerts_() {
         this->pit_band_notified_ = false;
     }
     // After the lid has been open, the pit needs a while to come back: a dip then isn't a fire problem.
-    const bool lid_grace = lid_open || (this->lid_closed_at_ >= 0 && now - this->lid_closed_at_ < 10);
+    const bool lid_grace = lid_open || (this->lid_closed_at_ >= 0 && now - this->lid_closed_at_ < this->w_(10));
     const bool rising = this->pit_hist_.size() >= 6 && this->pit_hist_.back() > this->pit_hist_.front() + 1.0f;
     // The fire is struggling (a warning before "Fire may be out"): the grill has been on all of the last 10 minutes
     // (the stock controller's flag; no separate fan bit is known yet), yet the pit is under target and falling. With
@@ -899,7 +899,7 @@ void CookAssistant::check_alerts_() {
     {
       const float over = pit - sp;
       // (Turbo quiets it for its first 30 minutes only: a sear is short.)
-      const bool quiet = (this->turbo_commanded_ && now - this->turbo_on_at_ < 30) || now - this->sp_changed_at_ < 10;
+      const bool quiet = (this->turbo_commanded_ && now - this->turbo_on_at_ < this->w_(30)) || now - this->sp_changed_at_ < this->w_(10);
       // A lid opening and the 10 minutes after it (fresh air flares the fire) don't count, as for the other fire
       // alerts; above the grill's own maximum it alerts whenever the lid is closed.
       const bool away = !lid_open && this->cook_active_ && !quiet &&
@@ -908,7 +908,7 @@ void CookAssistant::check_alerts_() {
       if (away) {
         if (this->runaway_since_ < 0)
           this->runaway_since_ = now;
-        if (now - this->runaway_since_ >= 5 && !this->runaway_notified_) {
+        if (now - this->runaway_since_ >= this->w_(5) && !this->runaway_notified_) {
           this->runaway_notified_ = true;
           this->notify("Pit temperature running away",
                        "Pit " + this->fmt_temp_(pit) + (rising ? " and still rising" : "") + ", " +
@@ -928,7 +928,7 @@ void CookAssistant::check_alerts_() {
     if (low) {
       if (this->fire_low_since_ < 0)
         this->fire_low_since_ = now;
-      if (now - this->fire_low_since_ > 15 && !this->fire_notified_) {
+      if (now - this->fire_low_since_ > this->w_(15) && !this->fire_notified_) {
         this->fire_notified_ = true;
         this->notify("Fire may be out", "Pit has dropped to " + this->fmt_temp_(pit) + " (target " +
                                             this->fmt_temp_(sp) + "). Check the charcoal hopper.",

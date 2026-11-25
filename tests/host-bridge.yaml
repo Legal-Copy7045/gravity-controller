@@ -141,6 +141,9 @@ number:
 cook_assistant:
   id: smoker
   cook_end_after: 2min   # (20 min on the controller: the scenarios would wait that long)
+  # Alert windows and the recovery save interval at a tenth (lid grace 1 min, runaway quiet 1 min + 30 s, records every
+  # 12 s): the scenarios don't sit through real-time windows. Never set on a real controller.
+  test_timing_scale: 0.1
   temperature_unit: F
   pit_temperature: pit_temp
   pit_setpoint: pit_target_reported

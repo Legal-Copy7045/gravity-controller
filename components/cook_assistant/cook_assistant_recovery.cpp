@@ -73,7 +73,7 @@ void CookAssistant::recovery_save_(bool force) {
   const bool changed = b.cook_active != this->rec_last_.cook_active || b.grill_on != this->rec_last_.grill_on ||
                        (std::isnan(b.pit_sp_c) != std::isnan(this->rec_last_.pit_sp_c)) ||
                        (!std::isnan(b.pit_sp_c) && std::fabs(b.pit_sp_c - this->rec_last_.pit_sp_c) > 0.5f);
-  if (!changed && !force && millis() - this->rec_saved_ms_ < SAVE_EVERY_MS)
+  if (!changed && !force && millis() - this->rec_saved_ms_ < uint32_t(SAVE_EVERY_MS * this->test_timing_scale_))
     return;
   this->rec_saved_ms_ = millis();
   this->rec_last_ = b;

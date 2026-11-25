@@ -267,6 +267,8 @@ class CookAssistant : public Component {
   /// The highest pit an AI-written program may ask for (fit_program brings hotter steps down to it, with a note).
   void set_ai_max_pit_c(float c) { if (std::isfinite(c)) this->ai_max_pit_c_ = c; }
   void set_cook_end_min(float m) { this->cook_end_min_ = m; }
+  /// Test builds only: shortens the alert windows and the recovery save interval (1 = as on the grill).
+  void set_test_timing_scale(float k) { this->test_timing_scale_ = k; }
   /// Report the outcome of an on_set_pit write (call from the on_set_pit automation).
   void pit_write_result(bool ok);
   void set_pit_range(float min_c, float max_c) {
@@ -506,7 +508,9 @@ class CookAssistant : public Component {
   double pit_hist_last_min_{-1e9};
   float pit_min_c_{93.333f};   // 200 °F: the stock controller's minimum
   float pit_max_c_{371.111f};  // 700 °F
-  float cook_end_min_{20};          // pit cold this long (no program) and the cook session ends
+  float cook_end_min_{20};
+  float test_timing_scale_{1};  // test builds: alert windows and the recovery save interval scaled (1 = real)
+  float w_(float minutes) const { return minutes * this->test_timing_scale_; }          // pit cold this long (no program) and the cook session ends
   float ai_max_pit_c_{204.444f};  // 400 °F: AI-written programs (the "AI max pit" number)
   float ai_max_c_() const { return std::max(this->pit_min_c_, std::min(this->pit_max_c_, this->ai_max_pit_c_)); }
   ESPPreferenceObject state_pref_;

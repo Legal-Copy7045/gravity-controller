@@ -195,6 +195,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("pit_min", default=93.333): cv.float_,
         # How long the pit must read cold (no program running) before the cook session ends. 20 min; the test build
         # uses less so its scenarios don't wait.
+        # Test builds only: alert windows (lid grace, runaway quiet and confirmation, fire out, pit off) and the
+        # power-cut recovery record's save interval are multiplied by this. Leave it at 1 on a real controller.
+        cv.Optional("test_timing_scale", default=1.0): cv.All(cv.float_, cv.Range(min=0.02, max=1.0)),
         cv.Optional("cook_end_after", default="20min"): cv.All(cv.positive_time_period_minutes, cv.Range(min=cv.TimePeriod(minutes=1))),
         cv.Optional("pit_max", default=371.111): cv.float_,
         cv.Optional(CONF_TIME_ID): _time_schema(),
@@ -275,6 +278,8 @@ async def to_code(config):
     cg.add(var.set_wind_to_kmh({"mph": 1.609344, "km/h": 1.0, "m/s": 3.6}[config["wind_speed_unit"]]))
     cg.add(var.set_pit_range(config["pit_min"], config["pit_max"]))
     cg.add(var.set_cook_end_min(config["cook_end_after"].total_minutes))
+    if config["test_timing_scale"] != 1.0:
+        cg.add(var.set_test_timing_scale(config["test_timing_scale"]))
     if "fan" in config:
         cg.add(var.set_fan(await cg.get_variable(config["fan"])))
     cg.add(var.set_hopper_capacity_kg(config["hopper_capacity"]))

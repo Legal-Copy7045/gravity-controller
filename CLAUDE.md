@@ -13,6 +13,11 @@ names, credentials, his grill photo).
   builds, tests and creates release `v<VERSION>` (firmware, integration zip, package zip) and the web installer
   (GitHub Pages).
 - Brand files: edit `brand/`, then `python3 tools/brand_sync.py` (CI checks it).
+- Before pushing a release, run the quick suites locally (`make -C tests`, the host build compile, pytest
+  `tests/integration`, `tests/ha_check.py`, `tests/ha_templates.py`, `tests/render_page.py`, and a scenario group only
+  when a scenario changed: `SCENARIO_GROUP=A|B|C python3 tests/e2e_scenarios.py`). Don't run the whole scenario suite
+  locally as well: the release build runs everything (scenario groups side by side, ~15 min) and publishes only if it
+  all passes. The full local run is for `/regression`.
 
 ## The package travels with the integration (keep them in step)
 
