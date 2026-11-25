@@ -319,6 +319,7 @@ async def main():
             await dev.action("stop_program")
             await asyncio.sleep(1)
             # (A keep is saved only during a cook, and the restart above ended the last one: wait for the next.)
+            grill({"pit_f": 259})  # (a hot pit starts a cook)
             check(await dev.wait(lambda: v("cook_active") is True, 180, "cook active"), "a cook is underway again")
             await dev.action("load_program", program="name: Keep test; keep food1 at 140")
             await asyncio.sleep(1)
