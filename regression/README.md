@@ -35,7 +35,8 @@ Stages run side by side: the quick ones (ci, core, page, integration, package, m
 stage then the simulated grill in another, the device page test in a third; live last. The simulated grill runs the
 end-to-end test and the three scenario groups at once, each on its own copy of the test build with its own ports
 (`tests/host-bridge.yaml` substitutions; compiled once, then cached). With `--compile` the device test waits for the
-firmware stage, which rebuilds the test build it uses.
+firmware stage, which rebuilds the test build it uses. A run takes about 7 minutes on four cores (the simulated grill
+sets the pace, ~6 min); the first run in a fresh session adds the compiles.
 
 | Stage | Prefix | What runs | Notes |
 |---|---|---|---|

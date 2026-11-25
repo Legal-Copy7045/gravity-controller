@@ -1,6 +1,6 @@
 # Stable check IDs for the sim stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: SIM-117
+# highest issued: SIM-123
 SIM-001: "e2e › bridge connects to grill"
 SIM-002: "e2e › pit temperature published"
 SIM-003: "e2e › food 1 temperature published"
@@ -113,3 +113,9 @@ SIM-113: "scenarios › scenario 13 › the keep program runs"
 SIM-114: "scenarios › scenario 13 › the cook session ends"
 SIM-115: "scenarios › scenario 13 › the keep program ended with it"
 SIM-117: "scenarios › scenario 10 › a cook is underway again"
+SIM-118: "scenarios › scenario 7 › no dangerous command ids sent"
+SIM-119: "scenarios › B › connected"
+SIM-120: "scenarios › setup: a cook underway"
+SIM-121: "scenarios › scenario 4b › no dangerous command ids sent"
+SIM-122: "scenarios › C › connected"
+SIM-123: "scenarios › C › setup: a cook underway"
