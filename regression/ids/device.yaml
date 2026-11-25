@@ -1,6 +1,6 @@
 # Stable check IDs for the device stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: DEV-179
+# highest issued: DEV-180
 DEV-001: "food 1 has a reading"
 DEV-002: "1440px › hero shows the pit temperature"
 DEV-003: "1440px › grill drawing rendered"
@@ -179,3 +179,4 @@ DEV-176: "PIN › no page errors in the PIN flow"
 DEV-177: "1440px › the integration's photo path on an internet host is ignored"
 DEV-178: "390px › the integration's photo path on an internet host is ignored"
 DEV-179: "PIN › an easy PIN is refused"
+DEV-180: "bridge up with a pit temperature"
