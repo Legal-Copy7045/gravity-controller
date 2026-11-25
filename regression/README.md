@@ -22,7 +22,7 @@ regression/
 ```bash
 export ESPHOME_PYTHON=/path/to/esphome-venv/bin/python   # esphome, aioesphomeapi, aiohttp
 export HA_PYTHON=/path/to/ha-venv/bin/python             # pip install -r tests/requirements-integration.txt
-python3 regression/run.py --compile                       # every stage but live (~40 min; the scenarios take ~28)
+python3 regression/run.py --compile                       # every stage but live (see the timing below)
 HA_URL=https://<your home assistant> python3 regression/run.py --stage live
 REPORT_TZ=Europe/London python3 regression/report.py
 ```
@@ -30,6 +30,12 @@ REPORT_TZ=Europe/London python3 regression/report.py
 The system `python3` needs Playwright (and Chromium) for the page and device stages, and PyYAML. `--stage NAME`
 (repeatable) runs some stages only; `--from-logs` re-reads the last run's suite output without running it again
 (useful after changing how a stage parses its output).
+
+Stages run side by side: the quick ones (ci, core, page, integration, package, manual) in one lane, the firmware
+stage then the simulated grill in another, the device page test in a third; live last. The simulated grill runs the
+end-to-end test and the three scenario groups at once, each on its own copy of the test build with its own ports
+(`tests/host-bridge.yaml` substitutions; compiled once, then cached). With `--compile` the device test waits for the
+firmware stage, which rebuilds the test build it uses.
 
 | Stage | Prefix | What runs | Notes |
 |---|---|---|---|

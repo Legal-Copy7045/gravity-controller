@@ -22,7 +22,7 @@ order; the owner usually reads the report the next morning, so finish every step
 
 Set up the venvs if the session has none (`ESPHOME_PYTHON`: `pip install esphome aioesphomeapi aiohttp`; `HA_PYTHON`:
 `pip install -r tests/requirements-integration.txt`; system python3 needs playwright + pyyaml, Chromium is preinstalled
-in cloud sessions). Then, in the background (the scenarios take ~28 min):
+in cloud sessions). Then, in the background (the stages run side by side; see the README for the timing):
 
 ```bash
 python3 regression/run.py --compile
@@ -31,7 +31,7 @@ HA_URL=https://<the owner's Home Assistant> python3 regression/run.py --stage li
 
 The live stage is read-only (states, config check, GitHub release). The HA URL comes from the session's connected
 services, never from the repo. If HA isn't reachable, its checks skip; say so. Check the console summary: a
-`<PREFIX>-RUN` failure means a stage broke (a port in use: `pkill -f tools/fake_grill.py`; a missing package); fix
+`<PREFIX>-RUN` failure means a stage broke (a port in use: `pkill -f tools/fake_grill.py`, though the runner clears stale ones itself; a missing package); fix
 the environment and re-run that stage with `--stage`. New check IDs land in `regression/ids/*.yaml`: commit them.
 
 ## 3. Review (two fresh agents, in parallel, while the stages run)

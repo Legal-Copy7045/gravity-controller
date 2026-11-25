@@ -27,8 +27,16 @@ from aioesphomeapi import APIClient
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PROGRAM = os.path.join(HERE, ".esphome/build/smoker-host-test/.pioenvs/smoker-host-test/program")
-CTRL = 13334
+# A copy of the test build with its own ports runs side by side with others (regression/run.py): SMOKER_TEST_NAME,
+# SMOKER_API_PORT, SMOKER_GRILL_PORT, SMOKER_CTRL_PORT (defaults: the plain build, 6053, 13333, 13334).
+TEST_NAME = os.environ.get("SMOKER_TEST_NAME", "smoker-host-test")
+PROGRAM = os.path.join(HERE, f".esphome/build/{TEST_NAME}/.pioenvs/{TEST_NAME}/program")
+API_PORT = int(os.environ.get("SMOKER_API_PORT", "6053"))
+GRILL_PORT = os.environ.get("SMOKER_GRILL_PORT", "13333")
+LOG_SUFFIX = "" if TEST_NAME == "smoker-host-test" else "-" + TEST_NAME.rsplit("-", 1)[-1]
+DEVLOG = os.path.join(HERE, f"e2e-scen-device{LOG_SUFFIX}.log")
+GRILLLOG = os.path.join(HERE, f"e2e-scen-grill{LOG_SUFFIX}.log")
+CTRL = int(os.environ.get("SMOKER_CTRL_PORT", "13334"))
 failures = []
 
 
@@ -54,7 +62,7 @@ class Device:
     async def start(self):
         env = dict(os.environ, ESPHOME_PREFDIR=self.prefdir)
         self.proc = subprocess.Popen([PROGRAM], stdout=self.log, stderr=subprocess.STDOUT, env=env)
-        self.cli = APIClient("127.0.0.1", 6053, None)
+        self.cli = APIClient("127.0.0.1", API_PORT, None)
         for _ in range(60):
             try:
                 await self.cli.connect(login=True)
@@ -112,9 +120,9 @@ def want(g):
 
 async def main():
     prefdir = tempfile.mkdtemp(prefix="smoker-prefs-")
-    glog = open(os.path.join(HERE, "e2e-scen-grill.log"), "w")
-    dlog = open(os.path.join(HERE, "e2e-scen-device.log"), "w")
-    g = subprocess.Popen([sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", "13333",
+    glog = open(GRILLLOG, "w")
+    dlog = open(DEVLOG, "w")
+    g = subprocess.Popen([sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", GRILL_PORT,
                           "--bind", "127.0.0.1", "--control-port", str(CTRL)], stdout=glog, stderr=subprocess.STDOUT)
     await asyncio.sleep(1)
     dev = Device(prefdir, dlog)
@@ -166,7 +174,7 @@ async def main():
             check(await dev.wait(lambda: v("cook_active") is True, 120, "cook active"), "cook active before the cut")
             await asyncio.sleep(SAVE_WAIT)  # past a 2-minute save of the recovery record
             dlog.flush()
-            before = len(open(os.path.join(HERE, "e2e-scen-device.log")).read())
+            before = len(open(DEVLOG).read())
             grill({"power_cut": 20, "back_on": False})
             check(await dev.wait(lambda: v("grill_connected") is False, 40, "cut"), "link lost in the cut")
             check(await dev.wait(lambda: v("grill_connected") is True, 90, "back"), "link back after the cut")
@@ -177,7 +185,7 @@ async def main():
 
             def since_cut():
                 dlog.flush()
-                return open(os.path.join(HERE, "e2e-scen-device.log")).read()[before:]
+                return open(DEVLOG).read()[before:]
 
             await dev.wait(lambda: "cook resumed" in since_cut(), 40, "recovery notice")
             log = since_cut()
@@ -185,12 +193,12 @@ async def main():
             check("turned back on" in log, "the notification says the grill was turned back on")
             check("Program paused" not in log, "the rebooted grill's default target didn't pause the program")
             check(await dev.wait(lambda: "target id 0x02" in
-                                 open(os.path.join(HERE, "e2e-scen-grill.log")).read().split("power back")[-1], 30, "food"),
+                                 open(GRILLLOG).read().split("power back")[-1], 30, "food"),
                   "the food target was sent to the grill again")
 
             print("scenario 6b: the link drops, and meanwhile the grill is turned off at its button: left off")
             dlog.flush()
-            before = len(open(os.path.join(HERE, "e2e-scen-device.log")).read())
+            before = len(open(DEVLOG).read())
             grill({"silent": True})
             check(await dev.wait(lambda: v("grill_connected") is False, 40, "lost"), "link lost")
             grill({"on": False})
@@ -200,7 +208,7 @@ async def main():
             await asyncio.sleep(40)
             check(v("grill_on") is False, "a grill turned off at its button (settings kept) isn't turned back on")
             dlog.flush()
-            log = open(os.path.join(HERE, "e2e-scen-device.log")).read()[before:]
+            log = open(DEVLOG).read()[before:]
             check("wasn't turned back on" in log, "a notification says it was left off")
             dev.cli.button_command(dev.by_id["turn_the_grill_on"].key)
             dev.cli.button_command(dev.by_id["turn_the_grill_on"].key)
@@ -232,7 +240,7 @@ async def main():
                 grill({"pit_f": None})
             print("scenario 8: the lid opens for a minute: its cost is measured, no fire alert")
             dlog.flush()
-            before = len(open(os.path.join(HERE, "e2e-scen-device.log")).read())
+            before = len(open(DEVLOG).read())
             grill({"door": True, "pit_f": 230})
             check(await dev.wait(lambda: v("lid") is True, 15, "lid open"), "lid reported open")
             await asyncio.sleep(60)
@@ -242,13 +250,13 @@ async def main():
             check(await dev.wait(lambda: bool(v("last_lid_opening")), 120, "lid cost"),
                   f"the lid opening was measured ({v('last_lid_opening')!r})")
             dlog.flush()
-            log = open(os.path.join(HERE, "e2e-scen-device.log")).read()[before:]
+            log = open(DEVLOG).read()[before:]
             check("Fire may be out" not in log and "fire may be dying" not in log.lower(), "no fire alert for a lid opening")
 
             print("scenario 9: the pit runs away: a critical alert")
             grill({"pit_f": None})
             grill({"pit_f": 420})
-            check(await dev.wait(lambda: "Pit temperature running away" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
+            check(await dev.wait(lambda: "Pit temperature running away" in open(DEVLOG).read(),
                                  900, "runaway"), "a 'running away' alert (after the 10-min quiet window and 5 min confirmation)")
             grill({"pit_f": 259})  # settled again near the 260 target
             check(await dev.wait(lambda: bool(v("pit_stability")), 900, "stability"),
@@ -259,12 +267,12 @@ async def main():
             grill({"food1_f": 205})
             # (Done, or already Resting: on a slow machine the phase can move on between two looks)
             check(await dev.wait(lambda: (v("food_1_phase") or "").startswith(("Done", "Resting"))
-                                 or "Food 1 is done" in open(os.path.join(HERE, "e2e-scen-device.log")).read(), 240, "done"),
+                                 or "Food 1 is done" in open(DEVLOG).read(), 240, "done"),
                   f"food 1 phase Done ({v('food_1_phase')!r})")
             grill({"food1_f": 75})
             await asyncio.sleep(75)
             dlog.flush()
-            n = open(os.path.join(HERE, "e2e-scen-device.log")).read().count("Food 1 is done")
+            n = open(DEVLOG).read().count("Food 1 is done")
             check(n == 1, f"exactly one 'done' notification ({n})")
 
             print("scenario 4: controller restart mid-cook: the cook resumes")
@@ -281,7 +289,7 @@ async def main():
                   f"program resumed after the restart (state {v('program_state')!r}, status {v('program_status')!r})")
             check(v("cook_active") is True, "still the same cook")
             dlog.flush()
-            check(await dev.wait(lambda: "Power cut: cook resumed" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
+            check(await dev.wait(lambda: "Power cut: cook resumed" in open(DEVLOG).read(),
                                  60, "notice"), "a 'Power cut: cook resumed' notification")
 
             print("scenario 4b: restart with \"Resume after a power cut\" off: paused, as before")
@@ -334,7 +342,7 @@ async def main():
             check(await dev.wait(lambda: v("program_state") == "Finished", 30, "still keeping"),
                   f"the keep program is still there after a restart (state {v('program_state')!r}; it was lost before 1.4.1)")
             dlog.flush()
-            check(await dev.wait(lambda: "goes on keeping the food" in open(os.path.join(HERE, "e2e-scen-device.log")).read(),
+            check(await dev.wait(lambda: "goes on keeping the food" in open(DEVLOG).read(),
                                  90, "notice"), "a notice says it goes on keeping the food")
             # With it off, the cook isn't resumed: the keep ends too (1.4.3 brought it back to move the pit later).
             dev.cli.switch_command(dev.by_id["resume_after_a_power_cut"].key, False)
@@ -362,14 +370,14 @@ async def main():
 
             def fit(prog):
                 dlog.flush()
-                before = open(os.path.join(HERE, "e2e-scen-device.log")).read().count("FIT ok=")
+                before = open(DEVLOG).read().count("FIT ok=")
                 return before
             async def fit_result(prog):
                 n = fit(prog)
                 await dev.action("fit_program", program=prog)
-                ok = await dev.wait(lambda: open(os.path.join(HERE, "e2e-scen-device.log")).read().count("FIT ok=") > n, 10, "fit")
+                ok = await dev.wait(lambda: open(DEVLOG).read().count("FIT ok=") > n, 10, "fit")
                 dlog.flush()
-                lines = [ln for ln in open(os.path.join(HERE, "e2e-scen-device.log")).read().splitlines() if "FIT ok=" in ln]
+                lines = [ln for ln in open(DEVLOG).read().splitlines() if "FIT ok=" in ln]
                 return lines[-1] if ok and lines else ""
             r = await fit_result('pit 250 until food1 >= 160 notify "see https://example.test/x"; hold 200')
             check("ok=0" in r and "link" in r, f"an AI plan with a link is refused ({r[-120:]!r})")
@@ -386,7 +394,7 @@ async def main():
             await asyncio.sleep(1)
             await dev.action("load_ai_program", program="name: AI hot; pit 600 until after 5h; hold 225")
             dlog.flush()
-            check(await dev.wait(lambda: "AI program adjusted before loading" in open(os.path.join(HERE, "e2e-scen-device.log")).read()
+            check(await dev.wait(lambda: "AI program adjusted before loading" in open(DEVLOG).read()
                                  and not (v("program_error") or ""), 10, "ai load"),
                   f"an AI plan from Home Assistant is capped at the AI max pit and loaded ({v('program_error')!r})")
             await dev.action("load_ai_program", program='pit 250 notify "see www.example.test"')
@@ -441,7 +449,7 @@ async def main():
         g.terminate()
         glog.close()
         dlog.close()
-    log = open(os.path.join(HERE, "e2e-scen-grill.log")).read()
+    log = open(GRILLLOG).read()
     check("DANGEROUS" not in log, "no dangerous command ids sent")
 
 

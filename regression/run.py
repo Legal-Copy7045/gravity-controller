@@ -222,7 +222,7 @@ class Stage:
 
 def kill_sims():
     subprocess.run(["pkill", "-f", "tools/fake_grill.py"], capture_output=True)
-    subprocess.run(["pkill", "-f", "smoker-host-test/program"], capture_output=True)
+    subprocess.run(["pkill", "-f", "smoker-host-test(-[a-z])?/program"], capture_output=True)
     subprocess.run(["pkill", "-f", "tests/webui_bridge.py"], capture_output=True)
     time.sleep(1)
 
@@ -342,30 +342,67 @@ def stage_firmware(st, args):
         st.add(key, f"firmware config: {key}", "pass" if ok else "fail", "" if ok else f"pattern {pat!r} not found")
 
 
+# The simulated grill runs side by side: the end-to-end test and each scenario group on a copy of the test build with
+# its own ports (tests/host-bridge.yaml substitutions), so none waits for another. The device page test uses the plain
+# build's ports and runs at the same time (main()).
+SIM_PARTS = [  # (name, script, group, test name, api port, grill port, control port)
+    ("e2e", "tests/e2e.py", None, "smoker-host-test-e", 6453, 13733, 13734),
+    ("scenarios-A", "tests/e2e_scenarios.py", "A", "smoker-host-test-a", 6153, 13433, 13434),
+    ("scenarios-B", "tests/e2e_scenarios.py", "B", "smoker-host-test-b", 6253, 13533, 13534),
+    ("scenarios-C", "tests/e2e_scenarios.py", "C", "smoker-host-test-c", 6353, 13633, 13634),
+]
+
+
+def compile_host_variant(args, test_name=None, api=None, grill=None):
+    """The test build (or a copy with its own name and ports); cached after the first time."""
+    cmd = [esphome_bin(args)]
+    if test_name:
+        cmd += ["-s", "test_name", test_name, "-s", "api_port", str(api), "-s", "grill_port", str(grill)]
+    rc, out, _ = run(cmd + ["compile", "tests/host-bridge.yaml"], timeout=1800)
+    if rc != 0:
+        raise RuntimeError(f"test build {test_name or 'smoker-host-test'} didn't compile: {tail(out)}")
+
+
 def stage_sim(st, args):
+    from concurrent.futures import ThreadPoolExecutor
     py = args.esphome_python or sys.executable
-    for name, script in [("e2e", "tests/e2e.py"), ("scenarios", "tests/e2e_scenarios.py")]:
-        if not FROM_LOGS:
-            kill_sims()
-        rc, out, secs, ev = run_logged("sim", name, [py, script], timeout=5400)
-        got = parse_ok_fail(out)
-        for key, check, ok, raw in got:
-            st.add(f"{name} › {key}", f"{name}: {check}", "pass" if ok else "fail", "" if ok else raw, ev)
-        if rc != 0 and not any(not ok for *_, ok, _ in got):
-            st.run_failed(f"{script} exited {rc}: {tail(out)}", ev)
-        st.env[f"{name}_seconds"] = round(secs)
-    kill_sims()
+    if not FROM_LOGS:
+        for _, _, _, tn, api, grill, _ in SIM_PARTS:
+            compile_host_variant(args, tn, api, grill)
+
+    def one(part):
+        name, script, group, tn, api, grill, ctrl = part
+        env = {"SMOKER_TEST_NAME": tn, "SMOKER_API_PORT": str(api), "SMOKER_GRILL_PORT": str(grill),
+               "SMOKER_CTRL_PORT": str(ctrl)}
+        if group:
+            env["SCENARIO_GROUP"] = group
+        return part, run_logged("sim", name, [py, script], env=env, timeout=5400)
+
+    with ThreadPoolExecutor(len(SIM_PARTS)) as ex:
+        results = list(ex.map(one, SIM_PARTS))
+    # The scenario groups' results under one "scenarios" name (their IDs don't depend on how they were run).
+    for label, parts in (("e2e", [r for r in results if r[0][0] == "e2e"]),
+                         ("scenarios", [r for r in results if r[0][0].startswith("scenarios")])):
+        for (name, script, *_), (rc, out, secs, ev) in parts:
+            got = parse_ok_fail(out)
+            for key, check, ok, raw in got:
+                k = f"{label} › {key}"
+                if k in st.ids.seen:  # (each group's own "connected" check)
+                    k = f"{label} › {name[-1]} › {key}"
+                st.add(k, f"{label}: {check}", "pass" if ok else "fail", "" if ok else raw, ev)
+            if rc != 0 and not any(not ok for *_, ok, _ in got):
+                st.run_failed(f"{script} ({name}) exited {rc}: {tail(out)}", ev)
+            st.env[f"{name}_seconds"] = round(secs)
     st.missing_as_skip()
 
 
 def stage_device(st, args):
-    if not FROM_LOGS:
-        kill_sims()
     env = {"ESPHOME_PYTHON": args.esphome_python} if args.esphome_python else {}
+    if not FROM_LOGS and not Path(ROOT / "tests/.esphome/build/smoker-host-test/.pioenvs/smoker-host-test/program").exists():
+        compile_host_variant(args)
     rc, out, secs, ev = run_logged("device", "webui", ["python3", "tests/webui_e2e.py"], env=env, timeout=3600)
     st.lines(out, ev, rc, "tests/webui_e2e.py")
     st.env["seconds"] = round(secs)
-    kill_sims()
     st.missing_as_skip()
 
 
@@ -547,14 +584,37 @@ def main():
     stages = args.stage or [s for s in ORDER if s != "live" or args.live]
     OUT.mkdir(exist_ok=True)
     catalogue = load_catalogue()
-    for name in stages:
-        print(f"[{dt.datetime.now():%H:%M:%S}] {name}", flush=True)
+    import threading
+
+    def run_stage(name):
+        print(f"[{dt.datetime.now():%H:%M:%S}] {name} started", flush=True)
         st = Stage(name, catalogue)
         try:
             STAGES[name](st, args)
         except Exception as ex:  # noqa: BLE001  a broken stage is a result, not a crash
             st.run_failed(f"{type(ex).__name__}: {ex}")
         st.save()
+
+    def lane(names):
+        for n in names:
+            if n in stages:
+                run_stage(n)
+
+    if not FROM_LOGS:
+        kill_sims()  # (stale ones from an earlier run hold the ports)
+    # Three lanes at once: the quick stages that need no ports; the firmware compile, then the simulated grill (its
+    # parts side by side); the device page test (the plain test build's ports). Live checks last.
+    t0 = time.time()
+    lanes = [["ci", "core", "page", "integration", "package", "manual"], ["firmware", "sim"], ["device"]]
+    if "device" in stages and "firmware" in stages and args.compile:
+        lanes = [lanes[0], ["firmware", "sim", "device"]]  # (the device test needs the build the compile replaces)
+    threads = [threading.Thread(target=lane, args=(names,)) for names in lanes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    lane(["live"])
+    print(f"done in {round((time.time() - t0) / 60, 1)} min", flush=True)
     shutil.rmtree(Path(tempfile.gettempdir()) / "smoker-regress", ignore_errors=True)
 
 

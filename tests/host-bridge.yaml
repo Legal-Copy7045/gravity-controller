@@ -1,12 +1,18 @@
 # Native (Linux) build of the bridge for end-to-end tests against tools/fake_grill.py.
 #   esphome compile tests/host-bridge.yaml && run the binary, see tests/e2e.py
+# Ports and name can be overridden, so several copies run side by side (regression/run.py: each scenario group gets
+# its own): esphome -s test_name smoker-host-test-a -s api_port 6153 -s grill_port 13433 compile tests/host-bridge.yaml
+substitutions:
+  test_name: smoker-host-test
+  api_port: "6053"
+  grill_port: "13333"
 esphome:
-  name: smoker-host-test
+  name: ${test_name}
 host:
 logger:
   level: INFO
 api:
-  port: 6053
+  port: ${api_port}
   actions:
     - action: load_program
       variables:
@@ -68,7 +74,7 @@ external_components:
 gravity980:
   id: grill
   host: 127.0.0.1
-  port: 13333
+  port: ${grill_port}
   temperature_unit: F
 sensor:
   - platform: template

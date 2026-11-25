@@ -20,7 +20,13 @@ from aioesphomeapi import APIClient
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PROGRAM = os.path.join(HERE, ".esphome/build/smoker-host-test/.pioenvs/smoker-host-test/program")
+# A copy of the test build with its own ports runs side by side with others (regression/run.py): SMOKER_TEST_NAME,
+# SMOKER_API_PORT, SMOKER_GRILL_PORT, SMOKER_CTRL_PORT (defaults: the plain build, 6053, 13333, 13334).
+TEST_NAME = os.environ.get("SMOKER_TEST_NAME", "smoker-host-test")
+PROGRAM = os.path.join(HERE, f".esphome/build/{TEST_NAME}/.pioenvs/{TEST_NAME}/program")
+API_PORT = int(os.environ.get("SMOKER_API_PORT", "6053"))
+GRILL_PORT = os.environ.get("SMOKER_GRILL_PORT", "13333")
+LOG_SUFFIX = "" if TEST_NAME == "smoker-host-test" else "-" + TEST_NAME.rsplit("-", 1)[-1]
 
 failures = []
 
@@ -42,10 +48,10 @@ async def wait_for(pred, timeout, what):
 
 
 async def main():
-    grill_log = open(os.path.join(HERE, "e2e-grill.log"), "w")
-    dev_log = open(os.path.join(HERE, "e2e-device.log"), "w")
+    grill_log = open(os.path.join(HERE, f"e2e-grill{LOG_SUFFIX}.log"), "w")
+    dev_log = open(os.path.join(HERE, f"e2e-device{LOG_SUFFIX}.log"), "w")
     grill = subprocess.Popen(
-        [sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", "13333", "--bind", "127.0.0.1",
+        [sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", GRILL_PORT, "--bind", "127.0.0.1",
          "--speed", "120"],
         stdout=grill_log, stderr=subprocess.STDOUT)
     await asyncio.sleep(1)
@@ -55,7 +61,7 @@ async def main():
     states = {}
     names = {}
     try:
-        cli = APIClient("127.0.0.1", 6053, None)
+        cli = APIClient("127.0.0.1", API_PORT, None)
         for _ in range(40):
             try:
                 await cli.connect(login=True)
@@ -101,7 +107,7 @@ async def main():
         await asyncio.sleep(3)
         check(val("pit_target_reported") == 250.0, "out-of-range target refused")
 
-        glog = lambda: open(os.path.join(HERE, "e2e-grill.log"), encoding="utf-8", errors="replace").read()
+        glog = lambda: open(os.path.join(HERE, f"e2e-grill{LOG_SUFFIX}.log"), encoding="utf-8", errors="replace").read()
 
         # Turbo and power, as the Char-Griller app sends them (one flag at a time); power never on one press.
         cli.switch_command(by_id["turbo"].key, True)
@@ -192,7 +198,7 @@ async def main():
               f"link status says what it's doing ({val('grill_link_status')!r})")
         # The grill comes back: the bridge reconnects by itself.
         grill = subprocess.Popen(
-            [sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", "13333", "--bind", "127.0.0.1",
+            [sys.executable, "-u", os.path.join(ROOT, "tools/fake_grill.py"), "--port", GRILL_PORT, "--bind", "127.0.0.1",
              "--speed", "120"], stdout=grill_log, stderr=subprocess.STDOUT)
         check(await wait_for(lambda: val("grill_connected") is True, 30, "link back"), "link recovers when the grill returns")
         grill.terminate()
@@ -208,7 +214,7 @@ async def main():
             grill.terminate()
         grill_log.close()
         dev_log.close()
-    with open(os.path.join(HERE, "e2e-grill.log")) as f:
+    with open(os.path.join(HERE, f"e2e-grill{LOG_SUFFIX}.log")) as f:
         g = f.read()
     check("DANGEROUS" not in g, "no dangerous command ids sent to the grill")
 
