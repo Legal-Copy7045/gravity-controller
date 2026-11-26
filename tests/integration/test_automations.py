@@ -1,5 +1,6 @@
 """Package automations that react to the controller: cook summary, AI plan refresh."""
 
+import pytest
 import json
 from pathlib import Path
 
@@ -167,7 +168,10 @@ async def test_maintenance_due_adds_a_job(hass: HomeAssistant):
     assert [c for c in calls if c[:2] == ("todo", "add_item") and "ash" in c[2]["item"]], calls
 
 
-async def test_calendar_sets_the_serve_time_unless_set_by_hand(hass: HomeAssistant):
+# (The package's every-30-minutes calendar automation leaves Home Assistant's own time trigger scheduled when the test
+# stops Home Assistant; that timer is Home Assistant's, not this integration's.)
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+async def test_calendar_sets_the_serve_time_unless_set_by_hand(hass: HomeAssistant, expected_lingering_timers):
     import datetime as dt
 
     from homeassistant.core import SupportsResponse

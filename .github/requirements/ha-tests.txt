@@ -1171,6 +1171,15 @@ frozenlist==1.8.0 \
     # via
     #   aiohttp
     #   aiosignal
+gazetteer-matcher==1.1.0 \
+    --hash=sha256:0fb123e88528f9862608efd858b386c43332549a6aa4afdcb7611d6d3645b7f0 \
+    --hash=sha256:844d11cb781302aded70f0a8eae8a2d1601e6e2aaa006745a667b500097635cc \
+    --hash=sha256:9460da761c68ba57679ee773462bcbf708743c44e92197009def43ac5ac5dd86 \
+    --hash=sha256:ab3749cd1a2498302aecd0fa1d159d467ad17067a279f7dda83ff9a596111701 \
+    --hash=sha256:c6c28513c3689768ec1a75fb1b2c3153ab424a65f6992579b311c57652523c5a \
+    --hash=sha256:edd1c12a3bd8e30ea6f4da8e4554fc1386e21606f08901bf7a24a998602b6105 \
+    --hash=sha256:f81042403497db23862e2dfa4915100a896a097a45ef5f834ef2a75afbd912e3
+    # via -r .github/requirements/ha-tests.in
 greenlet==3.5.6 \
     --hash=sha256:0616b8f878098c5681fd8f0dc92d887551717402342a70f0abcbfea5f5ad8a44 \
     --hash=sha256:06c0e933290fba8ffe53ead4ae1b8044b0e9754b75cebf381aa2bc3e50d82fac \
@@ -1374,22 +1383,24 @@ hass-nabucasa==2.8.1 \
     --hash=sha256:28faff85be9c59ae17e9c876af75b2669fdc9bb73d5c561f38c904689dc3325e \
     --hash=sha256:6006a60dd53f2850820b27cfaa92dae8e9a8ae06b79044721b1f0c6359c84abf
     # via homeassistant
-hassil==3.5.0 \
-    --hash=sha256:87b2a48164b2de1d693edbe4204b3a7c3b72dc7c5c3829774de8824ecc62ab96 \
-    --hash=sha256:bed39573626d76bfc0681a709a6b64e4de82a680371bd29238473f6711392597
+hassil==3.12.1 \
+    --hash=sha256:d12553cccf2548a86cfedd28c8f3171690f5e8c064470c2b66170cc5848ecdef \
+    --hash=sha256:dad08f2525ad0246cfd6cc072e2c3015f1b15f918ac49a7b8e9dd07bd6ef8f5a
     # via -r .github/requirements/ha-tests.in
 home-assistant-bluetooth==2.0.0 \
     --hash=sha256:3febd16b194812b156024d9bc8ce8ec7622cdd8d159047cac504cc77ca034ea1 \
     --hash=sha256:8d7c2ac48c303adacad73cb6cdfe7710f2fccd2a367d4c3106acf301b0d22b91
     # via homeassistant
-home-assistant-frontend==20260128.6 \
-    --hash=sha256:1fd307078b9584a7cfa3dce2e57443975223c9458a797af795253c3c4726ffbb \
-    --hash=sha256:f1e901b059465e795eaf735281fe81e9a1b7eb2a0255c8c9db4f8cc466b95f9a
+home-assistant-frontend==20261028.8 \
+    --hash=sha256:6df9f0fd2c39d108ad7ce6cffae42f3ca421a226e3328f3dec1111515f44f06d \
+    --hash=sha256:9a56bb82ea63344519d0d8ab4685b6877410f27c7446618d058ec94d2000ed04
     # via -r .github/requirements/ha-tests.in
-home-assistant-intents==2026.1.28 \
-    --hash=sha256:baa2f017535729bb2f68add51be6e9c703627e1bf7048a48c58f2e4afba9cda1 \
-    --hash=sha256:dd593fd1471e49e0d7b296d5ef0cce69c67a73adb30324b239933a2bf6c3ca71
-    # via -r .github/requirements/ha-tests.in
+home-assistant-intents==2026.10.27 \
+    --hash=sha256:256eb1e4fc6e6f4943d0ba4e089c9639d74d0e9d62ccddeb7148bc168de55e40 \
+    --hash=sha256:5a99ec8c3b7e26089284bfa642884db40784495ce3e0d8e2dd6f74ddcba44356
+    # via
+    #   -r .github/requirements/ha-tests.in
+    #   gazetteer-matcher
 homeassistant==2026.11.3 \
     --hash=sha256:1812e29d14ae255441427abdbbb14941e753689f7add6c967f9d6075fd97348d \
     --hash=sha256:8b437172121d48919e9487f2fb91a78e4e0466f2e52f68e0a98a2ee72a1c55d1
@@ -2452,6 +2463,7 @@ pyyaml==6.0.3 \
     --hash=sha256:fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0
     # via
     #   annotatedyaml
+    #   gazetteer-matcher
     #   hassil
     #   homeassistant
 regex==2026.11.25 \
@@ -2750,7 +2762,9 @@ ulid-transform==2.2.9 \
 unicode-rbnf==2.5.1 \
     --hash=sha256:3107f12ba9e2ffe11fc993adaed0e024e3897959c2bfa66ceeeafa7c9a2d107a \
     --hash=sha256:d0b3e77d1ce27666d3e67834518c53642ff191e674ee423faa89c37f554a7efb
-    # via hassil
+    # via
+    #   gazetteer-matcher
+    #   hassil
 urllib3==2.8.0 \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63

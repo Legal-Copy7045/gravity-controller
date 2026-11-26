@@ -1,6 +1,6 @@
 # Stable check IDs for the integration stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: INT-037
+# highest issued: INT-038
 INT-001: "tests.integration.test_automations::test_cook_summary_without_stall_or_pit"
 INT-002: "tests.integration.test_automations::test_plan_refresh_ignores_reconnects"
 INT-003: "tests.integration.test_automations::test_ai_advisor_only_for_a_cook"
@@ -38,3 +38,4 @@ INT-034: "tests.integration.test_voice::test_voice"
 INT-035: "tests.integration.test_watchdog::test_decide"
 INT-036: "tests.integration.test_watchdog::test_reloads_a_stuck_controller_only"
 INT-037: "tests.integration.test_sharing::test_community_sensor_exists_before_any_averages"
+INT-038: "tests.integration.test_automations::test_calendar_sets_the_serve_time_unless_set_by_hand[True]"

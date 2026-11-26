@@ -22,6 +22,9 @@ Everything the first full check (regression, three security reviews, the desktop
 - Your grill photo's address goes only to an unlocked page (it opens the photo without a Home Assistant login).
 - An AI plan asked from a page without the PIN no longer opens itself in your step editor; it says who asked.
 - The PIN lockout remembers your own device across a restart.
+- CI's Home Assistant checks run on Home Assistant 2026.11 and the integration tests on 2026.10 (Python 3.14), both
+  hash-locked with no known vulnerabilities (the 2026.2 test framework they used pinned some).
+- The integration's sharing timer is cancelled when Home Assistant stops.
 
 **Both dashboards**
 - The "Now" section is gone: cook time and the weather are in the header. The menu says Temperatures, like the

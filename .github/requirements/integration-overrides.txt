@@ -1,0 +1,2 @@
+# Newer than Home Assistant 2026.10 pins, for known vulnerabilities in the pinned one (tests only; see integration-tests.in)
+pillow==13.0.0

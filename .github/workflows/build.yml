@@ -372,9 +372,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
+      # (The lock lists every package, one of them newer than Home Assistant pins for a known vulnerability:
+      # .github/requirements/integration-overrides.txt. So no dependency resolution here, and a virtual environment:
+      # Home Assistant 2026.10+ runs only in one.)
       - name: Install the Home Assistant test framework (hash-pinned, .github/requirements/integration-tests.txt)
-        run: python -m pip install --require-hashes -r .github/requirements/integration-tests.txt
+        run: |
+          python -m venv "$RUNNER_TEMP/ha"
+          echo "$RUNNER_TEMP/ha/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ha/bin/python" -m pip install --no-deps --require-hashes -r .github/requirements/integration-tests.txt
       - name: Integration tests (journal, photo identification, voice)
         run: python -m pytest -q
 

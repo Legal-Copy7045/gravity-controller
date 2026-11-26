@@ -31,6 +31,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .local_only import MESSAGE as LOCAL_ONLY_MESSAGE, local_only
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -182,6 +183,7 @@ class Sharing:
                                      "url": ""}
         self.community: dict[str, Any] | None = None
         self._unsub = None
+        self._settle = None  # the pending "feedback has settled" wait (cancelled on unload)
         self._sending: set[str] = set()      # entries being uploaded right now (one upload per cook)
         self._touched: dict[str, float] = {}  # entry id -> last feedback change (automatic sharing waits)
         self._last_upload = 0.0  # monotonic time of the last upload sent (they're spaced UPLOAD_GAP apart)
@@ -264,6 +266,9 @@ class Sharing:
         if self._drain:
             self._drain()
             self._drain = None
+        if self._settle:
+            self._settle()
+            self._settle = None
         if self._on_entry in self.journal.listeners:
             self.journal.listeners.remove(self._on_entry)
 
@@ -298,11 +303,14 @@ class Sharing:
             return
         if entry and entry.get("id"):
             self._touched[entry["id"]] = time.time()
-        # Shared once the feedback has settled (or by the hourly tick).
-        async_call_later(self.hass, SETTLE + 5, self._settled)
+        # Shared once the feedback has settled (or by the hourly tick). One wait at a time, cancelled on unload.
+        if self._settle:
+            self._settle()
+        self._settle = async_call_later(self.hass, SETTLE + 5, self._settled)
 
     @callback
     def _settled(self, _now=None) -> None:
+        self._settle = None
         self.hass.async_create_task(self.share_ready())
 
     async def share(self, entry_id: str) -> dict:
@@ -553,6 +561,8 @@ async def async_setup_sharing(hass: HomeAssistant, journal, version: str) -> Non
         hass.data[DATA]._publish_community()
         return
     s = Sharing(hass, journal, version)
+    # Its timers end with Home Assistant (a stop without an unload would otherwise leave them pending).
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, lambda _e: s.unload())
     await s.async_load()
     hass.data[DATA] = s
     # Always there, even with sharing off (0 cooks, nothing similar): the package's AI prompts read it, and an entity

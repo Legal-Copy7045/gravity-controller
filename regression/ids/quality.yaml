@@ -1,6 +1,6 @@
 # Stable check IDs for the quality stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: QA-015
+# highest issued: QA-016
 QA-001: "ruff: no Python errors"
 QA-002: "bandit: no high-severity issues"
 QA-003: "bandit: medium-severity issues listed"
@@ -16,3 +16,4 @@ QA-012: "JavaScript parses: custom_components/smoker/frontend/shim.js"
 QA-013: "JavaScript parses: custom_components/smoker/frontend/panel.js"
 QA-014: "dependency audit: .github/requirements/ha-tests.txt"
 QA-015: "dependency audit: .github/requirements/integration-tests.txt"
+QA-016: "dependency audit: .github/requirements/integration-overrides.txt"
