@@ -29,7 +29,7 @@ sys.path.insert(0, str(HERE))
 from catalogue import claims as _claims, feature_for, load_catalogue  # noqa: E402
 OUT = HERE / "out"
 ROOT = HERE.parent
-STAGES = ["ci", "core", "firmware", "sim", "device", "page", "integration", "package", "live", "manual"]
+STAGES = ["ci", "quality", "core", "firmware", "sim", "device", "page", "integration", "package", "live", "manual", "walkthrough"]
 SEV = ["critical", "high", "medium", "low", "info"]
 STATUS = ["fail", "pass", "manual", "skip"]
 e = html.escape

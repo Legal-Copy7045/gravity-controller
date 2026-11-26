@@ -1,0 +1,25 @@
+# Code quality and supply chain (regression/run.py stage "quality").
+- feature: "Python code free of real errors (ruff)"
+  since: 1.4.10
+  docs: regression/README.md
+  match: ["^quality:ruff:"]
+- feature: "Static security scan of the integration and tools (bandit)"
+  since: 1.4.10
+  docs: docs/security.md
+  match: ["^quality:bandit"]
+- feature: "Pinned dependencies have no known vulnerabilities (pip-audit)"
+  since: 1.4.10
+  docs: docs/security.md
+  match: ["^quality:dependency audit:"]
+- feature: "Controller logic compiles without warnings; the pages' JavaScript parses"
+  since: 1.4.10
+  docs: regression/README.md
+  match: ["^quality:C\\+\\+", "^quality:JavaScript parses:"]
+- feature: "Regression tooling tested (stage selection, walkthrough checks, reports)"
+  since: 1.4.10
+  docs: regression/README.md
+  match: ["^ci:regression tooling tests"]
+- feature: "Walkthrough: both dashboards usable on desktop and phone (labels, layout, tap targets, links, errors)"
+  since: 1.4.10
+  docs: .claude/skills/walkthrough/SKILL.md
+  match: ["^walkthrough:"]

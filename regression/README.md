@@ -1,7 +1,10 @@
 # Regression suite
 
 One command runs every test in the repo, turns the results into one report with stable check IDs, and lists what
-each feature is covered by. It is run every few releases or after a big feature set (`/regression` in a Claude Code
+each feature is covered by. Three Claude Code commands use it: **`/regression`** (every stage, three reviewers: bugs,
+security claims, an outsider on the LAN), **`/walkthrough`** (both dashboards crawled on desktop and phone, two UX
+reviewers, a report of what to merge, rename, move or keep) and **`/full-check`** (both at once). Their steps are in
+`.claude/skills/<name>/SKILL.md`. It is run every few releases or after a big feature set (`/regression` in a Claude Code
 session runs the whole thing, reviews included; see `.claude/skills/regression/SKILL.md`), not on every push: CI
 already runs the core tests and builds on every push.
 
@@ -9,11 +12,15 @@ already runs the core tests and builds on every push.
 regression/
   run.py            runs the stages -> out/<stage>.json (and out/logs/)
   report.py         out/*.json + catalogue -> out/report.html (publishable page) and out/report.md
+  walkthrough.py    the walkthrough's crawl (both pages x desktop/phone x Basic/Advanced) -> out/walkthrough/
+  walkthrough_report.py  out/walkthrough/ + findings -> out/walkthrough/report.html
+  tests/            tests of the tooling itself (stage selection, walkthrough checks, both reports)
   catalogue.py      reads catalogue/*.yaml
   catalogue/*.yaml  every feature, the release it arrived in, its docs, and the checks that cover it
   ids/<stage>.yaml  stable check IDs (append-only)
   manual.yaml       checks that need a person at the grill
   RUNS.md           one line per full run (public: no names, hosts or device ids)
+  WALKTHROUGHS.md   one line per walkthrough (public, likewise)
   out/              results, logs, screenshots, the report (git-ignored)
 ```
 
@@ -22,7 +29,10 @@ regression/
 ```bash
 export ESPHOME_PYTHON=/path/to/esphome-venv/bin/python   # esphome, aioesphomeapi, aiohttp
 export HA_PYTHON=/path/to/ha-venv/bin/python             # pip install -r tests/requirements-integration.txt
-python3 regression/run.py --compile                       # every stage but live (see the timing below)
+export QUALITY_PYTHON=/path/to/quality-venv/bin/python   # pip install bandit pip-audit (ruff from PATH)
+python3 regression/run.py --compile                       # every regression stage but live (see the timing below)
+python3 regression/run.py --compile --with-walkthrough    # ... and the walkthrough's crawl, side by side
+python3 regression/run.py --stage walkthrough             # the crawl alone (python3 regression/walkthrough_report.py)
 HA_URL=https://<your home assistant> python3 regression/run.py --stage live
 REPORT_TZ=Europe/London python3 regression/report.py
 ```
@@ -40,6 +50,7 @@ sets the pace, ~6 min); the first run in a fresh session adds the compiles.
 
 | Stage | Prefix | What runs | Notes |
 |---|---|---|---|
+| quality | `QA-` | ruff (Python errors), bandit (static security scan of the integration and tools), pip-audit of every pinned requirements file, the C++ with `-Wall -Wextra`, the pages' JavaScript parses | the audit skips offline |
 | ci | `CI-` | `check_versions.py`, `brand_sync.py --check`, `privacy_guard.py`, `release_notes.py`, package copy, shared blocks, workflow hygiene | seconds |
 | core | `CORE-` | `make -C tests` (C++ unit tests: protocol, programs, predictor, fuel, PIN, local-only hosts) | one result per test section |
 | firmware | `FW-` | `esphome config` of the bridge, the no-HA build and the host build; `--compile` compiles them (throwaway signing key, deleted after) | plus firmware config assertions |
@@ -50,6 +61,7 @@ sets the pace, ~6 min); the first run in a fresh session adds the compiles.
 | package | `PKG-` | `tests/ha_check.py` (HA's config check) and `tests/ha_templates.py` | |
 | live | `LIVE-` | read-only: installed versions, pending updates, config check, entities available, local only off, GitHub release | needs `HA_URL`; never switches anything |
 | manual | `MAN-` | `manual.yaml` | listed as "need a person" |
+| walkthrough | `WT-` | `walkthrough.py`: both dashboards, desktop 1280 and phone 390, Basic and Advanced and the Setup page: menu label = heading, no duplicate labels, no horizontal scroll, nothing off screen or wider than its container, phone tap targets ≥ 40 px, no dead links, no console errors | only with `--with-walkthrough` or `--stage walkthrough`; own build and ports |
 
 ## Results
 

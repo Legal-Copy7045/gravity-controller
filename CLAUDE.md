@@ -40,10 +40,14 @@ grill, never turn the AI advisor on/off for him, and never touch other devices.
 ## The two dashboards share their layout
 
 `custom_components/smoker/frontend/page.html` (Home Assistant) and `firmware/device-ui/ui.js` (the controller) carry two
-identical shared blocks, checked by tests/render_page.py: the cook program editor and the page sections (`SECT`: the
-same `data-sect` sections, folding from the heading, planning first while idle). Change both copies together.
+identical shared blocks, checked by tests/render_page.py: the cook program editor, the page sections (`SECT`: the
+same `data-sect` sections, folding from the heading, planning first while idle), cook plan, serve together, cook replay
+and the food list (What's cooking). Change both copies together.
 
-## Regression suite (`regression/`, `/regression`)
+## Regression suite (`regression/`, `/regression`, `/walkthrough`, `/full-check`)
+
+Three commands (`.claude/skills/<name>/SKILL.md`): `/regression` (every stage + bug, security-claims and LAN-outsider
+reviews), `/walkthrough` (both dashboards crawled on desktop and phone + two UX reviewers), `/full-check` (both at once).
 
 The full regression (every test suite, a bug and a security review, one published report) is run every few releases
 or after a big feature set, when the owner asks ("/regression" runs `.claude/skills/regression/SKILL.md`). Every

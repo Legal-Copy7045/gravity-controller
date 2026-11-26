@@ -40,9 +40,17 @@ IDS = HERE / "ids"
 sys.path.insert(0, str(HERE))
 from catalogue import load_catalogue, feature_for  # noqa: E402
 
-PREFIX = {"ci": "CI", "core": "CORE", "firmware": "FW", "sim": "SIM", "device": "DEV", "page": "PAGE",
-          "integration": "INT", "package": "PKG", "live": "LIVE", "manual": "MAN"}
-ORDER = ["ci", "core", "firmware", "sim", "device", "page", "integration", "package", "live", "manual"]
+PREFIX = {"ci": "CI", "quality": "QA", "core": "CORE", "firmware": "FW", "sim": "SIM", "device": "DEV", "page": "PAGE",
+          "integration": "INT", "package": "PKG", "live": "LIVE", "manual": "MAN", "walkthrough": "WT"}
+ORDER = ["ci", "quality", "core", "firmware", "sim", "device", "page", "integration", "package", "live", "manual", "walkthrough"]
+
+
+def select_stages(stage=None, live=False, with_walkthrough=False):
+    """--stage NAME (repeatable) runs those; otherwise every regression stage (live only with --live), and the
+    walkthrough only with --with-walkthrough."""
+    if stage:
+        return [s for s in ORDER if s in stage]
+    return [s for s in ORDER if (s != "live" or live) and (s != "walkthrough" or with_walkthrough)]
 
 
 def now() -> str:
@@ -239,7 +247,9 @@ def stage_ci(st, args):
                      ("brand files in sync", ["python3", "tools/brand_sync.py", "--check"]),
                      ("privacy guard (commits and files)", ["python3", ".github/scripts/privacy_guard.py"]),
                      ("release notes build from CHANGELOG", ["python3", ".github/scripts/release_notes.py",
-                                                             (ROOT / "VERSION").read_text().strip()])]:
+                                                             (ROOT / "VERSION").read_text().strip()]),
+                     ("regression tooling tests (stage selection, walkthrough checks, both reports)",
+                      ["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "regression/tests"])]:
         rc, out, _ = run(cmd)
         st.add(key, key, "pass" if rc == 0 else "fail", "" if rc == 0 else tail(out), log("ci", key.split()[0], out))
     a, b = ROOT / "homeassistant/packages/smoker.yaml", ROOT / "custom_components/smoker/package/smoker.yaml"
@@ -558,15 +568,101 @@ def stage_live(st, args):
         st.add(keys[7], keys[7], "skip", f"GitHub API not reachable: {type(ex).__name__}")
 
 
+def _tool(args, name):
+    """A tool from PATH, or next to the given Python (a venv), or None."""
+    for py in (args.quality_python, args.esphome_python, sys.executable):
+        if py and (Path(py).parent / name).exists():
+            return str(Path(py).parent / name)
+    return shutil.which(name)
+
+
+def stage_quality(st, args):
+    """Code quality and supply chain: Python lint (real errors), a static security scan of the integration and tools,
+    a vulnerability audit of every pinned requirements file, the C++ with warnings on, and the pages' JavaScript.
+    Judged against docs/security.md: findings are leads, the threat model decides what matters."""
+    py_dirs = ["custom_components", "tests", "tools", "regression", ".github/scripts"]
+    ruff = _tool(args, "ruff")
+    if ruff:
+        rc, out, _ = run([ruff, "check", "--select", "E9,F63,F7,F82,F401,F811,F841", "--output-format", "concise", "--no-cache"] + py_dirs)
+        n = sum(1 for ln in out.splitlines() if ln.count(":") >= 3)
+        st.add("ruff: no Python errors", "ruff: no Python errors (syntax, undefined names, unused imports/variables)",
+               "pass" if rc == 0 else "fail", "" if rc == 0 else f"{n} issue(s): {tail(out, 12)}", log("quality", "ruff", out))
+    else:
+        st.add("ruff: no Python errors", "ruff: no Python errors", "skip", "ruff not installed")
+    bandit = _tool(args, "bandit")
+    if bandit:
+        rc, out, _ = run([bandit, "-r", "custom_components/smoker", "tools", "-f", "json", "-q", "--severity-level", "medium"])
+        try:
+            res = json.loads(out[out.index("{"):]).get("results", [])
+        except ValueError:
+            res = None
+        if res is None:
+            st.add("bandit: no high-severity issues", "bandit: no high-severity issues", "fail", tail(out), log("quality", "bandit", out))
+        else:
+            fmt = lambda r: f"{r['test_id']} {r['filename']}:{r['line_number']} {r['issue_text']}"  # noqa: E731
+            high = [fmt(r) for r in res if r["issue_severity"] == "HIGH"]
+            med = [fmt(r) for r in res if r["issue_severity"] == "MEDIUM"]
+            ev = log("quality", "bandit", out)
+            st.add("bandit: no high-severity issues", "bandit (static security scan): no high-severity issues",
+                   "fail" if high else "pass", "; ".join(high[:8]), ev)
+            st.add("bandit: medium-severity issues listed", "bandit: medium-severity issues (listed for the review)",
+                   "pass", f"{len(med)}: " + "; ".join(med[:8]) if med else "none", ev)
+    else:
+        st.add("bandit: no high-severity issues", "bandit: no high-severity issues", "skip", "bandit not installed")
+    audit = _tool(args, "pip-audit")
+    reqs = sorted(str(p.relative_to(ROOT)) for p in list((ROOT / ".github/requirements").glob("*.txt")) + list((ROOT / "tests").glob("requirements*.txt")))
+    for r in reqs:
+        key = f"dependency audit: {r}"
+        if not audit:
+            st.add(key, key, "skip", "pip-audit not installed")
+            continue
+        rc, out, _ = run([audit, "--no-deps", "--disable-pip", "--progress-spinner", "off", "-r", r], timeout=600)
+        ev = log("quality", "pip-audit-" + Path(r).stem, out)
+        if "No known vulnerabilities found" in out:
+            st.add(key, key + ": no known vulnerabilities", "pass", "", ev)
+        elif rc != 0 and ("Found" in out and "vulnerabilit" in out):
+            st.add(key, key + ": no known vulnerabilities", "fail", tail(out, 12), ev)
+        else:
+            st.add(key, key + ": no known vulnerabilities", "skip", "couldn't check (offline?): " + tail(out, 3), ev)
+    srcs = ["tests/test_core.cpp"] + [str(p.relative_to(ROOT)) for p in (ROOT / "components").glob("*/*.cpp")
+                                      if p.parent.name in ("gravity980",) or p.name in ("predictor.cpp", "program.cpp", "fuel.cpp", "history.cpp", "pin_auth.cpp")]
+    rc, out, _ = run(["g++", "-std=c++17", "-fsyntax-only", "-Wall", "-Wextra"] + [s for s in srcs if "gravity980" not in s])
+    warns = [ln for ln in out.splitlines() if "warning:" in ln]
+    st.add("C++ (host-testable code) has no compiler warnings", "C++ (the host-tested controller logic) builds with no warnings (-Wall -Wextra)",
+           "pass" if rc == 0 and not warns else "fail", "" if rc == 0 and not warns else f"{len(warns)} warning(s): " + "; ".join(warns[:6]),
+           log("quality", "cpp-warnings", out))
+    for f in ["firmware/device-ui/ui.js", "custom_components/smoker/frontend/common.js", "custom_components/smoker/frontend/shim.js",
+              "custom_components/smoker/frontend/panel.js"]:
+        rc, out, _ = run(["node", "--check", f])
+        st.add(f"JavaScript parses: {f}", f"JavaScript parses: {f}", "pass" if rc == 0 else "fail", "" if rc == 0 else tail(out))
+
+
+def stage_walkthrough(st, args):
+    """The walkthrough's automated crawl (regression/walkthrough.py): both dashboards, desktop and phone, Basic and
+    Advanced and the Setup page; UX checks per view. Its own ports and its own copy of the test build."""
+    import walkthrough as wt
+    name, api, grill = wt.DEVICE_BUILD
+    if not FROM_LOGS:
+        compile_host_variant(args, name, api, grill)
+    inv, results, problems = wt.crawl(args.esphome_python)
+    ev = "regression/out/walkthrough/inventory.json"
+    for key, check, ok, detail in results:
+        st.add(key, check, "pass" if ok else "fail", "" if ok else detail, ev)
+    for pr in problems:
+        st.run_failed(pr, ev)
+    st.env["views"] = len(inv["views"])
+    st.missing_as_skip()
+
+
 def stage_manual(st, args):
     import yaml
     for item in yaml.safe_load((HERE / "manual.yaml").read_text()) or []:
         st.add(item["key"], item["check"], "manual", item.get("steps", ""), item.get("last", ""))
 
 
-STAGES = {"ci": stage_ci, "core": stage_core, "firmware": stage_firmware, "sim": stage_sim, "device": stage_device,
+STAGES = {"ci": stage_ci, "quality": stage_quality, "core": stage_core, "firmware": stage_firmware, "sim": stage_sim, "device": stage_device,
           "page": stage_page, "integration": stage_integration, "package": stage_package, "live": stage_live,
-          "manual": stage_manual}
+          "manual": stage_manual, "walkthrough": stage_walkthrough}
 
 
 def main():
@@ -574,6 +670,8 @@ def main():
     ap.add_argument("--stage", action="append", choices=ORDER)
     ap.add_argument("--compile", action="store_true", help="also compile the firmware (slow)")
     ap.add_argument("--live", action="store_true", help="run the read-only live checks (needs HA_URL)")
+    ap.add_argument("--with-walkthrough", action="store_true", help="also run the walkthrough's crawl (its own ports)")
+    ap.add_argument("--quality-python", default=os.environ.get("QUALITY_PYTHON"), help="a venv with bandit and pip-audit")
     ap.add_argument("--esphome-python", default=os.environ.get("ESPHOME_PYTHON"))
     ap.add_argument("--ha-python", default=os.environ.get("HA_PYTHON"))
     ap.add_argument("--ha-url", default=os.environ.get("HA_URL"))
@@ -581,7 +679,7 @@ def main():
     args = ap.parse_args()
     global FROM_LOGS
     FROM_LOGS = args.from_logs
-    stages = args.stage or [s for s in ORDER if s != "live" or args.live]
+    stages = select_stages(args.stage, args.live, args.with_walkthrough)
     OUT.mkdir(exist_ok=True)
     catalogue = load_catalogue()
     import threading
@@ -602,12 +700,13 @@ def main():
 
     if not FROM_LOGS:
         kill_sims()  # (stale ones from an earlier run hold the ports)
-    # Three lanes at once: the quick stages that need no ports; the firmware compile, then the simulated grill (its
-    # parts side by side); the device page test (the plain test build's ports). Live checks last.
+    # Lanes at once: the quick stages that need no ports; the firmware compile, then the simulated grill (its parts
+    # side by side); the device page test (the plain test build's ports); the walkthrough's crawl (its own build and
+    # ports). Live checks last.
     t0 = time.time()
-    lanes = [["ci", "core", "page", "integration", "package", "manual"], ["firmware", "sim"], ["device"]]
+    lanes = [["ci", "quality", "core", "page", "integration", "package", "manual"], ["firmware", "sim"], ["device"], ["walkthrough"]]
     if "device" in stages and "firmware" in stages and args.compile:
-        lanes = [lanes[0], ["firmware", "sim", "device"]]  # (the device test needs the build the compile replaces)
+        lanes = [lanes[0], ["firmware", "sim", "device"], lanes[3]]  # (the device test needs the build the compile replaces)
     threads = [threading.Thread(target=lane, args=(names,)) for names in lanes]
     for t in threads:
         t.start()

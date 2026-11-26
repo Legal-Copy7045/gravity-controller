@@ -1,6 +1,6 @@
 ---
 name: regression
-description: Run the Smoker full regression suite (every stage in regression/: controller unit tests, firmware builds, simulated grill scenarios, both dashboards, integration, package, release checks, read-only live checks), a fresh bug and security review, and publish the report. Use when asked to "run the full regression", "/regression", or for a release-health check after a big feature set. Not for ordinary changes (CI covers those).
+description: Run the Smoker full regression suite (every stage in regression/: code quality and supply chain, controller unit tests, firmware builds, simulated grill scenarios, both dashboards, integration, package, release checks, read-only live checks), three fresh bug and security reviews, and publish the report. Use when asked to "run the full regression", "/regression", or for a release-health check after a big feature set. Not for ordinary changes (CI covers those).
 ---
 
 # Full regression run
@@ -21,8 +21,9 @@ order; the owner usually reads the report the next morning, so finish every step
 ## 2. Run the stages
 
 Set up the venvs if the session has none (`ESPHOME_PYTHON`: `pip install esphome aioesphomeapi aiohttp`; `HA_PYTHON`:
-`pip install -r tests/requirements-integration.txt`; system python3 needs playwright + pyyaml, Chromium is preinstalled
-in cloud sessions). Then, in the background (the stages run side by side; see the README for the timing):
+`pip install -r tests/requirements-integration.txt`; `QUALITY_PYTHON`: `pip install bandit pip-audit` for the quality
+stage, ruff from PATH; system python3 needs playwright + pyyaml + pytest, Chromium is preinstalled in cloud sessions).
+The quality stage's dependency audit needs PyPI's vulnerability service: offline, those checks skip (say so). Then, in the background (the stages run side by side; see the README for the timing):
 
 ```bash
 python3 regression/run.py --compile
@@ -34,9 +35,9 @@ services, never from the repo. If HA isn't reachable, its checks skip; say so. C
 `<PREFIX>-RUN` failure means a stage broke (a port in use: `pkill -f tools/fake_grill.py`, though the runner clears stale ones itself; a missing package); fix
 the environment and re-run that stage with `--stage`. New check IDs land in `regression/ids/*.yaml`: commit them.
 
-## 3. Review (two fresh agents, in parallel, while the stages run)
+## 3. Review (three fresh agents, in parallel, while the stages run)
 
-Start two general-purpose agents with a brief that gives them the code, not your conclusions:
+Start three general-purpose agents with a brief that gives them the code, not your conclusions:
 
 - **Bugs** -> `regression/out/findings-bugs.json`: a list of `{id: BUG-001.., severity critical|high|medium|low|info,
   area, title, file, line, description, scenario, recommendation, verified}`. Focus on what changed since the last
@@ -47,7 +48,16 @@ Start two general-purpose agents with a brief that gives them the code, not your
   origins, local only, signed updates, two-tap power, notification codes, AI plan limits, sharing anonymisation,
   workflow secrets).
 
-Both: read-only, no test suites (ports are in use), verify each finding end to end, nothing identifying the owner.
+- **Outsider on the LAN** -> `regression/out/findings-lan.json`: `{findings: [LAN-001..]}`, same fields. Someone on the
+  same home Wi-Fi who doesn't have the PIN or a Home Assistant login, attacking what changed and the update and network
+  surface: the controller's page and `/local/` API (other origins, the PIN and its lockout, the 5 AI questions a day,
+  write-only keys, request sizes), the ESPHome API before and after adoption, the setup hotspot and Bluetooth setup,
+  signed OTA (can anything get unsigned or older code onto the board?), the release pipeline (workflows, pinned actions,
+  the signing job). The aim is the threat model's hard lines, not a penetration test: could they run their own code on
+  the board, read a key, or push the grill past its safe limits? Annoyance (locking the page, using up AI questions) is
+  low/info and only worth a cheap, recoverable limit.
+
+All three: read-only, no test suites (ports are in use), verify each finding end to end, nothing identifying the owner.
 Give both the threat model in `docs/security.md`: convenience matters more than hardening against people the owner
 already trusts; what must never happen is a way in for someone else's code, a leaked key, or bad outside data pushing
 the grill past safe limits. Findings outside that model are `info` at most, and a fix must not add friction for it.
@@ -61,9 +71,10 @@ Write `regression/out/notes.json`: `{"summary": "two or three plain sentences", 
 REPORT_TZ=<the owner's time zone, e.g. from Home Assistant's /api/config> python3 regression/report.py
 ```
 
-Publish `regression/out/report.html` as a private artifact (Artifact tool; first publish `icon: "check"`), then add an
-entry at the top of `regression/RUNS.md` (date, version, totals, stage counts, failing IDs, finding IDs, the report
-link). RUNS.md is public: no names, hosts or device ids.
+Publish `regression/out/report.html` as a private artifact (Artifact tool; first publish `icon: "check"`), republished
+to the same URL each run (the URL is in the newest RUNS.md entry), then add an entry at the top of `regression/RUNS.md`
+(date, version, commit, totals, stage counts, failing IDs, finding IDs, the report link). RUNS.md is public: no names,
+hosts or device ids.
 
 ## 5. Commit
 
