@@ -1480,7 +1480,7 @@ function renderControl() {
   const bleE = bleSwitch(), ble = val(bleE) === 'on';
   const bridge = E('Bridge enabled', ['switch']), wifi = val(E('Grill Wi-Fi', ['sensor'])), ip = val(E('Grill IP address', ['text']));
   const tog = (e, on, label, note) => e ? `<div class="row"><span>${label}${note ? `<br><span class="muted small">${note}</span>` : ''}</span>
-    <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" data-act="toggle" data-a="${esc(e)}" aria-label="${esc(label.replace(/<[^>]+>/g, ''))}"></button></div>` : '';
+    <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" data-act="toggle" data-a="${esc(e)}" aria-label="${esc(label)}"></button></div>` : '';  // (labels are plain text: no markup to strip)
   put('controlcard', `<h3>Connection <span class="chip ${conn ? 'ok' : 'bad'}">${conn ? linkWords(via).txt : 'not connected'}</span></h3>
     ${(st => st && !/^(unknown|unavailable)$/.test(st) ? `<div class="row"><span>Status</span><span class="r" style="white-space:normal">${esc(st)}</span></div>` : '')(val(E('Grill link status', ['sensor'])))}
     ${controlRow()}
