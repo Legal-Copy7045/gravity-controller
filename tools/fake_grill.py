@@ -19,7 +19,6 @@ import argparse
 import math
 import socket
 import struct
-import sys
 import threading
 import time
 
