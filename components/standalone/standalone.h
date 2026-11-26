@@ -328,6 +328,10 @@ class Standalone : public Component {
   struct SavedSessions { uint8_t n; char tok[4][65]; };  // before 0.2.51: tokens only (each got a fresh 12 h)
   struct SavedSessions2 { uint8_t n; char tok[4][65]; uint32_t left_s[4]; uint32_t epoch_expires[4]; };
   ESPPreferenceObject sess_pref_;
+  struct TrustedIp {
+    char ip[48];
+  };
+  ESPPreferenceObject trusted_pref_;
   uint32_t sess_gen_{0};
   uint32_t sess_saved_at_{0};  // last save while sessions were live (their time left is saved again every 30 min)
   // Setup window (ESPHome's provisioning): closed early on a software restart and once the first PIN is set, while

@@ -95,6 +95,10 @@ class Guard {
   }
 
   void load(const Stored &s) { this->stored_ = s; }
+  /// The address that last unlocked with the right PIN (kept across a restart by the caller, so a flood of guessers
+  /// right after a restart still can't hold the owner's own device).
+  const std::string &trusted() const { return this->trusted_ip_; }
+  void set_trusted(const std::string &ip) { if (ip.size() <= 45) this->trusted_ip_ = ip; }
   const Stored &stored() const { return this->stored_; }
   bool pin_set() const { return this->stored_.set == 1; }
 

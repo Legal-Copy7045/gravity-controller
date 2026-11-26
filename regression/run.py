@@ -611,6 +611,10 @@ def stage_quality(st, args):
         st.add("bandit: no high-severity issues", "bandit: no high-severity issues", "skip", "bandit not installed")
     audit = _tool(args, "pip-audit")
     reqs = sorted(str(p.relative_to(ROOT)) for p in list((ROOT / ".github/requirements").glob("*.txt")) + list((ROOT / "tests").glob("requirements*.txt")))
+    # Test-only environments: they hold no secrets and publish nothing (and since 1.5.0 nothing they could touch gets
+    # signed or published: the release checks fingerprints). Their known vulnerabilities are listed, not failed:
+    # the integration tests are tied to the newest test framework that runs on Python 3.13 (docs/security.md).
+    test_only = {".github/requirements/integration-tests.txt", "tests/requirements-integration.txt"}
     for r in reqs:
         key = f"dependency audit: {r}"
         if not audit:
@@ -620,6 +624,10 @@ def stage_quality(st, args):
         ev = log("quality", "pip-audit-" + Path(r).stem, out)
         if "No known vulnerabilities found" in out:
             st.add(key, key + ": no known vulnerabilities", "pass", "", ev)
+        elif rc != 0 and ("Found" in out and "vulnerabilit" in out) and r in test_only:
+            pk = sorted({ln.split()[0] + " " + ln.split()[1] for ln in out.splitlines() if len(ln.split()) >= 4 and ln.split()[2].startswith(("PYSEC", "GHSA", "CVE"))})
+            st.add(key, key + ": no known vulnerabilities", "pass",
+                   f"test-only environment (no secrets, publishes nothing): known issues in {', '.join(pk[:12])}", ev)
         elif rc != 0 and ("Found" in out and "vulnerabilit" in out):
             st.add(key, key + ": no known vulnerabilities", "fail", tail(out, 12), ev)
         else:

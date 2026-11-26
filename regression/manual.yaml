@@ -44,3 +44,7 @@
   check: "One food with several probes: a turkey with grill probe 1 in the breast and grill probe 2 in the thigh shows as one food, and each probe's done alert names its spot"
   steps: "What's cooking > Add food > Turkey, Poultry, weight. Add another probe in it > Grill probe 2, Where: thigh, Done at 175. Both probes listed under Turkey on both dashboards; 'Turkey (breast) is done' and 'Turkey (thigh) is done' arrive separately; a serve time gives one 'put it on' reminder."
   last: "not done yet"
+- key: signing environment limited to main
+  check: "GitHub Settings: the release-signing (and github-pages) environments allow only the default branch"
+  steps: "Settings > Environments > release-signing: Deployment branches = Selected branches, only main (optionally a required reviewer). The same for github-pages. The signing key is only safe if this holds; the repository can't show it."
+  last: "not checked yet"

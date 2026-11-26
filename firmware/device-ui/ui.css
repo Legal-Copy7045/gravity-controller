@@ -203,7 +203,7 @@ html{background:#f2f4f6}
 .gx .sec .seg{font-weight:600}
 .gx .je{border-top:1px solid var(--line);padding:10px 0}
 .gx .je:first-child{border-top:0}
-.gx .stars button{border:0;background:none;font-size:22px;cursor:pointer;color:var(--line);padding:0 1px;min-height:32px}
+.gx .stars button{border:0;background:none;font-size:26px;cursor:pointer;color:var(--line);padding:0 6px;min-height:40px;min-width:40px}
 .gx .stars button.on{color:var(--warn)}
 .gx .taste{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
 .gx .taste button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer;min-height:30px}
@@ -280,7 +280,7 @@ html{background:#f2f4f6}
 .gx .hero-facts{display:flex;flex-wrap:wrap;gap:2px 14px;margin:0;color:var(--ink-2)}
 /* Cook: what's cooking · build the cook · when (phones: in that order; wide screens: build on the right) */
 .gx .cookgrid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr);align-items:start}
-@media (min-width:821px){.gx .cookgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);grid-template-rows:auto 1fr;grid-template-areas:"what build" "when build"}
+@media (min-width:821px){.gx .cookgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);grid-template-areas:"what build" "when when"}
   .gx .ck-what{grid-area:what}.gx .ck-build{grid-area:build}.gx .ck-when{grid-area:when}}
 .gx .ck-n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--page);color:var(--on-page,#fff);font:700 12px "Instrument Sans",system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;margin-right:8px;vertical-align:2px}
 .gx .ctabs{display:flex;gap:2px;padding:3px;margin:0 0 12px;border:1px solid var(--line);border-radius:999px;background:var(--sunk);width:max-content;max-width:100%}
@@ -312,3 +312,39 @@ html{background:#f2f4f6}
 .gx .pe-turbo{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink-2);cursor:pointer;margin-left:2px;min-height:34px}
 .gx .pe-turbo input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--page)}
 .gx .pe-at{color:var(--ink-2);font-size:13.5px}
+
+/* Walkthrough fixes (1.5.0): phone fields at 16px (iOS zooms in on smaller ones), the section bar's chips tall enough
+   to tap, the journal's notes box, the chart's range below its heading on phones, the charcoal log's options as
+   buttons, the Setup page's way back at its foot, switch rows that toggle from the whole row. */
+.gx .jnote{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.gx .jnote textarea{width:100%;resize:vertical;min-height:56px}
+.gx .secbar a{min-height:36px;padding:8px 13px}
+@media (max-width:560px){
+  .gx input,.gx select,.gx textarea{font-size:16px}
+  .gx h2.sec .seg{order:9;flex-basis:100%;margin:6px 0 0}
+  .gx h2.sec .seg button{min-height:40px;min-width:48px}
+  .gx .fuelmode{display:flex;flex-wrap:wrap;gap:6px;border:0;padding:0;background:none}
+  .gx .fuelmode button{min-height:40px;border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+  .gx .fracs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .gx .fracs .btn{min-height:44px;min-width:0}
+  .gx .grillpic svg,.gx .grillpic img{max-height:170px;width:auto;max-width:100%;display:block;margin:0 auto}
+}
+.gx .setup-back{margin-top:16px}
+.gx .row.swrow{cursor:pointer}
+
+.gx .cr-tip{position:absolute;top:6px;z-index:5;display:flex;flex-direction:column;gap:2px;padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.gx .cr-tip i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+html:not(.basic) .gx details.adv-more>summary,.gx:not(.basic) details.adv-more>summary{display:none}
+.gx details.adv-more{margin-top:12px}
+.gx .food-strip{display:none}
+@media (max-width:560px){.gx .food-strip{display:flex;flex-wrap:wrap;gap:6px 10px;margin:8px 0 0;text-decoration:none;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  .gx .food-strip span{color:var(--ink);display:inline-flex;align-items:center;gap:5px;min-height:32px}.gx .food-strip span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}}
+
+@media (max-width:560px){
+  .gx .secbar a{min-height:40px}
+  .gx .modesw button{min-height:40px}
+  .gx .ctabs button{min-height:40px}
+  .gx .food-strip{min-height:40px;align-items:center}
+  .gx .entry .btn,.row .btn{min-width:40px}
+}
+@media (max-width:560px){.gx .taste button{min-height:40px;min-width:40px}}

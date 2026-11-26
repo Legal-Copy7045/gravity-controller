@@ -61,15 +61,15 @@ How it's protected:
   isn't allowed until Home Assistant has adopted the controller. The controller's **Device page PIN** sensor says
   "set" or "not set" (and why a PIN from Home Assistant was refused), never the PIN.
 - **Lockout:** 5 wrong PINs from one device lock that device out for 30 s, then 60 s, doubling up to an hour; other
-  devices aren't affected. Empty or malformed PINs aren't counted. One exception: if more than 16 devices guess wrong
-  PINs within the hour, every device waits until the wrong guesses drain (at most about an hour), except the one that
-  last unlocked the page with the right PIN.
+  devices aren't affected. Empty or malformed PINs aren't counted. One exception: if more than 16 devices have guessed
+  wrong and 50 wrong PINs are outstanding, devices other than the one that last unlocked the page wait until fewer than
+  50 remain (they drain at about one a minute). The controller remembers that last device across a restart.
 - **Plain HTTP:** the page is served over http:// on your network (a controller can't hold a trusted certificate), so
   the PIN and the session travel unencrypted over your Wi-Fi. Anyone who knows your Wi-Fi password could in principle
   read them; the PIN protects against other people's devices, guests and web pages, not against someone already able
   to read your Wi-Fi traffic. The session stays in the browser's local storage for a week after its last use.
-- **Sessions:** unlocking gives this browser a random 256-bit session, valid for a week after its last change. At
-  most 4 are live, and changing the PIN ends them all.
+- **Sessions:** unlocking gives this browser a random 256-bit session, valid for a week after its last use. At most 4
+  are live, and changing the PIN ends them all.
 - **Other websites:** they can't send changes on your behalf; the web server refuses cross-origin requests.
 - **Keys are write-only:** notification and AI keys can be replaced or removed, never read back, and they're never
   written to the logs.

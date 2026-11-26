@@ -157,7 +157,7 @@ def basic_mode(fr):
     if set(vis) - {"food", "chart"} or "food" not in vis or "chart" not in vis:
         fails.append(f"basic mode: sections shown {vis}")
     links = fr.evaluate("""() => [...document.querySelectorAll('#secbar a')].filter(a => a.offsetParent !== null).map(a => a.textContent.trim())""")
-    if set(links) != {"Food", "Chart", "Setup"}:
+    if set(links) != {"Food", "Temperatures", "Setup"}:
         fails.append(f"basic mode: section bar {links}")
     if fr.evaluate("[...document.querySelectorAll('.adv')].some(e => e.offsetParent !== null)"):
         fails.append("basic mode: advanced parts of the food cards still shown")
@@ -542,9 +542,12 @@ def pin_flow(browser):
     pg.wait_for_timeout(400)
     check("Started at 75%" in pg.inner_text("#toast"), "charcoal logged from the controller's page")
     pg.fill("#servein", "2030-01-01T18:00")
-    pg.click("#plan [data-a=plansave]")
-    pg.wait_for_function("document.querySelector('#plan').innerText.includes('Light the grill by')", timeout=5000)
-    check("Shared cooks like this" in pg.inner_text("#plan") or True, "plan saved, light-by shown")
+    pg.dispatch_event("#servein", "change")  # (saved as it changes: no Save button since 1.5.0)
+    try:
+        pg.wait_for_function("document.querySelector('#plan').innerText.includes('Light the grill by')", timeout=8000)
+        check(True, "plan saved, light-by shown")
+    except Exception:
+        check(False, f"plan saved, light-by shown (toast {pg.inner_text('#toast')!r}; plan {pg.inner_text('#plan')[:200]!r})")
     pg.click('#secbar a[href="#s-journal"]')  # (folded during a cook: the simulated one may have started by now)
     pg.wait_for_timeout(600)
     pg.click("#journal [data-a=jrate][data-n='4']")
@@ -553,7 +556,11 @@ def pin_flow(browser):
     pg.wait_for_timeout(400)
     j = json.loads(urllib.request.urlopen(BASE + "/local/journal", timeout=5).read())["entries"][0]
     check(j.get("rating") == 4 and j.get("tags") == ["juicy"], f"journal: stars and 'How was it?' saved ({j.get('rating')}, {j.get('tags')})")
+    setup()  # (sharing is set up in Setup since 1.5.0, as on Home Assistant; the per-cook prompt stays in the journal)
     pg.click("#share [data-a=sharecfg][data-k=enabled]")
+    setup(False)
+    check(pg.locator("[data-sect=setup] .setup-back button").count() == 1, "Setup has Back to the cook at its foot too")
+    pg.click('#secbar a[href="#s-journal"]')
     pg.wait_for_function("document.querySelector('#journal').innerText.includes('Share this cook')", timeout=5000)
     check("juicy" in pg.inner_text("#journal .sharebox"), "the share prompt shows the record in words")
     pg.click("#journal .sharebox [data-a=jshare]")

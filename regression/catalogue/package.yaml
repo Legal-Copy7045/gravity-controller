@@ -11,7 +11,7 @@
 - feature: "AI plan check before loading (pit limits, links, injection)"
   since: 0.2.30
   docs: docs/cook-programs.md
-  match: ["^package:(plan check|°C controller|a link in the explanation|recommendations parsed|Plan with AI uses the controller)"]
+  match: ["^package:(plan check|°C controller|a link in the explanation|recommendations parsed|Plan with AI uses the controller)", "^core:core tests: links in an AI", "^sim:scenarios: scenario 11: .*sear"]
 - feature: "Food slot templates (wrapped, external probes, slot targets)"
   since: 0.2.0
   docs: docs/features.md

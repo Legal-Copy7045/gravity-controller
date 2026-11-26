@@ -58,7 +58,7 @@ h2.sec .seg{margin-left:auto}
 .secbar a{flex:none;font:600 13px "Instrument Sans",system-ui,sans-serif;color:var(--ink-2);text-decoration:none;white-space:nowrap;padding:5px 13px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
 .secbar a:hover,.secbar a:focus-visible{border-color:var(--page);color:var(--ink);outline:none}
 .secbar a[aria-current="true"]{background:var(--page);border-color:var(--page);color:var(--on-page,#fff)}
-@media (max-width:560px){.secbar a{padding:4px 11px;font-size:12.5px}}
+@media (max-width:560px){.secbar a{padding:8px 11px;font-size:12.5px}}
 /* brand + icons (brand/: mark.svg, icons.svg) */
 .ic{width:1.1em;height:1.1em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.18em;flex:none}
 .secbar a{display:inline-flex;align-items:center;gap:6px}
@@ -134,12 +134,12 @@ details.more>summary::after{content:" ▾"}details.more[open]>summary::after{con
 .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:13.5px;align-items:center}
 .row .r{font:500 12.5px "JetBrains Mono",monospace;text-align:right}
 .row>span:first-child{flex:none;max-width:60%}
-.btn{border:1px solid var(--line);background:var(--sunk);color:var(--ink);border-radius:8px;padding:7px 12px;font:600 13px "Instrument Sans",sans-serif;cursor:pointer;min-height:36px}
+.btn{border:1px solid var(--line);background:var(--sunk);color:var(--ink);border-radius:8px;padding:7px 12px;font:600 13px "Instrument Sans",sans-serif;cursor:pointer;min-height:40px;touch-action:manipulation}
 .btn:hover{border-color:var(--page)}.btn.pri{background:var(--page);color:var(--on-page,#fff);border-color:var(--page)}
 .btn:disabled{opacity:.45;cursor:default}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .step{display:flex;align-items:center;gap:8px}
-.step .btn{min-width:44px;font-size:16px;padding:4px 10px}
+.step .btn{min-width:44px;min-height:44px;font-size:18px;padding:4px 10px}
 .step .val{font:600 22px "JetBrains Mono",monospace;min-width:84px;text-align:center}
 input,select,textarea{font:500 14px "Instrument Sans",sans-serif;color:var(--ink);background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-height:36px;box-sizing:border-box}
 textarea{width:100%;min-height:64px;resize:vertical;font-family:"JetBrains Mono",monospace;font-size:12.5px}
@@ -185,7 +185,7 @@ details.fold summary{cursor:pointer;font:700 15px "Bricolage Grotesque","Instrum
 .je .h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
 .je .t{font:700 15px "Bricolage Grotesque","Instrument Sans",system-ui,sans-serif}
 .je .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
-.stars button{border:0;background:none;font-size:20px;cursor:pointer;color:var(--line);padding:0 1px}
+.stars button{border:0;background:none;font-size:26px;cursor:pointer;color:var(--line);padding:0 6px;min-height:40px;min-width:40px}
 .stars button.on{color:var(--warn)}
 .taste{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
 .taste button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:3px 10px;font:500 12.5px "Instrument Sans",sans-serif;cursor:pointer;min-height:28px}
@@ -286,7 +286,7 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 .hero-facts:empty{display:none}
 /* Cook: what's cooking · build the cook · when (phones: in that order; wide screens: build on the right) */
 .cookgrid{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);align-items:start}
-@media (min-width:821px){.cookgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);grid-template-rows:auto 1fr;grid-template-areas:"what build" "when build"}
+@media (min-width:821px){.cookgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);grid-template-areas:"what build" "when when"}
   .ck-what{grid-area:what}.ck-build{grid-area:build}.ck-when{grid-area:when}}
 .ck-n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--page);color:var(--on-page,#fff);font:700 12px "Instrument Sans",system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;margin-right:8px;vertical-align:2px}
 .ctabs{display:flex;gap:2px;padding:3px;margin:0 0 12px;border:1px solid var(--line);border-radius:999px;background:var(--sunk);width:max-content;max-width:100%;box-sizing:border-box}
@@ -315,6 +315,38 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 .fd-p input[type=text]{width:130px}
 .fd-ed .btns{flex:1 1 100%}
 .fd-l{display:flex;justify-content:space-between;align-items:center;gap:8px}
+/* Walkthrough fixes (1.5.0): see the device page's ui.css for the same set. */
+.jnote{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.jnote textarea{width:100%;resize:vertical;min-height:56px}
+.secbar a{min-height:36px}
+@media (max-width:560px){
+  input,select,textarea{font-size:16px}
+  h2.sec .seg{order:9;flex-basis:100%;margin:6px 0 0}
+  h2.sec .seg button{min-height:40px;min-width:48px}
+  .fuelmode{display:flex;flex-wrap:wrap;gap:6px;border:0;padding:0;background:none}
+  .fuelmode button{min-height:40px;border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+  .fracs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .fracs .btn{min-height:44px;min-width:0}
+  .grillpic svg,.grillpic img{max-height:170px;width:auto;max-width:100%;display:block;margin:0 auto}
+}
+.setup-back{margin-top:16px}
+.row.swrow{cursor:pointer}
+.cr-tip{position:absolute;top:6px;z-index:5;display:flex;flex-direction:column;gap:2px;padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.cr-tip i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+html:not(.basic) details.adv-more>summary{display:none}
+details.adv-more{margin-top:12px}
+.food-strip{display:none}
+@media (max-width:560px){.food-strip{display:flex;flex-wrap:wrap;gap:6px 10px;margin:8px 0 0;text-decoration:none;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  .food-strip span{color:var(--ink);display:inline-flex;align-items:center;gap:5px;min-height:32px}.food-strip span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}}
+@media (max-width:560px){
+  .secbar a{min-height:40px}
+  .modesw button{min-height:40px}
+  .ctabs button{min-height:40px}
+  .food-strip{min-height:40px;align-items:center}
+  .entry .btn,.row .btn{min-width:40px}
+  input,select{min-height:40px}
+}
+@media (max-width:560px){.taste button{min-height:40px;min-width:40px}}
 </style>
 </head>
 <body>
@@ -340,16 +372,8 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 
   <!-- section bar: sticks to the top, marks the section in view (script: "section bar") -->
   <nav class="secbar" id="secbar" aria-label="Sections on this page">
-    <a href="#now"><svg class="ic"><use href="#i-now"/></svg>Now</a><a href="#food"><svg class="ic"><use href="#i-food"/></svg>Food</a><a href="#charcoal"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</a><a href="#temps"><svg class="ic"><use href="#i-chart"/></svg>Chart</a><a href="#ai"><svg class="ic"><use href="#i-flame"/></svg>AI</a><a href="#cook"><svg class="ic"><use href="#i-plan"/></svg>Cook</a><a href="#journal-sec"><svg class="ic"><use href="#i-book"/></svg>Journal</a><a href="#setup"><svg class="ic"><use href="#i-setup"/></svg>Setup</a>
+    <a href="#food"><svg class="ic"><use href="#i-food"/></svg>Food</a><a href="#charcoal"><svg class="ic"><use href="#i-hopper"/></svg>Charcoal</a><a href="#temps"><svg class="ic"><use href="#i-chart"/></svg>Temperatures</a><a href="#ai"><svg class="ic"><use href="#i-flame"/></svg>AI</a><a href="#cook"><svg class="ic"><use href="#i-plan"/></svg>Cook</a><a href="#journal-sec"><svg class="ic"><use href="#i-book"/></svg>Journal</a><a href="#setup"><svg class="ic"><use href="#i-setup"/></svg>Setup</a>
   </nav>
-
-  <div class="sect" id="now" data-sect="now">
-    <section class="live" aria-live="polite">
-      <div class="live-head"><div class="lt-wrap"><span class="dot" id="ldot"></span><h2 class="lh">Right now</h2></div>
-        <span class="live-status" id="lstatus">Connecting to Home Assistant…</span></div>
-      <div class="kpis" id="kpis"></div>
-    </section>
-  </div>
 
   <div class="sect" id="food" data-sect="food">
     <h2 class="sec"><svg class="ic"><use href="#i-food"/></svg>Food <small id="foodsub"></small></h2>
@@ -400,9 +424,12 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
       <section class="tc"><h3>Probe sources <small>grill · H5198 · Home Assistant</small></h3><div id="sources"></div></section>
       <section class="tc"><h3>Controller</h3><div id="diag"></div></section>
       <section class="tc" id="photocard"></section>
+    </div>
+    <details class="more adv-more"><summary>More settings (sharing, charcoal stock and upkeep: Advanced features)</summary>
+    <div class="grid">
       <section class="tc" id="sharecard"></section>
       <section class="tc" id="supplycard"></section>
-    </div>
+    </div></details>
   </div>
   <footer id="foot"></footer>
 </div>
@@ -685,7 +712,8 @@ const PG = (() => {
   }
 
   // ---- the step editor. env: el() container, isF(), unit(), labels() [6 probe names], text() the controller's
-  // program text (null = unknown), max() text limit (0 = none), load(text) -> Promise (false = failed), toast(msg).
+  // program text (null = unknown), max() text limit (0 = none), load(text) -> Promise (false = failed), toast(msg),
+  // and optionally idle() (nothing running) and start() -> Promise: then "Load and start" is offered.
   const KINDS = [['pit', 'Set pit to'], ['hold', 'Hold at'], ['keep', 'Keep food at'], ['notify', 'Notify only'], ['shutdown', 'Shut down']];
   const CONDS = [['gte', 'Food probe reaches'], ['lte', 'Food probe drops to'], ['pit', 'Pit reaches'], ['done', 'Probe done'],
     ['after', 'Time in step'], ['at', 'Clock time'], ['stall_start', 'Stall starts'], ['stall_end', 'Stall ends']];
@@ -806,7 +834,7 @@ const PG = (() => {
         line('Then', `<select id="ps-wrap" data-ps="wrap" aria-label="Wrap">${opt(WRAPS, v.wrap)}</select>`) + line('And finish at', T('t2', 'Finish at', 1) + ' until it reaches ' + T('d2', 'Done at'));
       return `<div class="ps">
         ${line('Food', `<select id="ps-cut" data-ps="cut" aria-label="Food">${opt(COOKS.map(x => [x[0], x[1]]), v.cut)}</select>`)}
-        ${kind === '321' ? '' : line('Probe', `<select id="ps-probe" data-ps="probe" aria-label="Probe">${opt(labels.map((l, j) => [j + 1, l]), v.probe)}</select>`)}
+        ${kind === '321' ? '' : line('Watch', `<select id="ps-probe" data-ps="probe" aria-label="Which food the cook follows">${opt(labels.map((l, j) => [j + 1, l]), v.probe)}</select>`)}
         ${stages}
         ${line('When it\'s done', `<select id="ps-after" data-ps="after" aria-label="When it's done">${opt([['hold', 'Keep it warm at ' + (f ? '200' : '93') + u], ['off', 'Turn the grill off']], v.after)}</select>`)}
         <p class="pe-hint">${h(c[4])}${v.wrap !== 'none' && kind === 'two' ? ' You get a notification when it\'s time to wrap.' : ''}</p>
@@ -830,8 +858,12 @@ const PG = (() => {
       return `${(S.mode === 'steps' && S.prog.steps.length) || simple ? `<details class="more pe-prev" data-k="pe-prev"><summary>Program text · ${t.length}${max ? '/' + max : ''} characters</summary><pre class="pe-pre">${h(t)}</pre></details>` : ''}
         ${long ? `<p class="err">Too long for the controller's program field (${t.length}/${max} characters): load long programs from Home Assistant.</p>` : ''}
         ${errs.length ? `<ul class="err pe-errs" role="alert">${errs.map(e => `<li>${h(e)}</li>`).join('')}</ul>` : ''}
-        <div class="btns pe-load"><button type="button" class="btn${(S.touched || simple) && ok ? ' pri' : ''}" id="pe-load" data-pe-act="load"${ok ? '' : ' disabled'}>${simple ? 'Load this cook' : 'Load program'}</button>
-          <span class="pe-state">${S.sent != null ? 'Sent to the controller' : simple ? 'Load it, then Start' : S.touched ? 'Edited: load it, then Start' : 'This is the controller\'s program'}</span></div>`;
+        ${env.start && env.idle && env.idle() && (S.touched || simple) && S.sent == null
+          // Nothing running: one step to cook (Load only keeps it for later, e.g. planning ahead).
+          ? `<div class="btns pe-load"><button type="button" class="btn${ok ? ' pri' : ''}" id="pe-loadstart" data-pe-act="loadstart"${ok ? '' : ' disabled'}>Load and start</button>
+              <button type="button" class="btn" id="pe-load" data-pe-act="load"${ok ? '' : ' disabled'}>Load only</button></div>`
+          : `<div class="btns pe-load"><button type="button" class="btn${(S.touched || simple) && ok ? ' pri' : ''}" id="pe-load" data-pe-act="load"${ok ? '' : ' disabled'}>${simple ? 'Load this cook' : 'Load program'}</button>
+          <span class="pe-state">${S.sent != null ? 'Sent to the controller' : simple ? 'Load it, then Start' : S.touched ? 'Edited: load it, then Start' : 'This is the controller\'s program'}</span></div>`}`;
     }
     function bind(el) {
       el._pe = 1;
@@ -872,6 +904,7 @@ const PG = (() => {
     function act(a, i, k) {
       const P = S.prog.steps;
       if (a === 'load') return load();
+      if (a === 'loadstart') return load(true);
       if (a === 'advanced') { if (S.touched) S.prog = simpleProg(); S.mode = 'steps'; S.note = ''; return draw(true, 'pe-addstep'); }
       if (a === 'simple') { S.mode = 'simple'; return draw(true, 'ps-cut'); }
       if (a === 'to-text') { S.raw = format(S.prog); S.mode = 'text'; S.userText = true; S.note = ''; return draw(true, 'progtext'); }
@@ -894,13 +927,17 @@ const PG = (() => {
       if (a === 'del-cond' && P[i]) { P[i].until.splice(k, 1); return draw(true, 'pe-s' + i + '-addc'); }
       draw(true);
     }
-    function load() {
+    function load(andStart) {
       const t = text().trim(), max = env.max();
       if (!t) return env.toast('Add a step first');
       if (S.mode === 'steps' && check(S.prog, env.isF()).length) return env.toast('Fix the program first');
       if (max && t.length > max) return env.toast('Too long for the controller: load it from Home Assistant');
       S.sent = t; S.touched = true;
-      return Promise.resolve(env.load(t)).then(ok => { if (ok === false) S.sent = null; else env.toast('Program sent: press Start when you\'re ready'); draw(true); });
+      return Promise.resolve(env.load(t)).then(ok => {
+        if (ok === false) { S.sent = null; return draw(true); }
+        if (andStart && env.start) return Promise.resolve(env.start()).then(() => { env.toast('Program loaded and started'); draw(true); });
+        env.toast('Program sent: press Start when you\'re ready'); draw(true);
+      });
     }
     const keepOpen = (el, fn) => { const o = [...el.querySelectorAll('details[data-k]')].filter(d => d.open).map(d => d.dataset.k); fn(); o.forEach(k => { const d = el.querySelector(`details[data-k="${k}"]`); if (d) d.open = true; }); };
     function soft() { const el = env.el(), ft = el && el.querySelector('.pe-foot'); if (ft) keepOpen(ft, () => { ft.innerHTML = footHTML(); }); }
@@ -1090,6 +1127,12 @@ window.act = {
     const items = (journal.draft.items || []).map(i => i.id === id ? Object.assign({}, i, { probe: probe || null }) : i);
     api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); toast(d.problems && d.problems.length ? d.problems.join('; ') : probe ? 'Probe set from the label' : 'Unassigned'); }).catch(fail);
   },
+  // A Food card's "Change": that food opened in Cook > What's cooking (the one place for its probe, cut and weight).
+  openFood(n) {
+    FOODS.open = n; if (!HENV.slots().some(x => x.n === n && foodUsed(x))) FOODS.fresh.add(n);
+    renderScan(true); const c = $('cook'); if (c && c.classList.contains('folded')) SECT.toggle('cook');
+    const t = $('scancard'); if (t) setTimeout(() => t.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  },
   labelAdd(id) {
     const s = foodFree(HENV.slots());
     if (!s) return toast('All six food slots are in use: remove a food first');
@@ -1162,7 +1205,8 @@ function renderHero() {
   const cook = val(E('Cook active', ['binary_sensor'])) === 'on';
   put('pitbig', fmt(pit) + `<small>${esc(TU())} pit${tgt != null ? ' → ' + fmt(tgt) + esc(TU()) : ''}</small>`);
   const chips = [];
-  if (cook) chips.push('<span class="chip hot">Cooking</span>');
+  const elapsed = num(E('Cook elapsed', ['sensor']));
+  if (cook) chips.push(`<span class="chip hot">Cooking${elapsed != null ? ' · ' + minsTxt(elapsed) : ''}</span>`);
   const pst = val(E('Program state', ['sensor'])) || '';
   if (/Running|Paused/.test(pst)) chips.push(`<span class="chip adv ${pst === 'Paused' ? 'warn' : 'ok'}">Program ${esc(pst.toLowerCase())}</span>`);
   if (fan === 'on') chips.push('<span class="chip">Fan on</span>');
@@ -1174,22 +1218,22 @@ function renderHero() {
   // it isn't cooking, that the grill takes a new target only then. One line (it wraps on phones).
   const fact = (l, t) => t && !/^(unknown|unavailable)$/.test(t) ? `<span class="hf adv"><span class="muted">${l}</span> ${esc(t)}</span>` : '';
   put('herofacts', [cook || !E('Pit target', ['number']) ? '' : '<span class="hf muted">The grill takes a new target only while it\'s cooking (started from its panel).</span>',
-    fact('Held steady', val(E('Pit stability', ['sensor']))), fact('Last lid opening', val(E('Last lid opening', ['sensor'])))].filter(Boolean).join(''));
+    fact('Held steady', val(E('Pit stability', ['sensor']))), fact('Last lid opening', val(E('Last lid opening', ['sensor']))), outsideFact()].filter(Boolean).join(''));
   // The pit target, first thing on the page: − / type it / + (the same steps as the Pit section).
   const te = E('Pit target', ['number']), ta = (S(te) || {}).attributes || {};
   const turboE = E('Turbo', ['switch']), turboOn = val(turboE) === 'on';
   const powerE = E('Turn the grill off', ['button']) || E('Turn the grill on', ['button']), pWant = val(E('Grill on', ['binary_sensor'])) !== 'on';
   const pArmed = powerArm && powerArm.on === pWant && Date.now() - powerArm.t < 10000, powerMsg = val(E('Grill power', ['sensor'])) || '';
   const ro = link !== 'on' || !via || via === 'none' || (via === 'bluetooth' && val(bleSwitch()) !== 'on'), dis = ro ? ' disabled' : '';
-  put('herotgt', te ? `<div class="hero-tgt" role="group" aria-label="Pit target"><span class="l">Target</span>
+  put('herotgt', (te ? `<div class="hero-tgt" role="group" aria-label="Pit target"><span class="l">Target</span>
     <button class="btn" onclick="act.pit(-1)" aria-label="Lower pit target"${dis}>−</button>
-    <span class="hv"><input id="heropit" type="number" inputmode="numeric" min="${esc(ta.min ?? '')}" max="${esc(ta.max ?? '')}" step="${esc(ta.step ?? 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target" onkeydown="if (event.key === 'Enter') act.pitTo()"${dis}><span>${esc(TU())}</span></span>
+    <span class="hv"><input id="heropit" type="number" inputmode="numeric" enterkeyhint="go" min="${esc(ta.min ?? '')}" max="${esc(ta.max ?? '')}" step="${esc(ta.step ?? 1)}" value="${tgt != null ? fmt(tgt) : ''}" aria-label="Pit target" onkeydown="if (event.key === 'Enter') act.pitTo()"${dis}><span>${esc(TU())}</span></span>
     <button class="btn" onclick="act.pit(1)" aria-label="Raise pit target"${dis}>+</button>
     <button class="btn pri" onclick="act.pitTo()"${dis}>Set</button>
     ${turboE ? `<button class="btn turbo${turboOn ? ' on' : ''}" onclick="act.turbo()" aria-pressed="${turboOn}" title="The panel's Turbo: the fan runs flat out"${dis}>Turbo</button>` : ''}
     ${powerE ? `<button class="btn power${pArmed ? ' armed' : ''}" onclick="act.power(${pWant ? 1 : 0})" title="${pWant ? 'Turn the grill on' : 'Turn the grill off'}: tap twice"${dis}>${pArmed ? (pWant ? 'Tap again to turn on' : 'Tap again to turn off') : (pWant ? '⏻ Turn on' : '⏻ Turn off')}</button>` : ''}
     ${powerMsg ? `<p class="small hero-msg warn-text" role="status">${esc(powerMsg)}</p>` : ''}
-    ${ro ? '<span class="muted small">Read-only: not connected to the grill</span>' : ''}</div>` : '');
+    ${ro ? '<span class="muted small">Read-only: not connected to the grill</span>' : ''}</div>` : '') + foodStrip());
   // Coming up: the food on the grill, soonest finish first.
   const on = PROBES.map(p => ({ p, s: probeState(p) })).filter(x => x.s.t != null)
     .sort((a, b) => (a.s.rem ?? 1e9) - (b.s.rem ?? 1e9)).slice(0, 4);
@@ -1201,7 +1245,7 @@ function renderHero() {
       <span class="s">${esc(p.label)} · ${fmt(s.t)}${esc(TU())}${s.tgt != null ? ' → ' + fmt(s.tgt) + esc(TU()) : ''}${s.stall ? ' · in the stall' : ''}${s.rem != null && isExp(s.info) ? ' · experimental' : ''}</span></div>`;
   }).join('') : '<span class="muted small">No food on the grill yet.</span>');
   const n = on.length, first = on.find(x => x.s.rem != null);
-  put('foodsub', n ? `${n} on the grill${first ? ' · first done ~' + esc(atTxt(first.s.rem)) : ''}` : 'plug in a probe or pick a source in Setup');
+  put('foodsub', n ? `${n} on the grill` : 'plug in a probe or pick a source in Setup');  // (finish times: on each card)
 }
 
 // The grill, drawn: controller (left shelf) · barrel (pit, food) · hopper tower (charcoal) · ash box (fan).
@@ -1400,19 +1444,6 @@ function renderTop() {
     <span class="alerts">${a.join('') || (!conn || via === 'none' ? '' : '<span class="chip ok">All good</span>')}</span>`);
 }
 
-function renderKpis() {
-  const k = [];
-  const add = (l, v, u, n) => k.push(`<div class="kpi"><span class="l">${esc(l)}</span><span class="v">${v}${u ? `<small>${esc(u)}</small>` : ''}</span><span class="n">${n || '&nbsp;'}</span></div>`);
-  // Food times are on the picture (Coming up) and the Food cards: not repeated here.
-  const lvl = num(E('Charcoal level', ['sensor'])), hrs = num(E('Charcoal hours left', ['sensor']));
-  if (lvl != null) add('Charcoal', fmt(lvl), '%', hrs != null ? '~' + fmt(hrs, 1) + ' h left' : 'level');
-  const el = num(E('Cook elapsed', ['sensor']));
-  add('Cook time', el != null ? minsTxt(el) : '--', '', val(E('Cook active', ['binary_sensor'])) === 'on' ? 'in progress' : 'idle');
-  const all = H().all(), w = all['weather.forecast_home'] ? 'weather.forecast_home' : Object.keys(all).find(id => id.startsWith('weather.'));
-  const wx = w ? S(w) : null;
-  if (wx) add('Outside', fmt(wx.attributes.temperature), wx.attributes.temperature_unit || '', `${esc(wx.state)} · ${fmt(wx.attributes.humidity)}% · wind ${fmt(wx.attributes.wind_speed)}`);
-  put('kpis', k.join(''));
-}
 
 function renderRecs() {
   if (!hasPkg()) return put('recs', `<h3>Recommendations</h3>${pkgNote('AI recommendations')}`);
@@ -1425,7 +1456,7 @@ function renderRecs() {
         <span class="d">${esc(i.detail || '')}</span></div>`).join('') + '</div>'
     : '<div class="empty">No recommendations yet. Set the protein, weight and serve-by time (or start a cook) and ask the AI.</div>';
   put('recs', `<h3>Recommendations ${EXP('Written by the AI from the cook data, the weather and your journal. Use your judgement.')}</h3>
-      <div class="row"><span class="small muted">${esc(mode)}${when ? ' · written ' + esc(when) : ' · not written yet'}</span><button class="btn" onclick="act.advise()"${aiCook() ? '' : ' disabled title="Only for a cook underway or planned"'}>Ask the AI</button></div>
+      <p class="small muted" style="margin:0 0 6px">${esc(mode)}${when ? ' · written ' + esc(when) : ' · not written yet: Ask now (Second opinion) writes them'}</p>
     ${a.summary ? `<p style="margin:0">${esc(a.summary)}</p>` : ''}${body}`);
 }
 
@@ -1480,6 +1511,8 @@ const progEd = PG.editor({
   text: () => { const e = E('Program', ['text']); return e && S(e) ? (val(e) || '').replace(/^(unknown|unavailable)$/, '') : null; },
   max: () => 0,  // the load_program action takes any length (the Program text entity only shows 255 characters)
   load: t => esph('load_program', { program: t }),
+  idle: () => !/Running|Paused/.test(val(E('Program state', ['sensor'])) || ''),
+  start: () => new Promise(r => setTimeout(r, 1200)).then(() => esph('start_program', {})),
 });
 let cookTab = null, aiSeen = null, fromAI = false;  // the tab picked here (remembered in this browser); when the AI plan
 // last changed; the stages shown came from it
@@ -1540,12 +1573,15 @@ function renderAI() {
   const sum = val(byName('Smoker AI summary', ['input_text'])), sug = val(byName('Smoker AI suggestion', ['input_text']));
   const onE = byName('Smoker AI advisor', ['input_boolean']), on = val(onE) === 'on';
   if (!hasPkg()) return put('aicard', `<h3>AI pitmaster</h3>${pkgNote('The AI advisor')}`);
-  put('aicard', `<h3>Finish estimate <button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" data-act="toggle" data-a="${esc(onE || '')}" aria-label="AI advisor on/off"></button></h3>
-    <div class="eta"><span class="t">${left != null && left > 0 ? atTxt(left) : '--'}</span><span class="muted small">AI estimate${at ? ' · ' + ago(at) : ''}</span>${left != null && left > 0 ? EXP('A language model reading the cook so far; not learned from your grill.') : ''}</div>
-    <p class="small" style="margin:6px 0">${esc(sum || 'The AI advisor gives a second opinion every 30 minutes during a cook.')}</p>
-    ${sug ? `<div class="row"><span>Tip</span><span class="small" style="text-align:right">${esc(sug)}</span></div>` : ''}
+  // (Called "Second opinion" on both dashboards. The controller's own finish time per food is on the Food cards; the
+  // AI's is one line here, not a card of its own.)
+  put('aicard', `<h3>Second opinion${at ? ` <span class="muted small">${esc(ago(at))}</span>` : ''}</h3>
+    <p class="small" style="margin:0 0 6px">${esc(sum || 'Ask during a cook: it reads the pit, the probes, the weather and your journal.')}</p>
+    ${sug ? `<p class="note" style="margin:0 0 6px"><b>Next:</b> ${esc(sug)}</p>` : ''}
+    ${left != null && left > 0 ? `<div class="row"><span>AI's finish estimate</span><span>~${esc(atTxt(left))} ${EXP('A language model reading the cook so far; not learned from your grill. The Food cards have the controller\'s own.')}</span></div>` : ''}
     ${aiCook() ? '' : '<p class="note">The AI only works on a cook: it waits until one is underway, or a serve-by time is set within two days, so it never spends credits on an idle grill.</p>'}
-    <div class="btns"><button class="btn" onclick="act.advise()"${aiCook() ? '' : ' disabled'}>Ask now</button></div>`);
+    <div class="row"><span>Every 30 min during a cook<br><span class="muted small">one question each time, on your key</span></span><button class="tg ${on ? 'on' : ''}" role="switch" aria-checked="${!!(on)}" data-act="toggle" data-a="${esc(onE || '')}" aria-label="Ask the AI every 30 minutes during a cook"></button></div>
+    <div class="btns"><button class="btn pri" onclick="act.advise()"${aiCook() ? '' : ' disabled'}>Ask now</button></div>`);
 }
 // A cook underway, or planned (serve-by within two days): the same rule as the package's AI script.
 function aiCook() {
@@ -1571,7 +1607,7 @@ function timerCard() {
   return `<section class="tc timer"><h3><span>Timer</span>${run ? '<span class="chip hot">Running</span>' : ''}</h3>
     <div class="ptemp">${run ? hm(left) : '--:--'}<small>${run ? ' h:mm left' : ' h:mm'}</small></div>
     ${run ? `<div class="row"><span></span><button class="btn" onclick="act.timer(0)">Stop</button></div>`
-      : `<div class="row"><span>Minutes</span><span><input id="timerin" type="number" inputmode="numeric" min="1" max="1440" step="1" placeholder="60" aria-label="Timer minutes" onkeydown="if (event.key === 'Enter') act.timer()"> <button class="btn pri" onclick="act.timer()">Start</button></span></div>`}
+      : `<div class="row"><span>Minutes</span><span><input id="timerin" type="number" inputmode="numeric" enterkeyhint="go" min="1" max="1440" step="1" placeholder="60" aria-label="Timer minutes" onkeydown="if (event.key === 'Enter') act.timer()"> <button class="btn pri" onclick="act.timer()">Start</button></span></div>`}
     <div class="small muted" style="margin-top:6px">You get a notification when it's done.</div></section>`;
 }
 
@@ -1586,8 +1622,10 @@ function renderProbes() {
     const wrapped = val(s.wrapE) === 'on';
     const phaseChip = s.stall ? '<span class="chip warn">Stall</span>' : s.phase ? `<span class="chip ${/Done/.test(s.phase) ? 'ok' : ''}">${esc(s.phase)}</span>` : '';
     const prot = s.profile && !/^(Auto|unknown)$/i.test(s.profile.state) ? s.profile.state : '';
+    const fname = val(E(p.label + ' name', ['text'])) || '', fspot = val(E(p.label + ' spot', ['text'])) || '';
+    const bits = [s.source, prot, (s.weight || 0) > 0 ? fmt(s.weight, 1) + ' ' + (s.weightU || (isF() ? 'lb' : 'kg')) : ''].filter(Boolean);
     cards.push(`<section class="tc probe"><span class="edge" style="background:${p.color}"></span>
-      <h3><span>${esc(p.label)}${prot ? ` <small>· ${esc(prot)}</small>` : ''}</span> ${phaseChip}</h3>
+      <h3><span>${esc(fname || p.label)}${fspot ? ` <small>· ${esc(fspot)}</small>` : prot ? ` <small>· ${esc(prot)}</small>` : ''}</span> ${phaseChip}</h3>
       <div class="ptemp">${fmt(s.t)}<small>${esc(TU())}${s.tgt != null ? ' / ' + fmt(s.tgt) + esc(TU()) : ''}</small></div>
       ${s.warn ? '<div class="err">Probe jumped towards pit temperature – is it still in the meat?</div>' : ''}
       <div class="adv"><div class="eta" style="margin-top:6px"><span class="t">${s.rem != null ? atTxt(s.rem) : '--'}</span>
@@ -1603,9 +1641,8 @@ function renderProbes() {
       ${s.pullAt != null ? `<div class="row"><span>Pull at</span><span class="r">${fmt(s.pullAt)}${esc(TU())} <span class="muted">(coasts to target)</span>${pullExp(s.info) ? ' ' + EXP('A default until a couple of rests have been measured for this kind of meat: check with your thermometer.') : ''}</span></div>` : ''}
       ${s.pulledE ? `<div class="row"><span>Off the grill, resting</span><button class="tg ${s.isPulled ? 'on' : ''}" role="switch" aria-checked="${!!(s.isPulled)}" onclick="act.pulled('${p.key}')" aria-label="pulled"></button></div>` : ''}
       ${s.isPulled ? `<div class="row"><span>Ready to slice</span><span class="r">${s.restReady != null ? (s.restReady <= 0 ? 'now' : 'in ' + minsTxt(s.restReady) + ' (' + atTxt(s.restReady) + ')') : 'measuring…'}</span></div>` : ''}
-      <details class="more" data-k="more-${p.key}"><summary>Cook details${s.source ? ' · ' + esc(s.source) : ''}</summary>
-        <div class="row"><span>Protein</span><select onchange="act.profile('${p.key}',this.value)">${profOpts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
-        <div class="row"><span>Weight</span><span><input type="number" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" onchange="act.weight('${p.key}',this.value)"> ${esc(s.weightU || (isF() ? 'lb' : 'kg'))}</span></div>
+      <div class="row adv"><span class="small muted">${esc(bits.join(' · ') || 'Cut and weight not set')}</span><button class="btn" onclick="act.openFood(${i + 1})">Change</button></div>
+      <details class="more" data-k="more-${p.key}"><summary>Cook details</summary>
         <div class="row"><span>Wrapped</span><button class="tg ${wrapped ? 'on' : ''}" role="switch" aria-checked="${!!(wrapped)}" onclick="act.wrap('${p.key}')" aria-label="wrapped"></button></div>
         <div class="row"><span>Rising</span><span class="r">${s.rate != null ? fmt(s.rate, 1) + ' ' + esc(s.rateU || TU() + '/h') : '--'}</span></div>
         <div class="row"><span>Whole cook</span><span class="r">${s.total != null ? minsTxt(s.total) : '--'}</span></div>
@@ -1670,7 +1707,7 @@ function renderPlan() {
   const serve = val(serveE), start = val(startE);
   const restE = byName('Smoker rest timer', ['timer']), rest = S(restE);
   const local = serve ? serve.replace(' ', 'T').slice(0, 16) : '';
-  const slice = `<div class="row"><span>Slice when it's down to</span><span><input type="number" id="sliceat" value="${num(E('Slice at', ['number'])) ?? ''}" onchange="act.slice(this.value)" aria-label="Slice when it's down to"> ${esc(TU())}</span></div>`;
+  const slice = `<div class="row"><span>Slice when it's down to</span><span><input type="number" inputmode="numeric" id="sliceat" value="${num(E('Slice at', ['number'])) ?? ''}" onchange="act.slice(this.value)" aria-label="Slice when it's down to"> ${esc(TU())}</span></div>`;
   if (!hasPkg()) return put('plancard', `<h3><span>${stepNo(3)}When</span></h3>${pkgNote('The serve-by time and the rest timer')}${slice}`);
   put('plancard', `<h3><span>${stepNo(3)}When</span></h3>
     <div class="row"><span>Serve by</span><input type="datetime-local" value="${esc(local)}" onchange="act.serve(this.value)" aria-label="Serve by"></div>
@@ -1727,14 +1764,14 @@ function renderFuel() {
   const modes = [['start', 'Started at'], ['check', 'It\'s at'], ['refill', 'Topped up to'], ['add', 'Added'], ['end', 'Finished with']];
   const fr = fuelMode === 'add' ? [[25, '¼'], [50, '½'], [75, '¾']] : fuelMode === 'end'
     ? [[0, 'Empty'], [12.5, '⅛'], [25, '¼'], [50, '½'], [75, '¾']] : [[25, '¼'], [50, '½'], [75, '¾'], [100, 'Full']];
-  put('fuelcard', `<h3>Charcoal ${typeS ? `<select onchange="act.fuelType(this.value)">${(typeS.attributes.options || []).map(o => `<option ${typeS.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>` : ''}</h3>
+  put('fuelcard', `<h3>Hopper ${typeS ? `<select onchange="act.fuelType(this.value)">${(typeS.attributes.options || []).map(o => `<option ${typeS.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>` : ''}</h3>
     ${lvl != null ? `<div class="eta"><span class="t">${fmt(lvl)}%</span><span class="muted small">${left != null ? fmt(left, 1) + ' ' + esc(unitOf(E('Charcoal left', ['sensor']))) + ' · ' : ''}${hrs != null ? '~' + fmt(hrs, 1) + ' h left' : ''}</span>${isExp(basis) ? EXP(basis) : ''}</div>
       <div class="gauge"><i class="${lvl < 25 ? 'low' : ''}" style="width:${Math.max(0, Math.min(100, lvl))}%"></i></div>
       <div class="row"><span>Runs out</span><span class="r">${esc(empty || '--')}</span></div>
       <div class="row"><span>Burning</span><span class="r">${rate != null ? fmt(rate, 2) + ' ' + esc(unitOf(rateE)) : '--'}</span></div>
       ${basis ? `<div class="small muted" style="margin-top:4px">${esc(basis)}</div>` : ''}`
       : '<p class="small muted" style="margin:4px 0">Tell it how full the hopper is when you light it; it estimates the burn from there and learns your grill.</p>'}
-    <div class="seg" style="margin-top:8px;flex-wrap:wrap">${modes.map(([k, l]) => `<button aria-pressed="${fuelMode === k}" onclick="act.fuelMode('${k}')">${l}</button>`).join('')}</div>
+    <div class="seg fuelmode" style="margin-top:8px;flex-wrap:wrap">${modes.map(([k, l]) => `<button aria-pressed="${fuelMode === k}" onclick="act.fuelMode('${k}')">${l}</button>`).join('')}</div>
     <div class="fracs">${fr.map(([v, l]) => `<button class="btn" onclick="act.fuel(${v})">${l}</button>`).join('')}</div>
     ${supplyRows()}`);
 }
@@ -1819,10 +1856,23 @@ function renderScan(force) {
     ${photos.length ? `<div class="thumbs">${photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
     ${items.map(i => `<div class="row"><span><b>${esc(i.name)}</b><br><span class="muted small">${esc(i.profile)}${i.weight_lb ? ' · ' + fmt(i.weight_lb, 1) + ' lb' : ' · no weight on the label'}${i.notes ? ' · ' + esc(i.notes) : ''}</span></span>
       <span class="entry"><button class="btn pri" data-id="${esc(i.id)}" onclick="act.labelAdd(this.dataset.id)">Add</button><button class="btn" data-id="${esc(i.id)}" onclick="act.dropItem(this.dataset.id)" aria-label="Not this one">×</button></span></div>`).join('')}
-    ${foodsHTML(HENV, `<label class="btn">Photo of the label<input type="file" accept="image/*" capture="environment" style="display:none" onchange="act.scanAdd(this)"></label>
-      <label class="btn">Choose photos<input type="file" accept="image/*" multiple style="display:none" onchange="act.scanAdd(this)"></label>`)}`;
+    ${foodsHTML(HENV, `<label class="btn">Read a label (photo)<input type="file" accept="image/*" multiple style="display:none" onchange="act.scanAdd(this)"></label>`)}`;
   if (force && root) root._h = null;
   put('scancard', html);
+}
+
+// On a phone the grill picture sits below the fold: the food temperatures as one line under the target (tap: Food).
+function foodStrip() {
+  const f = PROBES.map(p => { const t = num(E(p.label + ' temperature', ['sensor'])); if (t == null) return '';
+    const tg = num(E(p.label + ' target', ['number'])), nm = val(E(p.label + ' name', ['text'])) || '';
+    return `<span style="--c:${p.color}">${esc(nm ? nm.split(' ')[0] : p.label.replace('Food ', 'F'))} ${fmt(t)}${tg != null ? '/' + fmt(tg) : ''}${esc(TU())}</span>`; }).filter(Boolean);
+  return f.length ? `<a class="food-strip" href="#food" onclick="document.getElementById('food').scrollIntoView({ behavior: 'smooth' }); return false">${f.join('')}</a>` : '';
+}
+// The weather (what the old "Right now" card had): Home Assistant's forecast entity, as one line in the header.
+function outsideFact() {
+  const all = H().all(), w = all['weather.forecast_home'] ? 'weather.forecast_home' : Object.keys(all).find(id => id.startsWith('weather.'));
+  const wx = w ? S(w) : null; if (!wx || wx.attributes.temperature == null) return '';
+  return `<span class="hf"><span class="muted">Outside</span> ${fmt(wx.attributes.temperature)}${esc(wx.attributes.temperature_unit || '')} <span class="muted">${esc(wx.state)} · wind ${fmt(wx.attributes.wind_speed)}</span></span>`;
 }
 
 // ---------------------------------------------------------------- journal
@@ -1843,8 +1893,12 @@ let share = null, withdrawArmed = 0;
 const TASTE = [['juicy', 'tender', 'dry', 'tough'], ['undercooked', 'just right', 'overcooked'], ['great bark', 'soft bark'],
   ['good smoke', 'too smoky', 'too little smoke'], ['fat rendered', 'fat not rendered']];
 const TASTE_GROUPS = ['Texture', 'Doneness', 'Bark', 'Smoke', 'Fat'];
-const tasteHTML = e => `<details class="more"${(e.tags || []).length ? '' : ' open'}><summary>How was it?${(e.tags || []).length ? ' · ' + esc(e.tags.join(', ')) : ''}</summary>
-  <div class="taste">${TASTE.map((g, k) => `<span class="grp">${TASTE_GROUPS[k]}</span>` + g.map(t => `<button aria-pressed="${(e.tags || []).includes(t)}" data-act="tag" data-a="${esc(e.id)}" data-b="${esc(t)}">${t}</button>`).join('')).join('')}</div></details>`;
+// "How was it?": the tags, the notes and Remove, open only on the newest cook not yet rated (the others show what was
+// chosen on their folded line).
+const tasteHTML = (e, open) => `<details class="more"${open ? ' open' : ''}><summary>How was it?${(e.tags || []).length ? ' · ' + esc(e.tags.join(', ')) : ''}${e.notes ? ' · ' + esc(e.notes.slice(0, 40)) + (e.notes.length > 40 ? '…' : '') : ''}</summary>
+  <div class="taste">${TASTE.map((g, k) => `<span class="grp">${TASTE_GROUPS[k]}</span>` + g.map(t => `<button aria-pressed="${(e.tags || []).includes(t)}" data-act="tag" data-a="${esc(e.id)}" data-b="${esc(t)}">${t}</button>`).join('')).join('')}</div>
+  <label class="jnote"><span class="small muted">Notes: bark, tenderness, what you'd change</span><textarea id="jn-${esc(e.id)}" rows="2" aria-label="Notes">${esc(e.notes || '')}</textarea></label>
+  <div class="btns" style="margin-top:6px"><button class="btn" data-act="note" data-a="${esc(e.id)}">Save notes</button></div></details>`;
 const recWords = r => [r.cut, r.weight_lb != null ? r.weight_lb + ' lb' : '', r.pit_f != null ? 'pit ' + r.pit_f + '°F' : '',
   r.stall_h != null ? 'stall ' + r.stall_h + ' h' : '', r.total_h + ' h total', r.wrapped === true ? 'wrapped' : r.wrapped === false ? 'not wrapped' : '',
   r.outside_f != null ? r.outside_f + '–' + (r.outside_f + 5) + '°F outside' : '', r.season, r.rating ? r.rating + '★' : '', (r.tags || []).join(', ')].filter(Boolean).join(' · ');
@@ -1877,11 +1931,12 @@ function renderShare() {
   if (wait) return put('jshare', `<p class="small muted" style="margin:0 0 10px">Rate your latest cook and tick how it was: then it can be shared with Open Pitmaster${share.auto ? ' (automatically)' : ''}.</p>`);
   put('jshare', pend && je ? `<div class="sharebox"><div class="row"><span><b>Share this cook?</b><br><span class="small muted">${esc(recWords(pend.record))}</span></span></div>
       <div class="btns"><button class="btn pri" data-act="shareOne" data-a="${esc(pend.entry)}">Share it</button>
-        <button class="btn" data-act="shareNo" data-a="${esc(pend.entry)}">Not this one</button></div>${sharePreview(pend.record)}</div>` : '');
+        <button class="btn" data-act="shareNo" data-a="${esc(pend.entry)}">Don't share</button></div>${sharePreview(pend.record)}</div>` : '');
 }
 const cToU = c => c == null ? null : (isF() ? c * 9 / 5 + 32 : c);
 function renderJournal(force) {
-  const list = [...journal.entries].reverse(), shown = journalAll ? list : list.slice(0, 6);
+  const list = [...journal.entries].reverse(), shown = journalAll ? list : list.slice(0, 3);
+  const newest = list.find(e => !e.rating && !(e.tags || []).length);
   const html = list.length ? shown.map(e => {
     const d = new Date(e.ended * 1000), w = e.weight_kg ? (isF() ? fmt(e.weight_kg * 2.2046, 1) + ' lb' : fmt(e.weight_kg, 1) + ' kg') : '';
     return `<div class="je"><div class="h"><span class="t">${esc(e.profile || 'Cook')}${w ? ' · ' + w : ''}</span>
@@ -1894,10 +1949,8 @@ function renderJournal(force) {
       <div class="row"><span class="stars">${[1, 2, 3, 4, 5].map(n => `<button class="${(e.rating || 0) >= n ? 'on' : ''}" data-act="rate" data-a="${esc(e.id)}" data-b="${n}" aria-label="${n} stars">★</button>`).join('')}</span>
         <span><button class="btn" data-act="compare" data-a="${esc(e.id)}">Compare</button> <button class="btn" data-act="summary" data-a="${esc(e.id)}">Summary</button></span></div>
       <div class="btns"><button class="btn" data-act="replay" data-a="${esc(e.id)}">Replay</button><button class="btn" data-act="shareImg" data-a="${esc(e.id)}">Share image</button></div>
-      ${tasteHTML(e)}
-      <textarea id="jn-${esc(e.id)}" placeholder="Notes: bark, tenderness, what you'd change…" style="font-family:'Instrument Sans',system-ui,sans-serif;font-size:13.5px">${esc(e.notes || '')}</textarea>
-      <div class="btns" style="margin-top:6px"><button class="btn" data-act="note" data-a="${esc(e.id)}">Save notes</button></div></div>`;
-  }).join('') + (list.length > shown.length ? `<div class="btns"><button class="btn" onclick="act.jall()">Show all ${list.length}</button></div>` : '')
+      ${tasteHTML(e, e === newest)}</div>`;
+  }).join('') + (list.length > shown.length ? `<div class="btns"><button class="btn" onclick="act.jall()">Show older (${list.length - shown.length})</button></div>` : '')
     : '<div class="empty">No cooks yet. Each finished cook is added here automatically; rate it and add notes so the AI can learn from it.</div>';
   if (force) { const el = $('jlist'); if (el) el._h = null; }
   put('jlist', html);
@@ -2200,7 +2253,8 @@ function foodsHTML(env, more) {
   return `<div class="fds">${groups.length ? groups.map(row).join('') : `<p class="note" style="margin:0">Nothing added yet. Add each food
       you're cooking: its cut and weight give it a finish time. One food can have several probes (a turkey's breast and thigh).</p>`}
     ${loose.map(s => `<div class="fd fd-l"><span class="small muted">${e(s.src || s.label)} reads ${Math.round(s.t)}${e(tu)}, not on a food yet</span>
-      <button class="btn" data-fa="take" data-n="${s.n}">Add it</button></div>`).join('')}
+      <span class="btns" style="margin:0">${s.has.name ? groups.slice(0, 3).map(g => `<button class="btn" data-fa="join" data-n="${s.n}" data-to="${g.first.n}">Add to ${e(g.title)}</button>`).join('') : ''}
+      <button class="btn" data-fa="take" data-n="${s.n}">${groups.length && s.has.name ? 'New food' : 'Add it'}</button></span></div>`).join('')}
     <div class="btns"><button class="btn" data-fa="add">Add food</button>${more || ''}</div></div>`;
 }
 // What goes on the slots a food uses (cleared: name, spot, cut, weight; the probe and target stay as they are).
@@ -2218,6 +2272,17 @@ async function foodAct(env, el) {
     const s = a === 'take' ? slots.find(x => x.n === n) : foodFree(slots);
     if (!s) return env.toast('All six food slots are in use: remove a food first');
     FOODS.fresh.add(s.n); FOODS.open = s.n; return env.draw();
+  }
+  if (a === 'join') {
+    // A probe that's reading joins a food that's already there (the food's name, cut and weight on its slot).
+    const s = slots.find(x => x.n === n), to = foodGroups(slots).find(x => x.slots.some(y => y.n === +el.dataset.to));
+    if (!s || !to) return;
+    const name = to.name || to.title;
+    if (!to.name) for (const x of to.slots) await env.set(x.n, 'name', name);
+    await env.set(s.n, 'name', name);
+    if (to.cut) await env.set(s.n, 'prof', to.first.prof);
+    if ((to.first.weight || 0) > 0) await env.set(s.n, 'weight', to.first.weight);
+    FOODS.fresh.add(s.n); FOODS.open = to.first.n; env.toast('Say where this probe is in the ' + name.toLowerCase()); return env.draw();
   }
   if (!g) return;
   if (a === 'addprobe') {
@@ -2262,6 +2327,43 @@ function foodWire(root, env) {
   root.addEventListener('change', e => { const t = e.target; if (t && t.dataset && t.dataset.ff) foodChange(env, t).catch(err => env.toast(err.message || String(err))); });
 }
 // ==== END food list (shared block) ====
+// ==== BEGIN chart readout (shared block) ====
+// Tap or drag on the live temperature chart to read a moment (a phone has no hover): a line at that time and a label
+// with the time and each line's value. Identical in page.html and ui.js (tests/render_page.py checks). Vertical
+// swipes still scroll the page (touch-action: pan-y). o: { W, H, L, R (the drawing's size and side margins), t0, t1 (its
+// time range, in the points' unit), near (how far from a point still counts), series: [{ name, color, pts: [[t, v]] }],
+// when(t) -> text, unit }.
+function chartReadout(box, o) {
+  const svg = box && box.querySelector('svg'); if (!svg) return;
+  svg.style.touchAction = 'pan-y';
+  if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+  const tip = document.createElement('div'); tip.className = 'cr-tip'; tip.hidden = true; box.appendChild(tip);
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('y1', '0'); line.setAttribute('y2', String(o.H)); line.setAttribute('stroke', 'currentColor');
+  line.setAttribute('stroke-dasharray', '2 3'); line.style.display = 'none'; svg.appendChild(line);
+  let timer = null;
+  const show = ev => {
+    const r = svg.getBoundingClientRect(), vx = (ev.clientX - r.left) * o.W / r.width;
+    if (vx < o.L || vx > o.W - o.R) return;
+    const t = o.t0 + (vx - o.L) / (o.W - o.L - o.R) * (o.t1 - o.t0);
+    const vals = o.series.map(s => {
+      let best = null;
+      for (const q of s.pts) if (best == null || Math.abs(q[0] - t) < Math.abs(best[0] - t)) best = q;
+      return best && Math.abs(best[0] - t) <= o.near ? `<span><i style="background:${s.color}"></i>${esc(s.name)} ${Math.round(best[1])}${esc(o.unit)}</span>` : '';
+    }).filter(Boolean);
+    line.setAttribute('x1', String(vx)); line.setAttribute('x2', String(vx)); line.style.display = '';
+    tip.innerHTML = `<b>${esc(o.when(t))}</b>${vals.join('') || '<span class="muted">no reading</span>'}`; tip.hidden = false;
+    const bw = box.clientWidth, tw = tip.offsetWidth, px = ev.clientX - box.getBoundingClientRect().left;
+    tip.style.left = Math.max(0, Math.min(bw - tw, px + 12 + tw > bw ? px - tw - 12 : px + 12)) + 'px';
+    clearTimeout(timer);
+  };
+  const hide = () => { tip.hidden = true; line.style.display = 'none'; };
+  svg.addEventListener('pointerdown', ev => { try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* not supported */ } show(ev); });
+  svg.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse' || ev.buttons) show(ev); });
+  svg.addEventListener('pointerup', ev => { if (ev.pointerType !== 'mouse') timer = setTimeout(hide, 3000); });
+  svg.addEventListener('pointerleave', ev => { if (ev.pointerType === 'mouse') hide(); });
+}
+// ==== END chart readout (shared block) ====
 // ==== BEGIN cook plan (shared block) ====
 // The controller's plan for a cook ("Food N plan": the predicted food temperature, taken at the cook's first sound
 // prediction): "1;<start epoch>;<step min>;<F|C>;t0,t1,...". Drawn dotted beside the actual temperature, and
@@ -2665,7 +2767,7 @@ function drawChart() {
   // Hour labels at least ~52 px apart (a phone-width chart would otherwise run them together).
   const hstep = [1, 2, 3, 4, 6, 8, 12].find(h => (W - L - R) * h * 3600e3 / (t1 - t0) >= 52) || 24;
   for (let t = Math.ceil(t0 / 3600e3 / hstep) * hstep * 3600e3; t <= t1; t += hstep * 3600e3)
-    g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="middle">${new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}</text>`;
+    g += `<text x="${x(t)}" y="${Hh - 6}" text-anchor="${x(t) > W - R - 22 ? 'end' : x(t) < L + 22 ? 'start' : 'middle'}">${new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}</text>`;  // (the last one isn't cut off)
   const lines = chartData.map(s => {
     const pts = s.pts.filter(p => p[0] >= t0 - 3600e3);
     if (!pts.length) return '';
@@ -2680,6 +2782,8 @@ function drawChart() {
   }).join('');
   const nowLine = t1 > now0 ? `<line x1="${x(now0)}" x2="${x(now0)}" y1="${T}" y2="${Hh - B}" stroke="var(--muted)" stroke-dasharray="1 3"/><text x="${x(now0) + 4}" y="${T + 10}" font-size="11">now</text>` : '';
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="Temperature history${plans.length ? ' with the cook plan' : ''}">${g}${nowLine}${lines}${planLines}</svg>`;
+  chartReadout(box, { W, H: Hh, L, R, t0, t1, near: Math.max(120e3, (now0 - t0) / 120), series: chartData.map(s => ({ name: s.name, color: s.color, pts: s.pts.filter(p => p[0] >= t0) })),
+    unit: TU(), when: t => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) });
   put('legend', chartData.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('') +
     plans.map(({ p, plan }) => { const w = planWords(planDeviation(plan, num(E(p.label + ' temperature', ['sensor'])), now0));
       return `<span><i style="background:transparent;border-top:2px dotted ${p.color};height:0"></i>${esc(p.label)} plan${w ? ' · ' + esc(w) : ''}</span>`; }).join(''));
@@ -2706,9 +2810,10 @@ const SECT = (() => {
     const m = localStorage.getItem(MODE_KEY);
     basic = m ? m === 'basic' : !localStorage.getItem(KEY);  // new here: Basic; already using the page: Advanced
   } catch (e) { /* private window: Advanced */ }
-  // (the pit and the program's status are in the header, above the sections; the cook program is in Cook)
-  const IDLE = ['cook', 'now', 'food', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
-  const COOKING = ['now', 'food', 'cook', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
+  // (the pit, the program's status, the cook time and the weather are in the header, above the sections; the cook
+  // program is in Cook)
+  const IDLE = ['cook', 'food', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
+  const COOKING = ['food', 'cook', 'charcoal', 'chart', 'ai', 'journal', 'setup'];
   let mine = {};
   try { mine = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { /* private window: not remembered */ }
   const dflt = {}, sums = {}, peek = {};
@@ -2744,6 +2849,8 @@ const SECT = (() => {
     document.querySelectorAll('[data-sect]').forEach(s => s.classList.toggle('view-off', inSetup ? s.dataset.sect !== 'setup' : s.dataset.sect === 'setup'));
     const a = setupLink(), st = sec('setup');
     if (a) { a.classList.toggle('on', inSetup); if (inSetup) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+    // (On the Setup page only Setup is marked: the section marked before leaving the cook isn't left lit.)
+    if (inSetup) document.querySelectorAll('#secbar a[aria-current]').forEach(l => { if (l !== a) l.removeAttribute('aria-current'); });
     cur = null; if (inSetup) pin = null;
     if (inSetup) { peek.setup = true; apply('setup'); }
     if (scroll) window.scrollTo(0, 0);
@@ -2797,6 +2904,8 @@ const SECT = (() => {
     });
     const sw = document.getElementById('modesw');
     if (sw) sw.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mode === 'basic') === basic)));
+    // Setup's settings for what Basic doesn't show (AI, sharing, charcoal stock): behind "More settings" in Basic.
+    document.querySelectorAll('details.adv-more').forEach(d => { d.open = !basic; });
     cur = null; mark();
   }
   function apply(k) {
@@ -2866,7 +2975,18 @@ const SECT = (() => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sect-back';
       b.textContent = '← Back to the cook'; b.addEventListener('click', closeSetup);
       st.insertBefore(b, h);
+      // ...and at its foot, so a long Setup page on a phone needn't be scrolled back up.
+      const f = document.createElement('div'); f.className = 'btns setup-back';
+      const b2 = b.cloneNode(true); b2.classList.remove('sect-back'); b2.addEventListener('click', closeSetup); f.appendChild(b2);
+      st.appendChild(f);
     }
+    // A settings row with one switch in it toggles from anywhere on the row (not just the small knob).
+    document.addEventListener('click', e => {
+      const row = e.target.closest && e.target.closest('.row');
+      if (!row || e.target.closest('button,a,input,select,textarea,label,summary')) return;
+      const tg = row.querySelectorAll('button.tg');
+      if (tg.length === 1 && !tg[0].disabled) tg[0].click();
+    });
     window.addEventListener('popstate', () => {
       if (!inSetup) return;
       pushed = false;
@@ -2905,7 +3025,7 @@ function placeSections() {
 }
 function render() {
   placeSections();
-  findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderKpis(); renderRecs(); renderFuel();
+  findPhoto(); renderPhotoCard(); renderTop(); renderHero(); renderGrill(); renderRecs(); renderFuel();
   loadJournal().catch(e => console.warn('journal', e)); renderProgram(); renderAI(); renderProbes(); renderControl(); renderPlan(); renderScan(); renderLearn(); renderDiag(); renderRange(); renderShare(); renderSupplies();
   renderBest().catch(e => console.warn('best', e));
   if (Date.now() - lastChart > 60000) { lastChart = Date.now(); loadChart().then(drawChart).catch(e => console.warn('history', e)); }

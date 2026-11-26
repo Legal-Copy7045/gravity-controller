@@ -59,7 +59,12 @@ INSPECT = r"""(phone) => {
     const o = getComputedStyle(p).overflowX; return o === 'visible' && e.getBoundingClientRect().width > p.getBoundingClientRect().width + 1
       && getComputedStyle(e).position !== 'absolute' && getComputedStyle(e).position !== 'fixed'
       && parseFloat(getComputedStyle(e).marginLeft) >= 0 && parseFloat(getComputedStyle(e).marginRight) >= 0; }).map(path);  // (negative margins: a deliberate full-width bar)
-  const small = phone ? all.filter(e => e.matches('a[href],button,select,input:not([type=hidden]):not([type=file]),textarea,[role=button],label.btn'))
+  // A control whose tap is also taken by something larger counts at that size: a switch in a settings row (the whole
+  // row toggles it), a section's fold button (the whole heading folds it); a link inside running text is exempt (as
+  // in WCAG's target-size rule).
+  const covered = e => (e.matches('button.tg') && e.closest('.row')) || (e.matches('button.fold') && e.closest('h2.sec'))
+    || (e.tagName === 'A' && getComputedStyle(e).display === 'inline' && e.parentElement && e.parentElement.matches('p,small,li,span.small,span.muted'));
+  const small = phone ? all.filter(e => e.matches('a[href],button,select,input:not([type=hidden]):not([type=file]),textarea,[role=button],label.btn') && !covered(e))
     .filter(e => { const r = e.getBoundingClientRect(); return r.width < 40 || r.height < 40; })
     .map(e => { const r = e.getBoundingClientRect(); return `${txt(e) || e.tagName.toLowerCase()} (${Math.round(r.width)}x${Math.round(r.height)})`; }) : [];
   const dead = [...document.querySelectorAll('a[href^="#"]')].map(a => a.getAttribute('href')).filter(h => h.length > 1 && !document.getElementById(h.slice(1)));

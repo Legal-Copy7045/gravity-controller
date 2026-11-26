@@ -1,4 +1,5 @@
 #include "cook_assistant.h"
+#include "links.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1112,11 +1113,7 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
     prog.steps[i].pit_c = to;
   }
   // No links anywhere: a step's notification text goes straight to the owner's phone.
-  auto has_link = [](std::string t) {
-    for (auto &c : t) c = char(std::tolower(static_cast<unsigned char>(c)));
-    return t.find("http:") != std::string::npos || t.find("https:") != std::string::npos ||
-           t.find("://") != std::string::npos || t.find("www.") != std::string::npos;
-  };
+  auto has_link = [](const std::string &t) { return links::has_link(t); };  // (also bare domains: example.co/x)
   if (has_link(prog.name)) {
     why = "it contains a link";
     return false;
@@ -1131,6 +1128,16 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
   const float keep_hi = std::max(40.0f, std::min(95.0f, hi - 40.0f));
   bool turbo_noted = false;
   std::vector<cook::Step> kept;
+  // After a Turbo-only sear (given the AI max pit below), the steps that set no pit of their own go back to the pit the
+  // program itself set last: Turbo never changed the grill's target, so that's where the original program stood.
+  bool after_sear = false;
+  float sear_restore = NAN;
+  auto own_pit_before = [&](size_t i) {
+    float prev = NAN;
+    for (size_t j = i; j-- > 0 && std::isnan(prev);)
+      prev = prog.steps[j].pit_c;
+    return std::isnan(prev) ? std::max(this->pit_min_c_, std::min(hi, 107.2f)) : prev;  // (else 225 °F)
+  };
   for (size_t i = 0; i < prog.steps.size(); i++) {
     cook::Step st = prog.steps[i];
     if (st.keep_probe >= 0 && !(st.keep_c >= 40.0f && st.keep_c <= keep_hi + 0.01f)) {
@@ -1159,16 +1166,27 @@ bool CookAssistant::fit_program(const std::string &text, std::string &fixed, std
             c.value = hi - 5.0f;
         note += std::string(note.empty() ? "" : "; ") + "step " + std::to_string(i + 1) + ": the pit set to " +
                 this->fmt_temp_(hi) + " instead";
+        after_sear = true;
+        sear_restore = own_pit_before(i);
+        kept.push_back(st);
+        continue;
       } else {
         // `turbo off until food1 >= 195`: a wait at the pit the program itself set last (the AI's own steps, so not
         // the AI max pit a Turbo-only sear just before was given).
-        float prev = NAN;
-        for (size_t j = i; j-- > 0 && std::isnan(prev);)
-          prev = prog.steps[j].pit_c;
-        st.pit_c = std::isnan(prev) ? std::max(this->pit_min_c_, std::min(hi, 107.2f)) : prev;  // (else 225 °F)
+        st.pit_c = own_pit_before(i);
       }
     }
+    if (after_sear && std::isnan(st.pit_c) && !st.hold && st.keep_probe < 0 && !st.shutdown)
+      st.pit_c = sear_restore;  // (`turbo off notify "..."`, or any step after the sear without a pit of its own)
+    if (!std::isnan(st.pit_c) || st.hold || st.keep_probe >= 0 || st.shutdown)
+      after_sear = false;
     kept.push_back(st);
+  }
+  if (after_sear) {
+    // The sear was the last step left (a bare `turbo off` after it, dropped): end back at the program's own pit.
+    cook::Step back;
+    back.pit_c = sear_restore;
+    kept.push_back(back);
   }
   prog.steps = kept;
   if (prog.steps.empty()) {
@@ -1294,13 +1312,15 @@ void CookAssistant::start_program() {
   this->save_program_state_();
 }
 void CookAssistant::pause_program() {
-  this->prog_restored_ = this->keep_restored_ = false;  // the user's choice now: power-cut recovery doesn't bring the old state back
+  // The user's choice now: power-cut recovery doesn't bring the old state back. A restored keep-warm stays marked as
+  // restored (Pause, Resume and Skip don't replace it): if the cook isn't resumed, recovery still ends it.
+  this->prog_restored_ = false;
   this->turbo_off_any_();        // a paused sear doesn't keep the fan flat out
   this->runner_.pause(this->now_min_(), "paused by user");
   this->save_program_state_();
 }
 void CookAssistant::resume_program() {
-  this->prog_restored_ = this->keep_restored_ = false;
+  this->prog_restored_ = false;  // (keep_restored_ stays: see pause_program)
   auto o = this->runner_.resume(this->now_min_());
   this->apply_outputs_(o);
   // A sear step paused (by the user, an override or a restart) had its Turbo turned off: on again with the step.
@@ -1309,7 +1329,7 @@ void CookAssistant::resume_program() {
   this->save_program_state_();
 }
 void CookAssistant::skip_step() {
-  this->prog_restored_ = this->keep_restored_ = false;
+  this->prog_restored_ = false;  // (keep_restored_ stays: see pause_program)
   auto o = this->runner_.skip(this->now_min_());
   this->apply_outputs_(o);
 }

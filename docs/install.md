@@ -58,9 +58,10 @@ collide. A second one needs its own build with a different `name`, and then a Ho
   configuration) or on the controller's page (Setup → This controller). A new release is then installed only after
   the controller has been idle for an hour: grill not connected, no cook active, no program running or paused. You
   get a "Controller updated" notification when it's back.
-- **Automatic rollback (from 1.4.0):** a new firmware is on trial until it has held its Wi-Fi for a minute. If it
-  crashes or hangs in its first 15 minutes, or can't stay on the network for 10, the controller goes back to the
-  version it had and tells you; automatic updates then skip that version (you can still install it by hand).
+- **Automatic rollback (from 1.4.0):** a new firmware is on trial until it has held its Wi-Fi for a minute (and run
+  at least 90 s). If it crashes or hangs before then (or within 15 minutes without Wi-Fi), or can't reach the network
+  within 10 minutes, the controller goes back to the version it had and tells you; automatic updates then skip that
+  version (you can still install it by hand). Once a version is confirmed, a later crash restarts it, not rolls back.
 - **Local only (from 1.4.0, off by default):** *Local only (no internet)* (Setup → This controller) stops every
   internet connection the controller makes, and what the integration does on its behalf: weather, the AI, Pushover,
   Telegram, ntfy, Open Pitmaster, update checks and the internet clock. Home Assistant on your network still works and

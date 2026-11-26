@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "1.4.10"
+  project_version: "1.5.0"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -222,7 +222,9 @@ text:
     name: Grill photo URL
     icon: mdi:image
     entity_category: config
-    mode: text
+    # Password mode: the device page's open event stream masks it (the address opens the photo without a Home Assistant
+    # login); an unlocked page gets it from /local/status.
+    mode: password
     max_length: 255
     optimistic: true
     restore_value: true

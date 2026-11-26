@@ -9,7 +9,6 @@ disallowed one is refused, and saves screenshots (light/dark, phone/desktop).
     python3 tests/render_page.py [outdir]
 """
 
-import importlib.util
 import json
 import re
 import os
@@ -239,7 +238,7 @@ def presets():
 
 def shared_blocks_match():
     """page.html and the device page's ui.js carry the same shared blocks (cook program editor, page sections)."""
-    for name in ("cook program editor", "page sections", "cook plan", "serve together", "cook replay", "food list"):
+    for name in ("cook program editor", "page sections", "cook plan", "serve together", "cook replay", "food list", "chart readout"):
         b, e = f"// ==== BEGIN {name} (shared block) ====", f"// ==== END {name} (shared block) ===="
         out = []
         for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
@@ -512,7 +511,7 @@ def basic_mode(fr):
     if set(vis) - {"food", "chart"} or "food" not in vis or "chart" not in vis:
         fails.append(f"basic mode: sections shown {vis}")
     links = fr.evaluate("""() => [...document.querySelectorAll('#secbar a')].filter(a => a.offsetParent !== null).map(a => a.textContent.trim())""")
-    if set(links) != {"Food", "Chart", "Setup"}:
+    if set(links) != {"Food", "Temperatures", "Setup"}:
         fails.append(f"basic mode: section bar {links}")
     if fr.evaluate("[...document.querySelectorAll('.adv')].some(e => e.offsetParent !== null)"):
         fails.append("basic mode: advanced parts of the food cards still shown")
@@ -766,7 +765,7 @@ def main():
                 fr = next(f for f in pg.frames if f.url.startswith("about:srcdoc"))
                 checks = {
                     "pit": fr.inner_text("#pitbig"),
-                    "kpis": fr.inner_text("#kpis"),
+                    "herofacts": fr.inner_text("#herofacts"),
                     "probes": fr.inner_text("#probes"),
                     "program": fr.inner_text("#progcard"),
                     "chart": fr.inner_html("#chart")[:40],
@@ -846,15 +845,15 @@ def main():
                 cc = fr.inner_text("#controlcard")
                 if "Bluetooth signal" not in cc or "-67 dBm · good" not in cc or "-44 dBm · strong" not in cc:
                     failures.append(f"{scheme}/{name}: signal rows: {cc[:300]!r}")
-                # What's cooking: separate camera and library buttons (only the camera one opens the camera).
+                # What's cooking: one photo button for any number of labels.
                 sc = fr.evaluate("""() => [...document.querySelectorAll('#scancard input[type=file]')].map(i => [i.hasAttribute('capture'), i.multiple, i.closest('label') && i.closest('label').innerText.trim()])""")
-                if sorted(sc) != sorted([[True, False, "Photo of the label"], [False, True, "Choose photos"]]):
+                if sc != [[False, True, "Read a label (photo)"]]:  # (one button: the phone offers camera or library)
                     failures.append(f"{scheme}/{name}: scan inputs: {sc!r}")
                 tb = fr.evaluate("async () => { window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return document.getElementById('topbar').innerText; }")
                 if "Wi-Fi + Bluetooth" not in tb or fr.evaluate("document.querySelectorAll('#topbar .ic.via').length") != 2:
                     failures.append(f"{scheme}/{name}: both links at the top: {tb!r}")
                 order = fr.evaluate("[...document.querySelectorAll('.sect')].map(e => e.id).join(',')")
-                if order != "now,food,cook,charcoal,temps,ai,journal-sec,setup":
+                if order != "food,cook,charcoal,temps,ai,journal-sec,setup":
                     failures.append(f"{scheme}/{name}: section order while cooking: {order}")
                 idle = fr.evaluate("""async () => {
                     const hs = window.parent.__smHass, keep = hs.states, st = Object.assign({}, keep);
@@ -865,10 +864,10 @@ def main():
                     const o = [...document.querySelectorAll('.sect')].map(e => e.id).join(',');
                     const bar = [...document.querySelectorAll('#secbar a')].map(a => a.getAttribute('href')).join(',');
                     hs.states = keep; window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return [o, bar]; }""")
-                if not idle[0].startswith("cook,now,food,charcoal") or not idle[1].startswith("#cook,#now,#food,#charcoal"):
+                if not idle[0].startswith("cook,food,charcoal") or not idle[1].startswith("#cook,#food,#charcoal"):
                     failures.append(f"{scheme}/{name}: idle order: {idle}")
-                if "FOOD 1" in fr.inner_text("#kpis").upper():
-                    failures.append(f"{scheme}/{name}: food repeated in Right now")
+                if "Outside" not in checks["herofacts"]:  # (the old Right now card's weather, now in the header)
+                    failures.append(f"{scheme}/{name}: the weather isn't in the header: {checks['herofacts']!r}")
                 sh = fr.evaluate("async () => { await loadJournal(true); renderShare(); return [document.getElementById('sharecard').innerText, document.getElementById('jshare').innerText]; }")
                 if "Share my cooks" not in sh[0] or "42 shared cooks" not in sh[0] or "Share this cook?" not in sh[1] \
                         or "Pork shoulder · 8.5 lb · pit 250°F" not in sh[1] or "juicy, great bark" not in sh[1]:
@@ -907,7 +906,7 @@ def main():
                     return r; }""")
                 if not photo["img"] or photo["pins"] < 6 or "251" not in photo["text"] or "62%" not in photo["text"] or not photo["back"]:
                     failures.append(f"{scheme}/{name}: photo mode {photo}")
-                if checks["secbar"] != ["Now", "Food", "Cook", "Charcoal", "Chart", "AI", "Journal", "Setup"]:
+                if checks["secbar"] != ["Food", "Cook", "Charcoal", "Temperatures", "AI", "Journal", "Setup"]:
                     failures.append(f"{scheme}/{name}: section bar {checks['secbar']}")
                 if "Pork shoulder" not in checks["heronext"] or "Poultry" not in checks["heronext"]:
                     failures.append(f"{scheme}/{name}: coming up: {checks['heronext'][:160]!r}")

@@ -31,11 +31,13 @@ looked up at `/local/smoker/grill.(png|jpg|webp)` directly).
 | Kind | Allow |
 |---|---|
 | `call` | `number.set_value`, `select.select_option`, `switch.turn_on/turn_off/toggle`, `button.press` (**never** a factory reset, safe mode, or `button.smoker_clear_cook_history`), `text.set_value`, `input_number.set_value`, `input_text.set_value`, `input_datetime.set_datetime`, `input_boolean.turn_on/turn_off/toggle`, `timer.start/cancel` |
-| `service` | `esphome.gravity980_*` (the controller's actions: programs, pit target, fuel log, forecast, context), `script.smoker_plan_cook`, `script.smoker_ai_advise` |
+| `service` | `esphome.gravity980_load_program/start_program/pause_program/resume_program/skip_step/stop_program/set_pit_target/fuel_level/fuel_refilled/fuel_added/fuel_end`, `script.smoker_plan_cook`, `script.smoker_ai_advise` |
 | `ws` | read-only `history/history_during_period` |
 | `api` | `GET/POST/DELETE` on `^/api/smoker/(journal(/[0-9a-f]{6,16})?|draft|identify|grill_photo|photo/[0-9a-f-]+\.(jpg|png)|sharing(/(export|withdraw|(share|decline)/[0-9a-f]{6,16}))?)$` via `hass.fetchWithAuth`, returning JSON (or a Blob for photos); `identify` takes a `FormData` body |
 
-`custom_components/smoker/frontend/shim.js` is the reference implementation of exactly this allowlist.
+`custom_components/smoker/frontend/shim.js` is the reference implementation and the source of truth if this table and
+it ever differ. Controls are limited to the smoker's own entities; reading states isn't (the page shows outside
+weather and the thermometers you pick).
 
 ## Suggested placement
 

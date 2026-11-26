@@ -1,6 +1,6 @@
 # Stable check IDs for the package stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: PKG-104
+# highest issued: PKG-109
 PKG-001: "ha_check: integration import + page build"
 PKG-002: "ha_check: HA config check with the package"
 PKG-003: "button key SMOKER_FOOD_PLUS_5_FOOD1"
@@ -105,3 +105,8 @@ PKG-101: "read-back after loading (through the controller: False) counts as the 
 PKG-102: "through the controller, Home Assistant's second check doesn't replace the plan: False"
 PKG-103: "older firmware: a program that changed on the way is still replaced: True"
 PKG-104: "serve together: two probes in one food count once, at the slower one"
+PKG-105: "plan check 'pit 250 notify \"see example.co/x\"'"
+PKG-106: "plan check 'pit 250 notify \"order at smoke.shop\"'"
+PKG-107: "plan check 'pit 250F notify \"e.g. wrap at 2.5h, about 225.0F\"'"
+PKG-108: "plan check 'name: Pork butt; pit 250F until food1 >= 165F for 30m; hold 200F'"
+PKG-109: "plan check 'pit 401F'"

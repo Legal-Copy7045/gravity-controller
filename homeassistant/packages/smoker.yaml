@@ -645,7 +645,7 @@ script:
             {% set bare = p | regex_replace('"[^"]*"|\'[^\']*\'', ' "" ') | lower %}
             {% if not p %}{% set ns.why = 'the AI wrote no program' %}
             {% elif p | length > 600 %}{% set ns.why = 'the program is too long' %}
-            {% elif (p ~ ' ' ~ (explanation | default('') | string)) is search('https?:|://|www\\.|\\bhttp', ignorecase=True) %}
+            {% elif (p ~ ' ' ~ (explanation | default('') | string)) is search('https?:|://|www\\.|\\bhttp|(?<![\\w.-])(?=[a-z0-9-]{2,}\\.)[a-z0-9-]*[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|io|co|uk|us|ca|au|de|fr|nl|eu|info|biz|app|dev|shop|store|site|online|xyz|me|tv|ly|gl|ai|link|click|top|gg|to|be|tk|ru|cn|in)(?![a-z0-9-])\\S*|(?<![\\w.-])[a-z0-9-]*[a-z][a-z0-9-]*\\.[a-z]{2,}/\\S*', ignorecase=True) %}
               {% set ns.why = 'it contains a link' %}
             {% elif '"' in bare | replace('""', '') or "'" in bare %}{% set ns.why = 'its quotes are unbalanced' %}
             {% endif %}
@@ -748,12 +748,13 @@ script:
             reminders at a moment, e.g. 'pit 275 until food1 >= 165 notify "Wrap it"'. Several foods: one condition
             each, joined by 'or' (the step ends when the first gets there).
             Conditions: 'food1 >= N [for Nm]', 'food1 <= N', 'food1 done', 'after Nh|Nm', 'at HH:MM',
-            'stall_start food1', 'stall_end food1'. Probes: pit, food1 to food6. Temperatures in {{ tu }}.
+            'stall_start food1', 'stall_end food1'. Probes: pit, food1 to food6. Temperatures in {{ tu }}, and write the
+            unit on every one ({{ '121C, food1 >= 74C' if cel else '250F, food1 >= 165F' }}): the controller reads them that way.
             Start with 'name: <short name>;'. Keep it under 240 characters. No links or web addresses anywhere. Example:
             {% if cel -%}
-            name: Pork butt; pit 121 until food1 >= 74 for 30m; pit 135 until food1 >= 95; hold 93 notify "Rest it"
+            name: Pork butt; pit 121C until food1 >= 74C for 30m; pit 135C until food1 >= 95C; hold 93C notify "Rest it"
             {%- else -%}
-            name: Pork butt; pit 250 until food1 >= 165 for 30m; pit 275 until food1 >= 203; hold 200 notify "Rest it"
+            name: Pork butt; pit 250F until food1 >= 165F for 30m; pit 275F until food1 >= 203F; hold 200F notify "Rest it"
             {%- endif %}
             Current time: {{ now().strftime('%a %H:%M') }}. Outdoor: {{ state_attr('weather.forecast_home', 'temperature') }}{{ wx_t }},
             wind {{ state_attr('weather.forecast_home', 'wind_speed') }} {{ wx_w }}.
@@ -805,7 +806,9 @@ script:
           - action: script.smoker_notify
             data:
               title: AI plan not loaded
-              message: "The AI's program wasn't loaded: {{ refused }}. Program: {{ (program | string)[:300] }}"
+              # (Not the program itself when it was refused for a link: the link would reach the phone.)
+              message: >
+                The AI's program wasn't loaded: {{ refused }}.{{ '' if 'link' in refused else ' Program: ' ~ (program | string)[:300] }}
               priority: 0
               tag: plan
           - stop: The AI's program was refused
@@ -884,7 +887,8 @@ script:
       - action: script.smoker_notify
         data:
           title: "Cook plan ready: check the program"
-          message: "Program: {{ program }}\n\n{{ explanation }}"
+          # Through the controller's check, what it loaded (its own rewrite: capped, Turbo left out), not the AI's text.
+          message: "Program: {{ (states('text.smoker_program') | string | replace('\n', '; ')) if via_controller else program }}\n\n{{ explanation }}"
           priority: 0
           tag: plan
           actions:
@@ -1000,12 +1004,12 @@ script:
       - variables:
           summary: >
             {{ ((advice.data.summary | default('') or '') | string
-                | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*', '') | trim)[:250] }}
+                | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*|(?<![\\w.-])(?=[a-z0-9-]{2,}\\.)[a-z0-9-]*[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|io|co|uk|us|ca|au|de|fr|nl|eu|info|biz|app|dev|shop|store|site|online|xyz|me|tv|ly|gl|ai|link|click|top|gg|to|be|tk|ru|cn|in)(?![a-z0-9-])\\S*|(?<![\\w.-])[a-z0-9-]*[a-z][a-z0-9-]*\\.[a-z]{2,}/\\S*', '') | trim)[:250] }}
           suggestion: >
             {{ ((advice.data.suggestion | default('') or '') | string
-                | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*', '') | trim)[:250] }}
+                | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*|(?<![\\w.-])(?=[a-z0-9-]{2,}\\.)[a-z0-9-]*[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|io|co|uk|us|ca|au|de|fr|nl|eu|info|biz|app|dev|shop|store|site|online|xyz|me|tv|ly|gl|ai|link|click|top|gg|to|be|tk|ru|cn|in)(?![a-z0-9-])\\S*|(?<![\\w.-])[a-z0-9-]*[a-z][a-z0-9-]*\\.[a-z]{2,}/\\S*', '') | trim)[:250] }}
           items: >
-            {% set rx = '(?i)(https?:|www\\.)\\S*|\\S*://\\S*' %}
+            {% set rx = '(?i)(https?:|www\\.)\\S*|\\S*://\\S*|(?<![\\w.-])(?=[a-z0-9-]{2,}\\.)[a-z0-9-]*[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|io|co|uk|us|ca|au|de|fr|nl|eu|info|biz|app|dev|shop|store|site|online|xyz|me|tv|ly|gl|ai|link|click|top|gg|to|be|tk|ru|cn|in)(?![a-z0-9-])\\S*|(?<![\\w.-])[a-z0-9-]*[a-z][a-z0-9-]*\\.[a-z]{2,}/\\S*' %}
             {% set out = namespace(l=[]) %}
             {% for line in (advice.data.recommendations | default('') | string).split('\n') if '|' in line %}
               {% set p = line | regex_replace(rx, '') %}
@@ -1812,7 +1816,7 @@ automation:
               began: "{{ as_local(as_datetime(ev.start)).strftime('%a %-I:%M %p') }}"
               # The event's name, cut short and without links (anyone who can add to the calendar writes it).
               what: >
-                {{ ((ev.summary | default('') | string) | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*', '')
+                {{ ((ev.summary | default('') | string) | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*|(?<![\\w.-])(?=[a-z0-9-]{2,}\\.)[a-z0-9-]*[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|io|co|uk|us|ca|au|de|fr|nl|eu|info|biz|app|dev|shop|store|site|online|xyz|me|tv|ly|gl|ai|link|click|top|gg|to|be|tk|ru|cn|in)(?![a-z0-9-])\\S*|(?<![\\w.-])[a-z0-9-]*[a-z][a-z0-9-]*\\.[a-z]{2,}/\\S*', '')
                    | regex_replace('\\s+', ' ') | trim)[:60] }}
           - if: >
               {{ cur in ['unknown', ''] or as_datetime(cur) is none or
@@ -1907,7 +1911,7 @@ automation:
               # Links taken out of the AI's words before they reach the dashboard and your phone.
               said: >
                 {{ ((review.data | default('') or '') | string
-                    | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*', '') | trim)[:1000] }}
+                    | regex_replace('(?i)(https?:|www\\.)\\S*|\\S*://\\S*|(?<![\\w.-])(?=[a-z0-9-]{2,}\\.)[a-z0-9-]*[a-z][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|io|co|uk|us|ca|au|de|fr|nl|eu|info|biz|app|dev|shop|store|site|online|xyz|me|tv|ly|gl|ai|link|click|top|gg|to|be|tk|ru|cn|in)(?![a-z0-9-])\\S*|(?<![\\w.-])[a-z0-9-]*[a-z][a-z0-9-]*\\.[a-z]{2,}/\\S*', '') | trim)[:1000] }}
           - action: input_text.set_value
             target: {entity_id: input_text.smoker_ai_last_cook}
             data: {value: "{{ (said | string)[:250] }}"}

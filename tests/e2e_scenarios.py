@@ -16,6 +16,7 @@
 import asyncio
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -393,6 +394,20 @@ async def main():
             r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off until food1 >= 195; hold 200")
             check("ok=1" in r and "pit 225 until food1 >= 195" in r,
                   f"a `turbo off until` step after a sear goes back to the program's own pit ({r[-200:]!r})")
+            def steps_of(r):
+                m = re.search(r"fixed=\[(.*?)\] note=", r, re.S)
+                return [x.strip() for x in m.group(1).split("|") if x.strip()] if m else []
+            r = await fit_result('pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off notify "sear done" until food1 >= 195; hold 200')
+            st = steps_of(r)
+            check("ok=1" in r and len(st) >= 3 and st[2].startswith("pit 225"),
+                  f"a `turbo off notify` step after a sear goes back to the program's own pit ({st!r})")
+            r = await fit_result('pit 225 until food1 >= 115; turbo on until pit >= 300; notify "flip it" until food1 >= 195; hold 200')
+            st = steps_of(r)
+            check("ok=1" in r and len(st) >= 3 and st[2].startswith("pit 225"),
+                  f"any step after a sear without a pit of its own goes back to the program's own pit ({st!r})")
+            r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off")
+            st = steps_of(r)
+            check("ok=1" in r and st and st[-1] == "pit 225", f"a sear as the last step ends back at the program's own pit ({st!r})")
             r = await fit_result("pit 225 until food1 >= 115; turbo on until pit >= 300; turbo off; hold 200")
             check("ok=1" in r and "turbo" not in r.split("note=")[0].lower() and "Turbo left out" in r,
                   f"Turbo taken out of an AI plan leaves a program the controller can read ({r[-160:]!r})")

@@ -99,6 +99,10 @@ jobs:
   firmware-build:
     needs: versions
     runs-on: ubuntu-latest
+    # The sha256 of every file it hands to the signing job, as a job output (another job can't rewrite this job's
+    # outputs, but it could replace an artifact): `firmware` checks them before it signs anything.
+    outputs:
+      sums: ${{ steps.sums.outputs.sums }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -108,8 +112,11 @@ jobs:
           python-version: "3.13"
       # Its own cache, never shared with firmware-tests (which runs third-party test tools): a cache that job saved
       # can't end up in the published firmware. Restored and saved separately so it's saved only after a good build.
-      - name: Restore the ESPHome toolchain cache (this job's own)
+      # A release build (the default branch) uses no cache at all: any job running on the default branch could have
+      # written one under this name first, and the release is signed with the real key.
+      - name: Restore the ESPHome toolchain cache (this job's own; not for a release)
         id: fwcache
+        if: env.IS_DEFAULT != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/esphome
@@ -130,13 +137,21 @@ jobs:
           trap 'rm -f signing_key.pem' EXIT
           esphome compile gravity980-bridge.yaml
       - name: Save the ESPHome toolchain cache
-        if: steps.fwcache.outputs.cache-hit != 'true'
+        if: env.IS_DEFAULT != 'true' && steps.fwcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/esphome
           key: esphome-release-${{ env.ESPHOME_VERSION }}-${{ runner.os }}-${{ hashFiles('.github/requirements/firmware.txt') }}
       - name: Validate the controller without Home Assistant (base.yaml alone, no API)
         run: esphome config tests/configs/no-ha.yaml
+      - name: Fingerprints of the files for the signing job
+        id: sums
+        working-directory: firmware/.esphome/build/gravity980/build
+        run: |
+          sums=$(sha256sum gravity980-unsigned.bin bootloader/bootloader.bin partition_table/partition-table.bin \
+                 ota_data_initial.bin flasher_args.json | awk '{print $1 ":" $2}' | tr '\n' ' ')
+          echo "sums=$sums" >> "$GITHUB_OUTPUT"
+          echo "$sums"
       - name: Upload the unsigned app and the flash parts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -154,6 +169,10 @@ jobs:
   firmware:
     needs: firmware-build
     runs-on: ubuntu-latest
+    # Fingerprints of what it publishes (the signed images, and the Pages bundle), checked by release and deploy.
+    outputs:
+      bins: ${{ steps.pubsums.outputs.bins }}
+      site: ${{ steps.pubsums.outputs.site }}
     # The firmware signing key (OTA_SIGNING_KEY) is in the release-signing environment, which only the default branch
     # can use. Every other build is signed with a throwaway key made for that run (never published).
     environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' && 'release-signing' || 'unsigned-build' }}
@@ -179,6 +198,21 @@ jobs:
         with:
           name: firmware-unsigned
           path: build
+      # The files are the ones firmware-build made (its job output): nothing else gets signed.
+      - name: Check the fingerprints before signing
+        env:
+          SUMS: ${{ needs.firmware-build.outputs.sums }}
+        run: |
+          [ -n "$SUMS" ] || { echo "::error::firmware-build gave no fingerprints"; exit 1; }
+          n=0
+          for e in $SUMS; do
+            want="${e%%:*}"; f="${e#*:}"
+            got=$(sha256sum "build/$f" | cut -d' ' -f1) || { echo "::error::missing build/$f"; exit 1; }
+            [ "$got" = "$want" ] || { echo "::error::build/$f isn't the file firmware-build made"; exit 1; }
+            n=$((n + 1))
+          done
+          [ "$n" = 5 ] || { echo "::error::expected 5 fingerprints, got $n"; exit 1; }
+          echo "all $n files match"
       # Released firmware is signed, and controllers only accept updates signed with the same key
       # (firmware/gravity980-bridge.yaml, signed_ota_verification). The key exists only for this step.
       - name: Sign the app
@@ -219,6 +253,14 @@ jobs:
         with:
           name: firmware
           path: _site/firmware/*.bin
+      - name: Fingerprints of what's published
+        id: pubsums
+        run: |
+          bins=$(cd _site/firmware && sha256sum *.bin | awk '{print $1 ":" $2}' | tr '\n' ' ')
+          echo "bins=$bins" >> "$GITHUB_OUTPUT"
+          if [ -f "$RUNNER_TEMP/artifact.tar" ]; then
+            echo "site=$(sha256sum "$RUNNER_TEMP/artifact.tar" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          fi
 
   # Provenance for the published firmware, on the default branch only (the only job besides release that can mint
   # an OIDC token for attestations).
@@ -299,10 +341,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.13"
-      - name: Install Home Assistant and Playwright
+          python-version: "3.14"   # (Home Assistant 2026.11, as owners run it, needs 3.14)
+      - name: Install Home Assistant and Playwright (hash-pinned, .github/requirements/ha-tests.txt)
         run: |
-          pip install "homeassistant==2026.2.3" "home-assistant-frontend==20260128.6" "colorlog==6.10.1" "hassil==3.5.0" "home-assistant-intents==2026.1.28" "playwright==1.65.2"
+          python -m pip install --require-hashes -r .github/requirements/ha-tests.txt
           python -m playwright install --with-deps chromium
       - name: Check the HA package and integration load
         run: python3 tests/ha_check.py
@@ -327,8 +369,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - name: Install the Home Assistant test framework
-        run: pip install -r tests/requirements-integration.txt
+      - name: Install the Home Assistant test framework (hash-pinned, .github/requirements/integration-tests.txt)
+        run: python -m pip install --require-hashes -r .github/requirements/integration-tests.txt
       - name: Integration tests (journal, photo identification, voice)
         run: python -m pytest -q
 
@@ -346,6 +388,18 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The Pages bundle is the one the signing job made (its fingerprint, a job output), not a replacement.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: github-pages
+          path: pages
+      - name: Check the Pages bundle's fingerprint
+        env:
+          WANT: ${{ needs.firmware.outputs.site }}
+        run: |
+          [ -n "$WANT" ] || { echo "::error::the firmware job gave no fingerprint for the Pages bundle"; exit 1; }
+          got=$(sha256sum pages/artifact.tar | cut -d' ' -f1)
+          [ "$got" = "$WANT" ] || { echo "::error::the Pages bundle isn't the one the firmware job made"; exit 1; }
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
@@ -368,6 +422,18 @@ jobs:
         with:
           name: firmware
           path: firmware-bin
+      # The images are the ones the signing job made (its job output), not replacements.
+      - name: Check the firmware's fingerprints
+        env:
+          SUMS: ${{ needs.firmware.outputs.bins }}
+        run: |
+          [ -n "$SUMS" ] || { echo "::error::the firmware job gave no fingerprints"; exit 1; }
+          for e in $SUMS; do
+            want="${e%%:*}"; f="${e#*:}"
+            got=$(sha256sum "firmware-bin/$f" | cut -d' ' -f1) || { echo "::error::missing firmware-bin/$f"; exit 1; }
+            [ "$got" = "$want" ] || { echo "::error::firmware-bin/$f isn't the image the firmware job signed"; exit 1; }
+          done
+          [ "$(ls firmware-bin/*.bin | wc -l)" = "$(echo $SUMS | wc -w)" ] || { echo "::error::unexpected files"; exit 1; }
       - name: Create the release for VERSION if it doesn't exist
         id: rel
         env:

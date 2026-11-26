@@ -26,7 +26,7 @@ from a Govee H5198 nearby, or from Home Assistant.
 | Journal | Every cook saved with ratings, notes, photos read by AI, curve comparison, sharing |
 | Pages | The controller's own page (works without Home Assistant or the internet, optional PIN for changes) and the Home Assistant dashboard; Basic and Advanced modes |
 | Voice | Assist: "when is the brisket done?", "set the smoker to 275" |
-| Updates | Signed over-the-air updates from this project's releases, optionally automatic while idle; a new firmware that crashes or can't stay on the network rolls itself back; web installer for the first flash |
+| Updates | Signed over-the-air updates from this project's releases, optionally automatic while idle; a new firmware that crashes before it has held its Wi-Fi for a minute, or can't reach the network, rolls itself back; web installer for the first flash |
 
 Details: [features-0.2.md](features-0.2.md), [cook-programs.md](cook-programs.md), [standalone.md](standalone.md).
 

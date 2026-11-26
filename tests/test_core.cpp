@@ -14,6 +14,7 @@
 #include "../components/cook_assistant/program.h"
 #include "../components/standalone/local_url.h"
 #include "../components/standalone/ai_photo.h"
+#include "../components/cook_assistant/links.h"
 #include "../components/gravity980/protocol.h"
 #include "../components/standalone/pin_auth.h"
 
@@ -1111,6 +1112,12 @@ static void test_pin_auth() {
     for (int k = 0; k < 50; k++) e.login("999999", "192.168.1." + std::to_string(k / 3));
     CHECK(e.locked_for("192.168.1.250") > 0);               // anyone else waits
     CHECK(e.locked_for("10.0.0.5") == 0 && e.login("482913", "10.0.0.5").size() == 64);
+    // ...and after a restart too: the controller keeps that address and gives it back (Guard::set_trusted).
+    Guard f([&](uint8_t *b, size_t n) { for (size_t i = 0; i < n; i++) b[i] = sd++; }, [&]() { return c; });
+    f.load(e.stored());
+    f.set_trusted(e.trusted());
+    for (int k = 0; k < 50; k++) f.login("999999", "192.168.1." + std::to_string(k / 3));
+    CHECK(e.trusted() == "10.0.0.5" && f.locked_for("192.168.1.250") > 0 && f.locked_for("10.0.0.5") == 0);
   }
 
   // Home Assistant sets or replaces the PIN whenever (no window, no current PIN), with the same rules; every session
@@ -1192,12 +1199,27 @@ static void test_ai_photo() {
         ai_photo::from_request("{\"image\":\"abc").empty());
   std::string req = std::string("{\"data\":\"") + ai_photo::SLOT + "\",\"text\":\"What is in this photo?\"}";
   CHECK(ai_photo::put(req, photo) && req == "{\"data\":\"" + photo + "\",\"text\":\"What is in this photo?\"}");
+  CHECK(ai_photo::is_base64("QUJD") && ai_photo::is_base64("QUI=") && ai_photo::is_base64("QQ==") && ai_photo::is_base64(std::string(400, 'A')));
+  CHECK(!ai_photo::is_base64("") && !ai_photo::is_base64("QUJ") && !ai_photo::is_base64("Q===") && !ai_photo::is_base64("QU=D") &&
+        !ai_photo::is_base64("QUJ\"") && !ai_photo::is_base64("QU\\D") && !ai_photo::is_base64("QU D"));
   std::string none = "{}";
   CHECK(!ai_photo::put(none, photo) && none == "{}");
 }
 
+// An AI program's notifications go to the phone: no links in them, bare domains included.
+static void test_links() {
+  std::printf("links in an AI program's text\n");
+  for (const char *t : {"see https://x.test", "http:x", "ftp://a", "www.example", "example.co/x", "go to Example.com.",
+                        "smoke.shop", "my-site.co.uk/path"})
+    CHECK(links::has_link(t));
+  for (const char *t : {"Pork is done - rest it", "pit 225 until food1 >= 195", "2.5h on the grill", "225.0F", "e.g. wrap it",
+                        "U.S. units", "Rest 1.5 h.", "a.m.", "Wrap at 165F.Then hold", "v2.0 plan"})
+    CHECK(!links::has_link(t));
+}
+
 int main() {
   test_local_url();
+  test_links();
   test_ai_photo();
   test_pin_auth();
   test_protocol();

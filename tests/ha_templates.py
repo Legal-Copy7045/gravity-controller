@@ -29,7 +29,6 @@ Loader.add_constructor("!include_dir_named", lambda l, n: {})
 async def main():
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.template import Template
-    from homeassistant.helpers import template as tmod
 
     d = tempfile.mkdtemp()
     hass = HomeAssistant(d)
@@ -154,7 +153,12 @@ async def main():
                       # Turbo (the fan flat out) would take the pit past the cap: never in an AI plan.
                       ("pit 225 turbo on until after 10h; turbo off; hold 225", "Turbo"),
                       ('pit 225 notify "x"turbo on until after 1h', "Turbo"),
-                      ('pit 225 notify "turbo is fun" until after 1h', "")]:
+                      ('pit 225 notify "turbo is fun" until after 1h', ""),
+                      # A bare domain is a link too (phones make it tappable); 2.5h, 225.0F or e.g. aren't.
+                      ('pit 250 notify "see example.co/x"', "link"), ('pit 250 notify "order at smoke.shop"', "link"),
+                      ('pit 250F notify "e.g. wrap at 2.5h, about 225.0F"', ""),
+                      # The units the AI is now asked to write (the controller reads them).
+                      ("name: Pork butt; pit 250F until food1 >= 165F for 30m; hold 200F", ""), ("pit 401F", "above")]:
         got = str(render(pv, program=prog, explanation="Fine.", max_pit=400.0) or "")
         check((bad in got) if bad else got == "", f"plan check {prog!r} -> {got!r}")
     # Keep steps: only through the controller's own check (keep_ok), which limits the pit they ask for.

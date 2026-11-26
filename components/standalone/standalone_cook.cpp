@@ -584,10 +584,16 @@ void Standalone::put_on_reminders_(uint32_t t) {
     // first slot, with its longest estimate.
     float est = p->estimated_total->state;
     const std::string food = p->food();
+    // (Names match whatever their case, as on the pages and in the package: "Turkey" and "turkey" are one food.)
+    auto lower = [](std::string t) {
+      for (auto &c : t) c = char(std::tolower(static_cast<unsigned char>(c)));
+      return t;
+    };
+    const std::string food_l = lower(food);
     bool later = false;
     for (size_t j = 0; !food.empty() && j < ps.size() && j < 8; j++) {
       auto *q = ps[j];
-      if (j == i || q->food() != food || q->estimated_total == nullptr || !q->estimated_total->has_state() ||
+      if (j == i || lower(q->food()) != food_l || q->estimated_total == nullptr || !q->estimated_total->has_state() ||
           std::isnan(q->estimated_total->state) || q->weight == nullptr || !q->weight->has_state() || !(q->weight->state > 0))
         continue;
       if (j < i) { later = true; break; }

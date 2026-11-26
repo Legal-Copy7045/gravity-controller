@@ -393,6 +393,14 @@ void Standalone::setup() {
       resave = true;
     }
   }
+  this->trusted_pref_ = global_preferences->make_preference<TrustedIp>(fnv1_hash("standalone_trusted_v1"), true);
+  {
+    TrustedIp tip{};
+    if (this->guard_->pin_set() && this->trusted_pref_.load(&tip)) {
+      tip.ip[sizeof(tip.ip) - 1] = 0;
+      this->guard_->set_trusted(tip.ip);
+    }
+  }
   this->sess_gen_ = this->guard_->generation() - (resave ? 1 : 0);
 #ifdef USE_ESP32
   // The first PIN's window opens on power-up (or a reset by hand), not on a software restart: with no PIN set,
@@ -507,6 +515,9 @@ void Standalone::loop() {
         ss.epoch_expires[ss.n++] = v.epoch_expires;
       }
       this->sess_pref_.save(&ss);
+      TrustedIp tip{};  // (the address that last unlocked: see Guard::trusted)
+      std::strncpy(tip.ip, this->guard_->trusted().c_str(), sizeof(tip.ip) - 1);
+      this->trusted_pref_.save(&tip);
       this->sess_saved_at_ = ss.n ? (now ? now : 1) : 0;  // nothing live: no more saves until the next login
     }
   }
@@ -1160,6 +1171,13 @@ std::string Standalone::status_json_(bool authed) {
       o["lon"] = this->s_.lon;
     }
     o["tz"] = this->s_.tz_set != 0;
+#ifdef USE_TEXT
+    if (authed || !this->req_pin_) {
+      // Your grill photo's address (masked on the open event stream: it opens the photo without a login).
+      for (auto *t : App.get_texts())
+        if (t->get_name() == "Grill photo URL" && t->has_state() && !t->state.empty()) o["photo"] = t->state;
+    }
+#endif
     {
       float est = NAN;
       uint32_t t = ::time(nullptr) > 1700000000 ? uint32_t(::time(nullptr)) : 0;
@@ -1268,6 +1286,7 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   if (path == "ai/label") {
     // {"image": "<base64>"}: a photo is too long a string for the JSON library (64 KB), so it's read here by hand.
     this->ai_label_image_ = ai_photo::from_request(body);
+    this->ai_req_authed_ = authed;  // (this request's own: a locked page counts against its 5 a day, and gets no notes)
     JsonDocument none;
     return this->api_ai_(path, none, status);
   }

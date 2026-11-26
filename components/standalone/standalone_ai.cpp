@@ -415,6 +415,9 @@ std::string Standalone::ai_json_() {
     o["error"] = this->ai_error_;
     o["load"] = this->ai_load_;  // "" (not yet), "loaded", or why it wasn't
     o["test"] = this->ai_test_;
+    // The latest plan was asked from a page without the PIN (anyone on the Wi-Fi can ask): pages don't open it in the
+    // step editor on their own, and say who asked.
+    o["plan_locked"] = !this->ai_plan_.empty() && !this->ai_plan_private_;
   }).c_str();
   out.pop_back();
   auto add = [&](const char *k, const std::string &v) { if (!v.empty()) out += std::string(",\"") + k + "\":" + v; };
@@ -485,8 +488,7 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     std::string img = this->ai_label_image_;  // read from the raw request: the JSON library stops at 64 KB strings
     this->ai_label_image_.clear();
     if (img.size() < 100 || img.size() > 380000) return err(400, "Send one photo (the page shrinks it first)");
-    for (size_t i = 0; i < img.size(); i += 97)  // a cheap check that it's base64
-      if (!(isalnum(img[i]) || img[i] == '+' || img[i] == '/' || img[i] == '=')) return err(400, "Not a photo");
+    if (!ai_photo::is_base64(img)) return err(400, "Not a photo");
     if (!this->ai_ask_("label",
                        std::string("You read meat and fish package labels for a smoker cook. Identify every distinct "
                                    "item. Reply ONLY with a JSON object: {\"items\": [{\"name\": short description, "

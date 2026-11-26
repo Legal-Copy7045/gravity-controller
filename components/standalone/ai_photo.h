@@ -22,6 +22,23 @@ inline std::string from_request(const std::string &body) {
   return body.substr(k + 1, e - k - 1);
 }
 
+// A photo's base64 as the page sends it: only A-Z a-z 0-9 + / and = padding at the end, a whole number of 4-character
+// groups. Checked in full (a single pass over at most ~380 KB), so nothing else ever reaches the provider's request.
+inline bool is_base64(const std::string &b64) {
+  if (b64.empty() || b64.size() % 4 != 0) return false;
+  size_t pad = 0;
+  for (size_t i = 0; i < b64.size(); i++) {
+    const char c = b64[i];
+    if (c == '=') {
+      if (++pad > 2) return false;
+      continue;
+    }
+    if (pad) return false;  // '=' only at the end
+    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/')) return false;
+  }
+  return true;
+}
+
 // Puts the photo where SLOT is in a built request; false if there's no SLOT.
 inline bool put(std::string &request, const std::string &b64) {
   const size_t at = request.find(SLOT);

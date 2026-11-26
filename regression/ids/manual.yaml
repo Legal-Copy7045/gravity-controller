@@ -1,6 +1,6 @@
 # Stable check IDs for the manual stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: MAN-011
+# highest issued: MAN-012
 MAN-001: "power cut at the grill (unlit)"
 MAN-002: "controller power cut during a cook"
 MAN-003: "OTA rollback of a bad image"
@@ -12,3 +12,4 @@ MAN-008: "automatic update while idle"
 MAN-009: "connectivity watchdog"
 MAN-010: "reading a package label on the device page"
 MAN-011: "one food with several probes on the real grill"
+MAN-012: "signing environment limited to main"

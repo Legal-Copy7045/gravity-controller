@@ -1,6 +1,6 @@
 # Stable check IDs for the device stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: DEV-190
+# highest issued: DEV-191
 DEV-001: "food 1 has a reading"
 DEV-002: "1440px › hero shows the pit temperature"
 DEV-003: "1440px › grill drawing rendered"
@@ -190,3 +190,4 @@ DEV-187: "1440px › one Turkey with both probes listed under it"
 DEV-188: "1440px › Remove takes a probe out of the food"
 DEV-189: "1440px › Remove this food clears it"
 DEV-190: "1440px › and the list is empty again"
+DEV-191: "PIN › Setup has Back to the cook at its foot too"

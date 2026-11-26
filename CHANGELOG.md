@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.5.0] - 2026-11-26
+
+Everything the first full check (regression, three security reviews, the desktop and phone walkthrough) found.
+
+**Fixes**
+- An AI plan's sear: every step after it that sets no pit of its own goes back to the program's own pit (a `turbo off`
+  with a notification, or one dropped as the last step, left the pit at the AI max pit).
+- A keep-warm program restored after a restart ends with the cook even if Pause, Resume or Skip were pressed while the
+  controller was deciding whether to resume.
+- Plan with AI asks for the unit on every temperature (`250F`), so a °C controller with a US-units Home Assistant (or
+  the other way round) gets the plan it was meant to; the "plan ready" notification shows what the controller loaded.
+- Food names group the same way everywhere (case doesn't matter on the controller either).
+
+**Security** (none was critical or high; docs/security.md)
+- The release build checks the fingerprints of what it signs and publishes (the signed images and the web installer
+  can only be what the build made), uses no build cache, and every job's Python packages are hash-locked.
+- A label photo from a locked page counts against its 5 questions a day; photos are checked character by character.
+- "No links" in an AI's program also catches bare web addresses (example.co/x); a refused plan's notification doesn't
+  repeat the link.
+- Your grill photo's address goes only to an unlocked page (it opens the photo without a Home Assistant login).
+- An AI plan asked from a page without the PIN no longer opens itself in your step editor; it says who asked.
+- The PIN lockout remembers your own device across a restart.
+
+**Both dashboards**
+- The "Now" section is gone: cook time and the weather are in the header. The menu says Temperatures, like the
+  section; the hopper card, the AI cards ("Second opinion", "Recommendations") and "Save notes" have the same names on
+  both pages; one "Ask now".
+- Food cards show the probe, cut and weight with Change, which opens the food in Cook > What's cooking (one place to
+  set them). A probe that's reading can join a food that's already there ("Add to Turkey"). One "Read a label" button.
+- Cook reads 1, 2, 3; "Load and start" when nothing is running; the serve time saves as soon as you set it.
+- The journal shows the last three cooks; "How was it?" opens only on the newest one not yet rated; notes in a proper
+  box; bigger stars; "Don't share" instead of a second "Not this one". Sharing settings are in Setup on both pages.
+- Setup: "Back to the cook" at the bottom too; a switch row toggles from anywhere on the row; in Basic, settings for
+  features Basic hides are under "More settings".
+- Phones: fields don't zoom the page; bigger buttons (food targets, timer, section bar); the chart's range under its
+  heading and a tap-and-drag readout of the chart; charcoal logging as buttons; the food temperatures under the pit
+  target; number keypads where they fit.
+
 ## [1.4.10] - 2026-11-26
 
 *What's cooking* lists your food, not the controller's six food slots, and one food can have several probes.
