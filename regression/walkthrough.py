@@ -170,6 +170,8 @@ def ha_harness(out):
     import base64
     html = rp.HARNESS.replace("%STATES%", json.dumps(rp.STATES)).replace("%PHOTO%", base64.b64encode(rp.tiny_png()).decode()) \
         .replace("%PAGE%", json.dumps(rp.build_page()).replace("</", "<\\/"))
+    # (A phone lays a page out at 980 px without this: the harness is the top page, the dashboard its frame.)
+    html = html.replace("<html>", '<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>', 1)
     p = out / "ha-harness.html"
     p.write_text(html)
     return p

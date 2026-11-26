@@ -1,6 +1,6 @@
 # Stable check IDs for the ci stage (regression/run.py). Append-only: never renumber or reuse
 # an ID. Renamed a check? Edit its key here to keep its ID. A key no longer produced shows as skipped.
-# highest issued: CI-017
+# highest issued: CI-018
 CI-001: "versions agree (VERSION, manifest, firmware, CHANGELOG)"
 CI-002: "brand files in sync"
 CI-003: "privacy guard (commits and files)"
@@ -18,3 +18,4 @@ CI-014: "no pull_request_target"
 CI-015: "no keys or secrets tracked"
 CI-016: "regression out ignored"
 CI-017: "shared block food list"
+CI-018: "regression tooling tests (stage selection, walkthrough checks, both reports)"

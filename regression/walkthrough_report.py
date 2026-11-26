@@ -66,17 +66,21 @@ def grouped(findings):
     return by
 
 
-CSS = """<style>
-.wt{--bg:#f7f5f2;--card:#fff;--ink:#1d1f23;--mute:#62666d;--line:#e2ddd6;--bad:#c2410c;--ok:#15803d;--acc:#ea6a1f;
-  font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink);background:var(--bg);padding:20px 16px;max-width:1100px;margin:0 auto}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .wt{--bg:#14171b;--card:#1c2026;--ink:#e8e6e3;--mute:#9aa0a8;--line:#2c3138}}
-:root[data-theme="dark"] .wt{--bg:#14171b;--card:#1c2026;--ink:#e8e6e3;--mute:#9aa0a8;--line:#2c3138}
-body{background:#f7f5f2}@media (prefers-color-scheme:dark){body{background:#14171b}}
-.wt h1{font-size:24px;margin:0 0 4px}.wt h2{font-size:19px;margin:28px 0 10px}.wt h3{font-size:16px;margin:0 0 6px}
-.wt .mute{color:var(--mute)}.wt .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:10px 0}
+CSS = """<title>Smoker walkthrough</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* One reading column: summary tiles, findings grouped by kind, then the checks and the crawl. */
+:root{--bg:#f6f4f1;--card:#fffdfa;--ink:#1f2226;--mute:#62666d;--line:#e3ddd5;--bad:#b4411a;--ok:#2f7d4a;--acc:#c8571f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--card:#1d2127;--ink:#e9e6e2;--mute:#9aa1a9;--line:#2d333a;--bad:#f08a5d;--ok:#6cc58a;--acc:#f0884f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#15181c;--card:#1d2127;--ink:#e9e6e2;--mute:#9aa1a9;--line:#2d333a;--bad:#f08a5d;--ok:#6cc58a;--acc:#f0884f;color-scheme:dark}
+body{background:var(--bg);color:var(--ink)}
+.wt{font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;max-width:1100px;margin:0 auto;padding-block:20px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wt h1{font-size:24px;margin:0 0 4px;text-wrap:balance}.wt h2{font-size:19px;margin:28px 0 10px}.wt h3{font-size:16px;margin:0 0 6px}
+.wt .mute{color:var(--mute)}.wt .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0;min-width:0}
 .wt .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}
-.wt .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}.wt .kpi b{font-size:22px;display:block}
-.wt .tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:12px;margin-right:4px}
+.wt .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}.wt .kpi b{font-size:22px;display:block;font-variant-numeric:tabular-nums;color:var(--acc)}
+.wt .tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:12px;margin:0 4px 4px 0;color:var(--mute)}
 .wt dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 10px;margin:8px 0}.wt dt{color:var(--mute)}.wt dd{margin:0}
 .wt img{max-width:100%;border:1px solid var(--line);border-radius:8px}.wt .shots{display:flex;gap:8px;flex-wrap:wrap}.wt .shots img{max-width:240px}
 .wt table{border-collapse:collapse;width:100%;font-size:13px}.wt td,.wt th{border-top:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}

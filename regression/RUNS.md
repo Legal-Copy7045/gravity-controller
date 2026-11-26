@@ -3,6 +3,17 @@
 One entry per full run (newest first): version, totals, failing check IDs, finding IDs, report link.
 No real names, hosts or device ids: this file is public.
 
+## 2026-11-26 — 1.4.10 (/full-check, commit 110b112)
+
+- Totals: 652 pass, 1 fail, 11 manual, 2 skip in the regression stages (+ walkthrough: 120 pass, 18 fail).
+- Stages: ci 18, quality 12 (+1 fail), core 13, firmware 15 (+1 skip), sim 119, device 188 (+1 skip), page 36,
+  integration 37, package 104, live 8, manual 11. About 10 min locally with the compile and the walkthrough side by side.
+- Failing checks: QA-001 (four unused imports in test code); walkthrough WT-002, 015, 019, 034, 040, 046, 049, 053, 060,
+  066, 070, 087, 103, 109, 115, 122, 130, 136 (menu labels vs headings, phone tap targets).
+- Findings: BUG-001..003 (medium), BUG-004..005 (low); SEC-002 (medium), SEC-001/003/004 (low), SEC-005..011 (info);
+  LAN-001..002 (low), LAN-003..006 (info). No critical or high.
+- Report: https://claude.ai/artifact/UKnpszxrSkYicHpQvX7i5M (private). Walkthrough: see WALKTHROUGHS.md.
+
 ## 2026-11-25 — 1.4.8 (reviews on 1.4.4)
 
 - Totals: 515 pass, 0 fail, 9 manual, 2 skip (the firmware compiles: done by the release build).
