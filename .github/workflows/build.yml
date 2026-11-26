@@ -344,7 +344,11 @@ jobs:
           python-version: "3.14"   # (Home Assistant 2026.11, as owners run it, needs 3.14)
       - name: Install Home Assistant and Playwright (hash-pinned, .github/requirements/ha-tests.txt)
         run: |
-          python -m pip install --require-hashes -r .github/requirements/ha-tests.txt
+          # (Home Assistant 2026.11 runs only in a virtual environment or a container)
+          python -m venv "$RUNNER_TEMP/ha"
+          echo "$RUNNER_TEMP/ha/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ha/bin/python" -m pip install --require-hashes -r .github/requirements/ha-tests.txt
+          export PATH="$RUNNER_TEMP/ha/bin:$PATH"
           python -m playwright install --with-deps chromium
       - name: Check the HA package and integration load
         run: python3 tests/ha_check.py
