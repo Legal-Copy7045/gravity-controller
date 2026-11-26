@@ -73,6 +73,7 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, hass_client_no_aut
     # Controller entities the draft assignment will set.
     hass.states.async_set("select.smoker_food_1_protein", "Auto", {"options": ["Auto", "Pork shoulder"]})
     hass.states.async_set("number.smoker_food_1_weight", "0", {"unit_of_measurement": "lb"})
+    hass.states.async_set("text.smoker_food_1_name", "", {"max": 32})
     calls = []
 
     async def record(call: ServiceCall):
@@ -80,6 +81,7 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, hass_client_no_aut
 
     hass.services.async_register("select", "select_option", record)
     hass.services.async_register("number", "set_value", record)
+    hass.services.async_register("text", "set_value", record)
 
     # Identify: AI task mocked; photos land in the media folder and the draft.
     seen = {}
@@ -142,6 +144,8 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, hass_client_no_aut
     await hass.async_block_till_done()
     assert ("select", "select_option", {"entity_id": "select.smoker_food_1_protein", "option": "Pork shoulder"}) in calls
     assert any(c[1] == "set_value" and c[2]["value"] == 8.5 for c in calls)
+    # ...and the food's name (controller 1.4.10+: slots with the same name are one food).
+    assert any(c[0] == "text" and c[2]["entity_id"] == "text.smoker_food_1_name" and c[2]["value"] for c in calls)
 
     # The controller reports a finished cook on food1: a journal entry with the pork, not the chicken.
     summary = {"probe": "food1", "name": "Food 1", "profile": "Pork shoulder", "weight_kg": 3.86, "wrapped": False,

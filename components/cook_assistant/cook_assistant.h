@@ -103,6 +103,17 @@ class CAText : public text::Text, public Component {
   std::function<void(const std::string &)> on_change_;
 };
 
+/// A short name kept across restarts: the food on a slot ("Turkey") and where in it the probe is ("breast").
+/// Several slots with the same food name are one food with several probes (docs/features.md).
+class CAName : public text::Text, public Component {
+ public:
+  void setup() override;
+
+ protected:
+  void control(const std::string &value) override;
+  ESPPreferenceObject pref_;
+};
+
 // ---- per probe ----
 
 /// One place a probe temperature can come from (a grill probe, a Bluetooth thermometer, a Home Assistant entity).
@@ -127,6 +138,13 @@ struct FoodProbe {
   CASelect *profile{nullptr};
   CANumber *weight{nullptr};
   CASwitch *wrapped{nullptr};
+  CAName *food_name{nullptr};  // "Turkey": slots with the same name are one food
+  CAName *spot{nullptr};       // "breast": where this probe is in it
+
+  /// How messages name it: "Turkey (breast)", "Turkey", or the slot's own name ("Food 1").
+  std::string label() const;
+  /// The food's name, or "" when none is set.
+  std::string food() const;
 
   sensor::Sensor *remaining{nullptr};
   sensor::Sensor *remaining_low{nullptr};

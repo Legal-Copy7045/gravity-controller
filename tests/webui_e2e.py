@@ -62,6 +62,13 @@ def tiny_png(w=40, h=29):
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
+def sval(domain, name):
+    try:
+        return str(get(f"/{domain}/{name}").get("value") or get(f"/{domain}/{name}").get("state") or "")
+    except Exception:
+        return None
+
+
 def value(domain, name):
     try:
         v = get(f"/{domain}/{name}")["value"]
@@ -212,7 +219,9 @@ def run_page(browser, width, height, shots):
     # The header has what the old Pit & program section had; that section and Plan are gone, Cook has their parts.
     check(pg.locator("[data-sect=pit], [data-sect=plan], #pitval, #secbar a[href='#s-plan']").count() == 0, "no Pit & program or Plan section")
     check(pg.evaluate("[...document.querySelectorAll('#secbar a')].map(a => a.textContent.trim()).includes('Cook')"), "Cook in the section bar")
-    check(pg.locator("#s-cook #cookfood .slot").count() >= 1 and "Food 1" in pg.inner_text("#cookfood"), "What's cooking lists the food slots")
+    check(pg.locator("#ckfoods [data-fa=add]").count() == 1, "What's cooking: an Add food button")
+    if width >= 1000:
+        foods_flow(pg)
     check(pg.locator("#s-cook #ctab-ai").count() == 1 and pg.locator("#s-cook #ctab-build").count() == 1, "Build the cook: Plan with AI and Build it yourself")
     check("When" in pg.inner_text("#plan") and "Serve by" in pg.inner_text("#plan"), "When: the serve-by time")
     check(pg.evaluate("!!document.getElementById('s-pit') && document.getElementById('s-pit').classList.contains('hero')"),
@@ -604,7 +613,8 @@ def pin_flow(browser):
     if pg.locator("#ailabel [data-a=aiassign]").count():
         pg.click("#ailabel [data-a=aiassign]")
         pg.wait_for_timeout(400)
-        check("Set on Food" in pg.inner_text("#toast"), "the label's cut and weight set on a Food slot")
+        check("Added" in pg.inner_text("#toast") and "pork butt" not in pg.inner_text("#ailabel"),
+              "Add puts the label's food on a free food slot")
     # With a PIN set, using the AI needs no unlocking; its set-up and loading a plan as the program do.
     def local_post(path, body):
         req = urllib.request.Request(BASE + path, method="POST", data=json.dumps(body).encode(),
@@ -660,6 +670,46 @@ async def main():
     await c.disconnect()
 asyncio.run(main())
 """
+
+
+def foods_flow(pg):
+    """What's cooking lists foods, not slots: add one, name it, put a second probe in it, then remove it."""
+    def until(cond, what, t=8):
+        ok = wait(cond, t, what)
+        check(ok, what)
+        if not ok:
+            print("    states:", {k: sval(*k.split(":")) for k in ("text:Food 2 name", "select:Food 2 protein", "number:Food 2 weight", "text:Food 1 name")},
+                  "| toast:", pg.inner_text("#toast"), "| foods:", pg.inner_text("#ckfoods")[:300].replace("\n", " / "))
+        return ok
+    def change(sel, v):
+        pg.fill(sel, str(v))
+        pg.dispatch_event(sel, "change")
+    pg.click("#ckfoods [data-fa=add]")
+    pg.wait_for_selector("#fdn-1", timeout=5000)
+    check(True, "Add food opens a new food on Food 1")
+    change("#fdn-1", "Turkey")
+    until(lambda: sval("text", "Food 1 name") == "Turkey", "the food's name goes to the controller (Food 1 name)")
+    pg.select_option("#ckfoods select[data-ff=prof]", "Poultry")
+    until(lambda: sval("select", "Food 1 protein") == "Poultry", "its cut too")
+    change("#fdw-1", "12")
+    until(lambda: (value("number", "Food 1 weight") or 0) == 12, "and its weight")
+    pg.click("#ckfoods [data-fa=addprobe]")
+    until(lambda: sval("text", "Food 2 name") == "Turkey" and sval("select", "Food 2 protein") == "Poultry"
+          and (value("number", "Food 2 weight") or 0) == 12, "Add another probe puts Food 2 in the same food (name, cut, weight)")
+    pg.wait_for_selector("#fds-2", timeout=5000)
+    change("#fds-2", "thigh")
+    until(lambda: sval("text", "Food 2 spot") == "thigh", "where the second probe is (Food 2 spot)")
+    pg.click("#ckfoods [data-fa=done]")
+    pg.wait_for_function("document.querySelectorAll('#ckfoods .fd:not(.fd-l)').length === 1 && document.querySelector('#ckfoods').innerText.includes('thigh')", timeout=5000)
+    check(pg.inner_text("#ckfoods").count("Turkey") == 1, "one Turkey with both probes listed under it")
+    pg.click("#ckfoods [data-fa=edit]")
+    pg.click("#ckfoods [data-fa=dropprobe][data-n='2']")
+    until(lambda: sval("text", "Food 2 name") == "" and sval("select", "Food 2 protein") == "Auto", "Remove takes a probe out of the food")
+    pg.click("#ckfoods [data-fa=remove]")
+    until(lambda: sval("text", "Food 1 name") == "" and sval("select", "Food 1 protein") == "Auto" and not (value("number", "Food 1 weight") or 0),
+          "Remove this food clears it")
+    pg.wait_for_function("document.querySelector('#ckfoods').innerText.includes('Nothing added yet')", timeout=5000)
+    check(True, "and the list is empty again")
 
 
 def program_editor(pg, width, shots):

@@ -298,16 +298,23 @@ h2.sec .fold svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-wid
 .row.ck-preset{border-top:0;padding-top:0;margin-bottom:8px}
 .ck-from{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 10px;color:var(--ink-2)}
 .row.ck-preset select{min-width:0;flex:0 1 auto;max-width:62%}
-.slots{display:flex;flex-direction:column;margin-top:8px}
-.slot{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
-.slot .sw{width:10px;height:10px;border-radius:50%}
+.fds{display:flex;flex-direction:column;margin-top:8px}
+.fd{padding:10px 0;border-top:1px solid var(--line)}
+.fd-h{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:start}
+.fd-h .sw{width:10px;height:10px;border-radius:50%;margin-top:6px}
 .slot-n{display:flex;flex-direction:column;min-width:0}
 .slot-n .small{overflow-wrap:anywhere}
-.slot-f{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
-.slot-f select{max-width:180px}
-.slot-f input[type=number]{width:72px}
-.slots details.more{border-top:1px solid var(--line)}
-@media (max-width:560px){.slot{grid-template-columns:auto minmax(0,1fr)}.slot-f{grid-column:2;justify-content:flex-start}}
+.fd-ed{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin:10px 0 0 20px}
+.fd-ed label{display:flex;flex-direction:column;gap:3px;min-width:0}
+.fd-ed .fd-w{flex:1 1 100%}
+.fd-ed .fd-w input{width:100%;max-width:320px}
+.fd-ed input[type=number]{width:72px}
+.fd-ed select{max-width:200px;min-width:0}
+.fd-ps{flex:1 1 100%;display:flex;flex-direction:column;gap:2px}
+.fd-p{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;padding:6px 0;border-top:1px dashed var(--line)}
+.fd-p input[type=text]{width:130px}
+.fd-ed .btns{flex:1 1 100%}
+.fd-l{display:flex;justify-content:space-between;align-items:center;gap:8px}
 </style>
 </head>
 <body>
@@ -1083,6 +1090,15 @@ window.act = {
     const items = (journal.draft.items || []).map(i => i.id === id ? Object.assign({}, i, { probe: probe || null }) : i);
     api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); toast(d.problems && d.problems.length ? d.problems.join('; ') : probe ? 'Probe set from the label' : 'Unassigned'); }).catch(fail);
   },
+  labelAdd(id) {
+    const s = foodFree(HENV.slots());
+    if (!s) return toast('All six food slots are in use: remove a food first');
+    const items = (journal.draft.items || []).map(i => i.id === id ? Object.assign({}, i, { probe: s.key }) : i);
+    api('POST', '/api/smoker/draft', { items }).then(d => {
+      journal.draft = d; FOODS.fresh.add(s.n); FOODS.open = s.n; renderScan(true);
+      toast(d.problems && d.problems.length ? d.problems.join('; ') : 'Added: check its weight and probe');
+    }).catch(fail);
+  },
   dropItem(id) {
     const items = (journal.draft.items || []).filter(i => i.id !== id);
     api('POST', '/api/smoker/draft', { items }).then(d => { journal.draft = d; renderScan(true); }).catch(fail);
@@ -1667,12 +1683,12 @@ function renderPlan() {
 // Serve together: with a serve-by time, when each food goes on (from its whole-cook estimate and the rest time) and
 // when to light the grill (45 min before the first, as the package's "Smoker start cooking by"). The package sends a
 // notification at each (automation "Smoker - put the next food on").
+// One entry per food (several probes in one food: its longest estimate), as the controller's reminders.
 function serveFoods() {
-  return PROBES.map((p, i) => {
-    // Only foods set up for the cook (a weight set, as the controller's own planner): every slot with a target has an estimate.
-    const total = (num(E(p.label + ' weight', ['number'])) || 0) > 0 ? num(E(p.label + ' estimated total cook time', ['sensor'])) : null;
-    const item = (journal.draft.items || []).find(it => it.probe === p.key), prot = val(E(p.label + ' protein', ['select']));
-    return { slot: i + 1, total, name: item && item.name ? item.name : prot && !/^(Auto)$/i.test(prot) ? prot : p.label };
+  return foodGroups(HENV.slots()).filter(g => (g.first.weight || 0) > 0).map(g => {
+    const ts = g.slots.map(x => num(E(x.label + ' estimated total cook time', ['sensor']))).filter(v => v != null);
+    const item = !g.name && (journal.draft.items || []).find(it => it.probe === g.first.key);
+    return { slot: g.first.n, total: ts.length ? Math.max(...ts) : null, name: item && item.name ? item.name : g.title };
   });
 }
 function servePlan(serve) {
@@ -1759,50 +1775,53 @@ function photo(name) {
   api('GET', '/api/smoker/photo/' + name).then(b => { photoURL[name] = URL.createObjectURL(b); renderScan(true); renderJournal(true); }).catch(() => {});
   return photoURL[name];
 }
-function probeOptions(sel) {
-  return '<option value="">No probe</option>' + PROBES.filter(p => E(p.label + ' protein', ['select']))
-    .map(p => `<option value="${p.key}" ${sel === p.key ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
-}
-// Each food slot: the probe it reads, the protein and weight its estimates use (as on its Food card) and a label read
-// onto it. Slots in use first (Food 1, a reading, a protein, a weight or a label); the others fold away.
-function slotRows() {
-  const items = journal.draft.items || [], used = [], spare = [];
-  PROBES.forEach((p, i) => {
-    const protE = E(p.label + ' protein', ['select']); if (!protE) return;
-    const s = probeState(p), item = items.find(it => it.probe === p.key), opts = (s.profile && s.profile.attributes.options) || [];
-    const prot = s.profile && !/^(Auto|unknown|unavailable)$/i.test(s.profile.state);
-    const where = [s.source || '', s.t != null ? fmt(s.t) + TU() : 'no reading', item ? 'label: ' + item.name : ''].filter(Boolean).join(' · ');
-    const row = `<div class="slot"><i class="sw" style="background:${p.color}" aria-hidden="true"></i>
-      <span class="slot-n"><b>${esc(p.label)}</b><span class="small muted">${esc(where)}</span></span>
-      <span class="slot-f"><select aria-label="${esc(p.label)} protein" onchange="act.profile('${p.key}',this.value)">${opts.map(o => `<option ${s.profile.state === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>
-        <span class="pe-unit"><input type="number" inputmode="decimal" step="0.1" min="0" value="${s.weight != null ? s.weight : ''}" aria-label="${esc(p.label)} weight" onchange="act.weight('${p.key}',this.value)"><span>${esc(s.weightU || (isF() ? 'lb' : 'kg'))}</span></span></span></div>`;
-    (i === 0 || s.t != null || prot || (s.weight || 0) > 0 || item ? used : spare).push(row);
-  });
-  return used.join('') + (spare.length ? `<details class="more" data-k="moreslots"><summary>More food slots (${spare.length})</summary>${spare.join('')}</details>` : '');
-}
+// What's cooking: the foods on the grill (the shared food list block), each slot from Home Assistant's entities.
+const HENV = {
+  slots() {
+    const out = [];
+    PROBES.forEach((p, i) => {
+      const protE = E(p.label + ' protein', ['select']); if (!protE) return;
+      const nameE = E(p.label + ' name', ['text']), spotE = E(p.label + ' spot', ['text']), srcE = E(p.label + ' probe', ['select']);
+      const wE = E(p.label + ' weight', ['number']), tE = E(p.label + ' target', ['number']), ps = S(protE), ss = srcE && S(srcE);
+      out.push({ n: i + 1, key: p.key, label: p.label, color: p.color, has: { name: !!nameE, spot: !!spotE, tgt: !!tE },
+        name: (nameE && val(nameE)) || '', spot: (spotE && val(spotE)) || '', prof: val(protE) || '', profs: (ps && ps.attributes.options) || [],
+        weight: num(wE), wUnit: unitOf(wE) || (isF() ? 'lb' : 'kg'), src: (srcE && val(srcE)) || '', srcs: (ss && ss.attributes.options) || [],
+        t: num(E(p.label + ' temperature', ['sensor'])), tgt: num(tE) });
+    });
+    return out;
+  },
+  set(n, f, v) {
+    const L = 'Food ' + n, ent = (name, dom) => E(L + ' ' + name, [dom]);
+    const call = (dom, svc, e, data) => e ? H().call(dom, svc, e, data) : Promise.reject(new Error('missing ' + L + ' ' + f));
+    if (f === 'name' || f === 'spot') return call('text', 'set_value', ent(f, 'text'), { value: v });
+    if (f === 'prof') return call('select', 'select_option', ent('protein', 'select'), { option: v });
+    if (f === 'src') return call('select', 'select_option', ent('probe', 'select'), { option: v });
+    if (f === 'weight') return call('number', 'set_value', ent('weight', 'number'), { value: v });
+    if (f === 'tgt') return call('number', 'set_value', ent('target', 'number'), { value: v });
+  },
+  get tu() { return TU(); },
+  toast: t => toast(t),
+  draw: () => renderScan(true),
+};
 // Photos waiting to be read: from the camera and/or the library, a few at a time (up to 6).
 let scanQueue = [];
 function renderScan(force) {
-  const head = `<h3><span>${stepNo(1)}What's cooking</span></h3>`, slots = `<div class="slots">${slotRows()}</div>`;
-  if (!hasApi()) { put('scancard', `${head}${slots}<p class="muted small" style="margin:8px 0 0">Photograph package labels and the AI
-    sets the protein and weight: this needs the Smoker integration (HACS → Smoker).</p>`); return; }
-  const items = journal.draft.items || [], photos = journal.draft.photos || [];
+  const root = $('scancard'), head = `<h3><span>${stepNo(1)}What's cooking</span></h3>`;
+  if (root && !root._fw) foodWire(root, HENV);
+  if (foodHold(root, () => renderScan(true))) return;
+  if (!hasApi()) { put('scancard', `${head}${foodsHTML(HENV, '')}<p class="muted small" style="margin:8px 0 0">Photograph package labels and
+    the AI fills in the cut and weight: this needs the Smoker integration (HACS → Smoker).</p>`); return; }
+  const items = (journal.draft.items || []).filter(i => !i.probe), photos = journal.draft.photos || [];
   const html = `${head}
-    <p class="small muted" style="margin:0 0 8px">Scan each package's label or barcode (several at once is fine): the AI reads the cut and weight. Or pick them for each food below.</p>
-    <div class="btns" style="margin-top:0">
-      <label class="btn">Take a photo<input type="file" accept="image/*" capture="environment" style="display:none" onchange="act.scanAdd(this)"></label>
-      <label class="btn">Choose photos<input type="file" accept="image/*" multiple style="display:none" onchange="act.scanAdd(this)"></label>
-    </div>
+    <p class="small muted" style="margin:0 0 8px">Photograph each package's label (several at once is fine): the AI reads the cut and weight.</p>
     ${scanQueue.length ? `<div class="thumbs">${scanQueue.map((q, k) => `<span class="qthumb"><img alt="photo to read" src="${q.url}"><button class="x" onclick="act.scanDrop(${k})" aria-label="remove this photo">×</button></span>`).join('')}</div>
     <div class="btns"><button class="btn pri" id="scanbtn" onclick="act.scan()">${scanQueue.length > 1 ? `Read the ${scanQueue.length} labels` : 'Read the label'}</button></div>` : ''}
     ${photos.length ? `<div class="thumbs">${photos.map(n => `<img alt="package photo" src="${photo(n)}">`).join('')}</div>` : ''}
-    ${items.length ? `<p class="small muted" style="margin:8px 0 0">From the labels: pick the probe each one is on.</p>` : ''}
-    ${items.map(i => `<div class="item"><span class="n">${esc(i.name)}</span>
-        <select data-id="${esc(i.id)}" onchange="act.assign(this.dataset.id, this.value)" aria-label="Probe for ${esc(i.name)}">${probeOptions(i.probe)}</select>
-        <span class="m">${esc(i.profile)}${i.weight_lb ? ' · ' + fmt(i.weight_lb, 1) + ' lb' : ''}${i.notes ? ' · ' + esc(i.notes) : ''}
-          <button class="btn" style="min-height:26px;padding:2px 8px;margin-left:6px" data-id="${esc(i.id)}" onclick="act.dropItem(this.dataset.id)" aria-label="remove">×</button></span></div>`).join('')}
-    ${slots}`;
-  if (force) { const el = $('scancard'); if (el) el._h = null; }
+    ${items.map(i => `<div class="row"><span><b>${esc(i.name)}</b><br><span class="muted small">${esc(i.profile)}${i.weight_lb ? ' · ' + fmt(i.weight_lb, 1) + ' lb' : ' · no weight on the label'}${i.notes ? ' · ' + esc(i.notes) : ''}</span></span>
+      <span class="entry"><button class="btn pri" data-id="${esc(i.id)}" onclick="act.labelAdd(this.dataset.id)">Add</button><button class="btn" data-id="${esc(i.id)}" onclick="act.dropItem(this.dataset.id)" aria-label="Not this one">×</button></span></div>`).join('')}
+    ${foodsHTML(HENV, `<label class="btn">Photo of the label<input type="file" accept="image/*" capture="environment" style="display:none" onchange="act.scanAdd(this)"></label>
+      <label class="btn">Choose photos<input type="file" accept="image/*" multiple style="display:none" onchange="act.scanAdd(this)"></label>`)}`;
+  if (force && root) root._h = null;
   put('scancard', html);
 }
 
@@ -2121,6 +2140,128 @@ async function loadChart() {
   chartData = series.filter(s => s[1]).map(([name, eid, color]) => ({ name, color, dash: name === 'Pit target',
     pts: (h[eid] || []).map(p => [p.t, parseFloat(p.s)]).filter(p => isFinite(p[1])) }));
 }
+// ==== BEGIN food list (shared block) ====
+// What's cooking, as foods rather than food slots. Identical in the integration's page.html and the controller's ui.js
+// (tests/render_page.py checks). Each of the controller's six food slots reads one probe; a food is the slots that
+// share a food name ("Food N name"), so one food can have several probes (a turkey's breast and thigh), each with
+// where it is ("Food N spot") and its own target. A slot is in use once it has a name, a cut or a weight; the others
+// stay out of sight. The page passes `env`: slots() -> [{n, label, color, has: {name, spot, tgt}, name, spot, prof, profs,
+// weight, wUnit, src, srcs, t, tgt}], set(n, field, value) -> Promise (field: name|spot|prof|weight|src|tgt), tu (the
+// temperature unit), toast(text), draw() (draw the list again).
+const FOODS = { open: 0, fresh: new Set() };
+const foodUsed = s => !!(s.name || (s.prof && !/^(Auto|unknown|unavailable)$/i.test(s.prof)) || (s.weight || 0) > 0 || FOODS.fresh.has(s.n));
+function foodGroups(slots) {
+  const out = [], by = {};
+  slots.filter(foodUsed).forEach(s => {
+    const k = s.name ? 'n:' + s.name.trim().toLowerCase() : 's:' + s.n;
+    if (!by[k]) out.push(by[k] = { key: k, name: s.name || '', first: s, slots: [] });
+    by[k].slots.push(s);
+  });
+  out.forEach(g => {
+    const f = g.first, cut = f.prof && !/^(Auto|unknown|unavailable)$/i.test(f.prof) ? f.prof : '';
+    g.cut = cut; g.title = g.name || cut || 'New food';
+  });
+  return out;
+}
+const foodFree = slots => slots.find(s => !foodUsed(s));
+function foodProbeLine(s, tu) {
+  const t = s.t != null && isFinite(s.t) ? Math.round(s.t) + tu : 'no reading';
+  return [s.src || s.label, s.spot, t + (s.tgt != null && isFinite(s.tgt) ? ' → ' + Math.round(s.tgt) + tu : '')].filter(Boolean).join(' · ');
+}
+// The list, the open food's editor, and the buttons (the page adds its photo buttons through `more`).
+function foodsHTML(env, more) {
+  const slots = env.slots(), groups = foodGroups(slots), tu = env.tu, e = v => esc(v == null ? '' : String(v));
+  if (FOODS.open && !groups.some(g => g.slots.some(s => s.n === FOODS.open))) FOODS.open = 0;
+  const opt = (list, cur) => (list || []).map(o => `<option${o === cur ? ' selected' : ''}>${e(o)}</option>`).join('') +
+    (cur && !(list || []).includes(cur) ? `<option selected>${e(cur)}</option>` : '');
+  const row = g => {
+    const f = g.first, open = g.slots.some(s => s.n === FOODS.open);
+    const sub = [g.name && g.cut ? g.cut : '', (f.weight || 0) > 0 ? +(+f.weight).toFixed(1) + ' ' + f.wUnit : ''].filter(Boolean).join(' · ');
+    const head = `<div class="fd-h"><i class="sw" style="background:${f.color}" aria-hidden="true"></i>
+      <span class="slot-n"><b>${e(g.title)}</b>${sub ? `<span class="small muted">${e(sub)}</span>` : ''}
+        ${g.slots.map(s => `<span class="small muted">${e(foodProbeLine(s, tu))}</span>`).join('')}</span>
+      ${open ? '' : `<button class="btn" data-fa="edit" data-n="${f.n}" aria-label="Change ${e(g.title)}">Change</button>`}</div>`;
+    if (!open) return `<div class="fd">${head}</div>`;
+    const probes = g.slots.map(s => `<div class="fd-p">
+        ${(s.srcs || []).length ? `<label><span class="small muted">Probe</span><select data-ff="src" data-n="${s.n}" aria-label="Probe">${opt(s.srcs, s.src)}</select></label>` : `<span class="slot-n"><span class="small muted">Probe</span>${e(s.src || s.label)}</span>`}
+        ${s.has.spot ? `<label><span class="small muted">Where</span><input id="fds-${s.n}" type="text" maxlength="24" data-ff="spot" data-n="${s.n}" value="${e(s.spot)}" placeholder="breast, thigh…" autocomplete="off"></label>` : ''}
+        ${s.has.tgt ? `<label><span class="small muted">Done at</span><span class="pe-unit"><input id="fdt-${s.n}" type="number" inputmode="decimal" step="1" data-ff="tgt" data-n="${s.n}" value="${s.tgt != null && isFinite(s.tgt) ? Math.round(s.tgt) : ''}" aria-label="Target"><span>${e(tu)}</span></span></label>` : ''}
+        ${g.slots.length > 1 ? `<button class="btn" data-fa="dropprobe" data-n="${s.n}" aria-label="Remove this probe">Remove</button>` : ''}</div>`).join('');
+    return `<div class="fd open">${head}<div class="fd-ed">
+      ${f.has.name ? `<label class="fd-w"><span class="small muted">Food</span><input id="fdn-${f.n}" type="text" maxlength="32" data-ff="name" data-n="${f.n}" value="${e(g.name)}" placeholder="Turkey, brisket…" autocomplete="off"></label>` : ''}
+      <label><span class="small muted">Cut</span><select data-ff="prof" data-n="${f.n}" aria-label="Cut">${opt(f.profs, f.prof)}</select></label>
+      <label><span class="small muted">Weight</span><span class="pe-unit"><input id="fdw-${f.n}" type="number" inputmode="decimal" step="0.1" min="0" data-ff="weight" data-n="${f.n}" value="${(f.weight || 0) > 0 ? f.weight : ''}" aria-label="Weight"><span>${e(f.wUnit)}</span></span></label>
+      <div class="fd-ps"><span class="small muted">${g.slots.length > 1 ? 'Its probes' : 'Its probe'}</span>${probes}</div>
+      <div class="btns">${f.has.name ? `<button class="btn" data-fa="addprobe" data-n="${f.n}">Add another probe in it</button>` : ''}
+        <button class="btn" data-fa="remove" data-n="${f.n}">Remove this food</button><button class="btn pri" data-fa="done">Done</button></div></div></div>`;
+  };
+  // A probe that's reading but isn't on a food yet.
+  const loose = slots.filter(s => !foodUsed(s) && s.t != null && isFinite(s.t));
+  return `<div class="fds">${groups.length ? groups.map(row).join('') : `<p class="note" style="margin:0">Nothing added yet. Add each food
+      you're cooking: its cut and weight give it a finish time. One food can have several probes (a turkey's breast and thigh).</p>`}
+    ${loose.map(s => `<div class="fd fd-l"><span class="small muted">${e(s.src || s.label)} reads ${Math.round(s.t)}${e(tu)}, not on a food yet</span>
+      <button class="btn" data-fa="take" data-n="${s.n}">Add it</button></div>`).join('')}
+    <div class="btns"><button class="btn" data-fa="add">Add food</button>${more || ''}</div></div>`;
+}
+// What goes on the slots a food uses (cleared: name, spot, cut, weight; the probe and target stay as they are).
+async function foodClear(env, s) {
+  if (s.has.name) await env.set(s.n, 'name', '');
+  if (s.has.spot && s.spot) await env.set(s.n, 'spot', '');
+  await env.set(s.n, 'prof', 'Auto');
+  if ((s.weight || 0) > 0) await env.set(s.n, 'weight', 0);
+}
+async function foodAct(env, el) {
+  const a = el.dataset.fa, n = +el.dataset.n || 0, slots = env.slots(), g = foodGroups(slots).find(x => x.slots.some(s => s.n === n));
+  if (a === 'edit') { FOODS.open = n; return env.draw(); }
+  if (a === 'done') { FOODS.fresh.clear(); FOODS.open = 0; return env.draw(); }
+  if (a === 'add' || a === 'take') {
+    const s = a === 'take' ? slots.find(x => x.n === n) : foodFree(slots);
+    if (!s) return env.toast('All six food slots are in use: remove a food first');
+    FOODS.fresh.add(s.n); FOODS.open = s.n; return env.draw();
+  }
+  if (!g) return;
+  if (a === 'addprobe') {
+    const s = foodFree(slots); if (!s) return env.toast('All six food slots are in use');
+    const name = g.name || g.title, f = g.first;
+    if (!g.name) for (const x of g.slots) await env.set(x.n, 'name', name);  // several probes: the food needs a name
+    await env.set(s.n, 'name', name);
+    if (g.cut) await env.set(s.n, 'prof', f.prof);
+    if ((f.weight || 0) > 0) await env.set(s.n, 'weight', f.weight);
+    FOODS.fresh.add(s.n); env.toast('Pick the probe and say where it is'); return env.draw();
+  }
+  if (a === 'dropprobe') { const s = g.slots.find(x => x.n === n); FOODS.fresh.delete(n); if (s) await foodClear(env, s); return env.draw(); }
+  if (a === 'remove') {
+    for (const s of g.slots) { FOODS.fresh.delete(s.n); await foodClear(env, s); }
+    FOODS.open = 0; env.toast(g.title + ' removed'); return env.draw();
+  }
+}
+async function foodChange(env, el) {
+  const f = el.dataset.ff, n = +el.dataset.n || 0, slots = env.slots(), g = foodGroups(slots).find(x => x.slots.some(s => s.n === n));
+  if (!g) return;
+  delete el.dataset.dirty;
+  let v = el.value;
+  if (f === 'weight' || f === 'tgt') { v = parseFloat(v); if (!isFinite(v)) v = 0; if (f === 'tgt' && !v) return; }
+  else if (f === 'name' || f === 'spot') v = v.trim();
+  // The food's own fields go on every slot it uses; a probe's (which probe, where, its target) on that slot only.
+  const on = f === 'name' || f === 'prof' || f === 'weight' ? g.slots : g.slots.filter(s => s.n === n);
+  for (const s of on) await env.set(s.n, f, v);
+  if (f === 'name' && !v && g.slots.length > 1) env.toast('Without a name, each probe is a food of its own');
+}
+// Leaving a field (its change) redraws the list; a redraw between pressing a button and letting go would lose the
+// press. So redraws wait a moment after a press (the page's draw asks foodHold first).
+function foodHold(root, draw) {
+  if (!root || !root._down || Date.now() - root._down > 700) return false;
+  clearTimeout(root._ht); root._ht = setTimeout(draw, 750);
+  return true;
+}
+function foodWire(root, env) {
+  if (!root || root._fw) return;
+  root._fw = true;
+  root.addEventListener('pointerdown', () => { root._down = Date.now(); }, true);
+  root.addEventListener('click', e => { root._down = 0; const b = e.target.closest('[data-fa]'); if (b && root.contains(b)) { e.preventDefault(); foodAct(env, b).catch(err => env.toast(err.message || String(err))); } });
+  root.addEventListener('change', e => { const t = e.target; if (t && t.dataset && t.dataset.ff) foodChange(env, t).catch(err => env.toast(err.message || String(err))); });
+}
+// ==== END food list (shared block) ====
 // ==== BEGIN cook plan (shared block) ====
 // The controller's plan for a cook ("Food N plan": the predicted food temperature, taken at the cook's first sound
 // prediction): "1;<start epoch>;<step min>;<F|C>;t0,t1,...". Drawn dotted beside the actual temperature, and

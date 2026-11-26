@@ -162,8 +162,8 @@ Once it's set up, an **AI pitmaster** section appears on the page:
   **Ask now**, or turn on **every 30 min during a cook**.
 - **Plan with AI:** describe the cook ("9 lb pork shoulder, eating at 6 pm Saturday"). It suggests when to light up and
   the steps, and writes a cook program, which opens as stages under *Build it yourself* to check or tweak: **Load as program**, then Start.
-- **What's cooking:** **Take a photo** or **Choose a photo** of the package label. The page shrinks it, the AI reads
-  the cut and weight, and **Set** puts them on a Food slot.
+- **What's cooking:** **Photo of the label** or **Choose a photo**. The page shrinks it, the AI reads the food, cut and
+  weight, and **Add** puts it on a free food slot (type the weight if the label has none).
 
 **It only works on a cook.** Nothing is asked unless a cook is underway (the pit is up, or a program is running) or
 planned (**Serve by** within the next two days). On an idle grill **Ask now** is greyed out and the 30-minute check

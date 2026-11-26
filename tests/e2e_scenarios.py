@@ -263,17 +263,24 @@ async def main():
                   f"pit stability reported ({v('pit_stability')!r})")
             grill({"pit_f": None})
 
-            print("scenario 5: food reaches its target, then the probe is pulled: one 'done' alert")
+            print("scenario 5: food reaches its target, then the probe is pulled: one 'done' alert, by the food's name")
+            # The food's name and where the probe is (Food 1 name / spot): the alert says "Turkey (breast) is done".
+            dev.cli.text_command(dev.by_id["food_1_name"].key, "Turkey")
+            dev.cli.text_command(dev.by_id["food_1_spot"].key, "breast")
+            check(await dev.wait(lambda: v("food_1_name") == "Turkey" and v("food_1_spot") == "breast", 15, "named"),
+                  "the food's name and spot are set on Food 1")
             grill({"food1_f": 205})
             # (Done, or already Resting: on a slow machine the phase can move on between two looks)
             check(await dev.wait(lambda: (v("food_1_phase") or "").startswith(("Done", "Resting"))
-                                 or "Food 1 is done" in open(DEVLOG).read(), 240, "done"),
+                                 or "Turkey (breast) is done" in open(DEVLOG).read(), 240, "done"),
                   f"food 1 phase Done ({v('food_1_phase')!r})")
             grill({"food1_f": 75})
             await asyncio.sleep(75)
             dlog.flush()
-            n = open(DEVLOG).read().count("Food 1 is done")
-            check(n == 1, f"exactly one 'done' notification ({n})")
+            n = open(DEVLOG).read().count("Turkey (breast) is done")
+            check(n == 1, f"exactly one 'done' notification, by the food's name ('Turkey (breast) is done': {n})")
+            dev.cli.text_command(dev.by_id["food_1_name"].key, "")
+            dev.cli.text_command(dev.by_id["food_1_spot"].key, "")
 
             print("scenario 4: controller restart mid-cook: the cook resumes")
             grill({"food1_f": 150})

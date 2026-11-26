@@ -506,25 +506,39 @@ template:
         icon: mdi:timeline-clock
         state: >
           {% set serve = (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) %}
-          {% set ns = namespace(n=0) %}
+          {# One per food: slots with the same food name (text.smoker_food_N_name) are one food with several probes. #}
+          {% set ns = namespace(seen=[]) %}
           {% for n in range(1, 7) if serve > 0 %}
             {% set v = states('sensor.smoker_food_' ~ n ~ '_estimated_total_cook_time') %}
-            {% if is_number(v) and v | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0 %}{% set ns.n = ns.n + 1 %}{% endif %}
+            {% set fname = states('text.smoker_food_' ~ n ~ '_name') | trim %}
+            {% set key = fname | lower if fname not in ['unknown', 'unavailable', ''] else 'slot ' ~ n %}
+            {% if is_number(v) and v | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0 and key not in ns.seen %}{% set ns.seen = ns.seen + [key] %}{% endif %}
           {% endfor %}
-          {{ ns.n }}
+          {{ ns.seen | count }}
         attributes:
           serve: "{{ (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) | int }}"
           rest_minutes: "{{ states('input_number.smoker_rest_minutes') | float(60) | int }}"
           foods: >
             {% set serve = (state_attr('input_datetime.smoker_serve_time', 'timestamp') | float(0)) %}
             {% set rest = states('input_number.smoker_rest_minutes') | float(60) %}
-            {% set ns = namespace(l=[]) %}
+            {# One per food: a food with several probes (the same food name) goes on at its longest estimate. #}
+            {% set ns = namespace(l=[], seen=[], t=0) %}
             {% for n in range(1, 7) if serve > 0 %}
               {% set total = states('sensor.smoker_food_' ~ n ~ '_estimated_total_cook_time') %}
-              {% if is_number(total) and total | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0 %}
+              {% set fname = states('text.smoker_food_' ~ n ~ '_name') | trim %}
+              {% set fname = fname if fname not in ['unknown', 'unavailable'] else '' %}
+              {% set key = fname | lower if fname else 'slot ' ~ n %}
+              {% if is_number(total) and total | float > 0 and states('number.smoker_food_' ~ n ~ '_weight') | float(0) > 0 and key not in ns.seen %}
+                {% set ns.seen = ns.seen + [key] %}
+                {% set ns.t = total | float %}
+                {% for m in range(n + 1, 7) if fname %}
+                  {% set t2 = states('sensor.smoker_food_' ~ m ~ '_estimated_total_cook_time') %}
+                  {% if (states('text.smoker_food_' ~ m ~ '_name') | trim | lower) == key and is_number(t2)
+                        and states('number.smoker_food_' ~ m ~ '_weight') | float(0) > 0 and t2 | float > ns.t %}{% set ns.t = t2 | float %}{% endif %}
+                {% endfor %}
                 {% set prot = states('select.smoker_food_' ~ n ~ '_protein') %}
-                {% set ns.l = ns.l + [{'slot': n, 'name': prot if prot not in ['Auto', 'unknown', 'unavailable', ''] else 'Food ' ~ n,
-                                        'total': total | float | round(0) | int, 'on': (serve - (total | float + rest) * 60) | round(0) | int}] %}
+                {% set ns.l = ns.l + [{'slot': n, 'name': fname if fname else prot if prot not in ['Auto', 'unknown', 'unavailable', ''] else 'Food ' ~ n,
+                                        'total': ns.t | round(0) | int, 'on': (serve - (ns.t + rest) * 60) | round(0) | int}] %}
               {% endif %}
             {% endfor %}
             {{ ns.l | sort(attribute='on') }}
@@ -1286,8 +1300,11 @@ automation:
               {% set t = states('sensor.smoker_' ~ p ~ '_temperature') %}
               {% set rem = states('sensor.smoker_' ~ p ~ '_time_remaining') %}
               {% set prot = states('select.smoker_' ~ p ~ '_protein') | lower %}
-              {% set name = p | replace('_', ' ') %}
-              {% if is_number(t) and (not want or want in prot or want in name or want in ['meat', 'food', 'it', 'cook']) %}
+              {% set fname = states('text.smoker_' ~ p ~ '_name') | trim %}
+              {% set fname = fname if fname not in ['unknown', 'unavailable'] else '' %}
+              {% set spot = states('text.smoker_' ~ p ~ '_spot') | trim %}
+              {% set name = (fname ~ (' ' ~ spot if spot not in ['unknown', 'unavailable', ''] else '')) if fname else p | replace('_', ' ') %}
+              {% if is_number(t) and (not want or want in prot or want in name | lower or want in ['meat', 'food', 'it', 'cook']) %}
                 {% if is_number(rem) %}
                   {% set fin = (now() + timedelta(minutes=rem | float)).strftime('%-I:%M %p') %}
                   {% set out.l = out.l + [name ~ (' (' ~ prot ~ ')' if prot not in ['auto', 'unknown'] else '') ~ ' is at ' ~ (t | float | round(0)) ~ ' degrees and should be done around ' ~ fin

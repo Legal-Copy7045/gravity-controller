@@ -199,6 +199,11 @@ The controller has six food slots, **Food 1** to **Food 6**. Each slot reads one
 Every slot gets the same predictions, stall detection, pull-at and rest coaching, and can be used in cook programs
 (`food3 >= 165`).
 
+**One food, several probes.** On the dashboards, *What's cooking* lists foods, not slots: **Add food**, then give it a
+name, cut and weight. **Add another probe in it** puts a second slot in the same food (say where it is: breast, thigh)
+with its own target. Slots with the same **Food N name** are one food: the serve-together plan and its "put it on"
+reminder count it once (at its slowest probe), and alerts name it ("Turkey (breast) is done").
+
 **Choosing Home Assistant thermometers.** On the dashboard, open *Probe sources*, set a slot to *Home Assistant* and
 pick the sensor from the list (temperature sensors, probe-like ones first). Use as many slots as you have probes.
 Left on the default, slots 3–6 read `sensor.meat_thermometer_temperature_probe_1` … `_4`: if your thermometer's

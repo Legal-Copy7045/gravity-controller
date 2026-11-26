@@ -193,6 +193,51 @@ void CAText::control(const std::string &value) {
     this->on_change_(value);
 }
 
+// A name of up to 32 characters, kept in flash (a fixed buffer: preferences hold plain structs).
+namespace {
+struct NameBuf {
+  char s[33];
+};
+}  // namespace
+void CAName::setup() {
+  this->pref_ = this->make_entity_preference<NameBuf>();
+  NameBuf b{};
+  if (this->pref_.load(&b)) {
+    b.s[sizeof(b.s) - 1] = 0;
+    this->publish_state(std::string(b.s));
+  } else {
+    this->publish_state("");
+  }
+}
+void CAName::control(const std::string &value) {
+  std::string v;
+  for (char c : value)
+    if (static_cast<unsigned char>(c) >= 0x20 && c != 0x7f) v += c;  // no control characters
+  while (!v.empty() && v.back() == ' ') v.pop_back();
+  size_t start = v.find_first_not_of(' ');
+  v = start == std::string::npos ? "" : v.substr(start);
+  const size_t max = std::min<size_t>(this->traits.get_max_length() > 0 ? this->traits.get_max_length() : 32, 32);
+  if (v.size() > max) {
+    v.resize(max);
+    while (!v.empty() && (static_cast<unsigned char>(v.back()) & 0xC0) == 0x80) v.pop_back();  // no half a UTF-8
+    if (!v.empty() && (static_cast<unsigned char>(v.back()) & 0x80)) v.pop_back();             // character at the end
+  }
+  this->publish_state(v);
+  NameBuf b{};
+  std::memcpy(b.s, v.data(), v.size());
+  this->pref_.save(&b);
+}
+
+std::string FoodProbe::food() const {
+  return this->food_name != nullptr && this->food_name->has_state() ? this->food_name->state : std::string();
+}
+std::string FoodProbe::label() const {
+  const std::string f = this->food();
+  if (f.empty()) return this->name;
+  const std::string sp = this->spot != nullptr && this->spot->has_state() ? this->spot->state : std::string();
+  return sp.empty() ? f : f + " (" + sp + ")";
+}
+
 // ------------------------------------------------------------ formatting
 
 std::string CookAssistant::fmt_temp_(float c) const {
@@ -470,16 +515,16 @@ void CookAssistant::tick_second_() {
     in.stall_ended.push_back(p->stall_ended_tick);
 
     if (p->stall_started_tick) {
-      this->notify(p->name + " stall", p->name + " has stalled at " + this->fmt_temp_(t) + ". Wrapping will push through it faster.",
+      this->notify(p->label() + " stall", p->label() + " has stalled at " + this->fmt_temp_(t) + ". Wrapping will push through it faster.",
                    0, "stall_" + p->key);
     }
     if (p->stall_ended_tick && p->predictor.phase() != cook::Phase::DONE) {
-      this->notify(p->name + " stall over", p->name + " is climbing again (" + this->fmt_temp_(t) + ").", 0,
+      this->notify(p->label() + " stall over", p->label() + " is climbing again (" + this->fmt_temp_(t) + ").", 0,
                    "stall_" + p->key);
     }
     if (done_ev && !p->done_notified) {
       p->done_notified = true;
-      this->notify(p->name + " is done", p->name + " reached " + this->fmt_temp_(t) + ".", 1, "done_" + p->key);
+      this->notify(p->label() + " is done", p->label() + " reached " + this->fmt_temp_(t) + ".", 1, "done_" + p->key);
     }
     float target = this->probe_target_c_(p);
     if (!std::isnan(target) && (std::isnan(p->last_target_c) || std::fabs(target - p->last_target_c) > 0.3f)) {
@@ -490,7 +535,7 @@ void CookAssistant::tick_second_() {
     if (!std::isnan(t) && !std::isnan(target)) {
       if (!p->approach_notified && t >= target - 3.0f && t < target) {
         p->approach_notified = true;
-        this->notify(p->name + " almost done", p->name + " is " + this->fmt_temp_(t) + ", target " + this->fmt_temp_(target) + ".",
+        this->notify(p->label() + " almost done", p->label() + " is " + this->fmt_temp_(t) + ", target " + this->fmt_temp_(target) + ".",
                      0, "done_" + p->key);
       } else if (t < target - 6.0f) {
         p->approach_notified = false;
@@ -500,7 +545,7 @@ void CookAssistant::tick_second_() {
     bool suspect = p->predictor.probe_suspect();
     if (suspect && !p->suspect_notified) {
       p->suspect_notified = true;
-      this->notify(p->name + " probe check", p->name + " jumped to " + this->fmt_temp_(t) +
+      this->notify(p->label() + " probe check", p->label() + " jumped to " + this->fmt_temp_(t) +
                        ", close to the pit temperature. Is the probe still in the meat?",
                    1, "probe_" + p->key);
     } else if (!suspect) {
@@ -518,7 +563,7 @@ void CookAssistant::tick_second_() {
         p->predictor.phase() != cook::Phase::WAITING && p->predictor.phase() != cook::Phase::DONE) {
       p->pull_notified = true;
       bool exp = p->predictor.priors().rests < PULL_TRUSTED_RESTS;
-      this->notify(p->name + ": time to pull", p->name + " is " + this->fmt_temp_(t) + ". Pull it now and it should coast to about " +
+      this->notify(p->label() + ": time to pull", p->label() + " is " + this->fmt_temp_(t) + ". Pull it now and it should coast to about " +
                        this->fmt_temp_(target) + " while it rests." +
                        (exp ? " (Experimental: the pull point is a default until a couple of rests have been measured; "
                               "check with your thermometer.)" : ""),
@@ -533,7 +578,7 @@ void CookAssistant::tick_second_() {
       float left = p->predictor.rest_minutes_to(slice, 21.0f);
       if (!p->rest_notified && !std::isnan(left) && left <= 0.5f && !std::isnan(t) && t <= slice + 0.5f) {
         p->rest_notified = true;
-        this->notify(p->name + " rested", p->name + " is down to " + this->fmt_temp_(t) + ": ready to slice.", 1,
+        this->notify(p->label() + " rested", p->label() + " is down to " + this->fmt_temp_(t) + ": ready to slice.", 1,
                      "rest_" + p->key);
       }
       float carry, coolk;

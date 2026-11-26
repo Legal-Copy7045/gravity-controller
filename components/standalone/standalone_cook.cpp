@@ -580,7 +580,20 @@ void Standalone::put_on_reminders_(uint32_t t) {
     if ((this->put_on_sent_ & (1u << i)) || p->estimated_total == nullptr || !p->estimated_total->has_state() ||
         std::isnan(p->estimated_total->state) || p->weight == nullptr || !p->weight->has_state() || !(p->weight->state > 0))
       continue;
-    const float est = p->estimated_total->state;
+    // One reminder per food: slots with the same food name are one food (several probes in it), reminded on its
+    // first slot, with its longest estimate.
+    float est = p->estimated_total->state;
+    const std::string food = p->food();
+    bool later = false;
+    for (size_t j = 0; !food.empty() && j < ps.size() && j < 8; j++) {
+      auto *q = ps[j];
+      if (j == i || q->food() != food || q->estimated_total == nullptr || !q->estimated_total->has_state() ||
+          std::isnan(q->estimated_total->state) || q->weight == nullptr || !q->weight->has_state() || !(q->weight->state > 0))
+        continue;
+      if (j < i) { later = true; break; }
+      est = std::max(est, q->estimated_total->state);
+    }
+    if (later) { this->put_on_sent_ |= 1u << i; continue; }
     const int on = int(this->s2_.serve_by) - int((est + this->s2_.rest_min) * 60.0f);
     if (on > int(t)) continue;
     this->put_on_sent_ |= 1u << i;
@@ -589,8 +602,8 @@ void Standalone::put_on_reminders_(uint32_t t) {
     struct tm lt;
     localtime_r(&sb, &lt);
     const char *cut = cook::profiles()[p->predictor.profile()].name;
-    const bool named = cut != nullptr && std::strcmp(cut, "Auto") != 0;
-    std::string what = named ? std::string(cut) : p->name, low = what;
+    const bool named = !food.empty() || (cut != nullptr && std::strcmp(cut, "Auto") != 0);
+    std::string what = !food.empty() ? food : named ? std::string(cut) : p->name, low = what;
     for (auto &ch : low) ch = char(std::tolower(static_cast<unsigned char>(ch)));
     char msg[200];
     std::snprintf(msg, sizeof(msg), "Put %s%s on now%s%s%s so everything is ready to serve at %02d:%02d: about %.1f h on the "

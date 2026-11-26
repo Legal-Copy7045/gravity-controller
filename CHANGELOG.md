@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.10] - 2026-11-26
+
+*What's cooking* lists your food, not the controller's six food slots, and one food can have several probes.
+
+- Both dashboards: each food is one line (name, cut, weight, and each probe with where it is, its reading and target);
+  **Change** opens it. **Add food** adds one; **Add another probe in it** puts a second probe in the same food (a
+  turkey's breast and thigh), each with its own target. Slots not in use stay out of sight; a probe that's reading but
+  isn't on a food yet offers **Add it**.
+- A label photo's food goes straight onto a free slot (**Add**), named from the label; no slot picker.
+- Controller: new **Food N name** and **Food N spot** (kept across restarts). Alerts use them ("Turkey (breast) is
+  done"); the serve-together "put it on" reminder comes once per food, timed by its slowest probe, as does the Home
+  Assistant package's serve plan. Voice ("when is the turkey done?") finds a food by its name.
+- Fixed on both pages: a tap on a button right after typing in a field could be lost (the list redrew under it).
+
 ## [1.4.9] - 2026-11-26
 
 - Reading a package label on the controller's own page works: every photo was refused with "Send one photo". The

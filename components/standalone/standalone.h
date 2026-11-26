@@ -424,7 +424,7 @@ class Standalone : public Component {
   ESPPreferenceObject aipref_;
   bool ai_save_{false};
   uint8_t ai_busy_{0};  // bit per kind: advise, plan, label, test
-  std::string ai_advice_, ai_plan_, ai_labels_, ai_error_, ai_test_, ai_program_, ai_assign_cut_;
+  std::string ai_advice_, ai_plan_, ai_labels_, ai_error_, ai_test_, ai_program_, ai_assign_cut_, ai_assign_name_;
   std::string ai_load_;
   std::string ai_defer_kind_, ai_defer_text_;  // a question from the page, asked in the main loop
   std::string ai_plan_ask_(const std::string &req);

@@ -43,7 +43,7 @@ void CookAssistant::keep_tick_(const cook::RunnerInputs &in) {
   const bool suspect = err > 25.0f;
   if (suspect && !this->keep_probe_warned_) {
     this->keep_probe_warned_ = true;
-    std::string name = size_t(kp - 1) < this->probes_.size() ? this->probes_[kp - 1]->name : "The food";
+    std::string name = size_t(kp - 1) < this->probes_.size() ? this->probes_[kp - 1]->label() : "The food";
     this->notify("Check the probe", name + " reads " + this->fmt_temp_(food) + ", far below the " + this->fmt_temp_(want) +
                                         " it's kept at: is the probe still in the food? The pit stays at its lowest "
                                         "until the reading makes sense.",
@@ -72,7 +72,7 @@ void CookAssistant::keep_tick_(const cook::RunnerInputs &in) {
       this->keep_low_since_ = now;
     if (!this->keep_warned_ && now - this->keep_low_since_ > 600000) {
       this->keep_warned_ = true;
-      std::string name = size_t(kp - 1) < this->probes_.size() ? this->probes_[kp - 1]->name : "The food";
+      std::string name = size_t(kp - 1) < this->probes_.size() ? this->probes_[kp - 1]->label() : "The food";
       this->notify("Can't hold it that low",
                    name + " is " + this->fmt_temp_(food) + ", over the " + this->fmt_temp_(want) +
                        " you asked to keep it at, with the pit already at the grill's lowest (" +

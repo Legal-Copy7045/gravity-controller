@@ -344,13 +344,14 @@ void Standalone::loop_ai_(uint32_t now) {
   }
   // A food slot set from a package label, and a program from Plan with AI: applied here, in the main loop.
   int probe = 0;
-  std::string cut, prog;
+  std::string cut, prog, name;
   float lb = NAN;
   {
     std::lock_guard<std::recursive_mutex> g(this->lock_);
     probe = this->ai_assign_probe_;
     cut = this->ai_assign_cut_;
     lb = this->ai_assign_lb_;
+    name.swap(this->ai_assign_name_);
     this->ai_assign_probe_ = 0;
     prog.swap(this->ai_program_);
   }
@@ -359,6 +360,16 @@ void Standalone::loop_ai_(uint32_t now) {
     if (size_t(probe) <= ps.size()) {
       auto *p = ps[probe - 1];
       if (p->profile && !cut.empty()) p->profile->make_call().set_option(cut).perform();
+      if (p->food_name && !name.empty()) {
+        // (The name field takes 32 characters: a longer label name is cut at a word.)
+        if (name.size() > 32) {
+          size_t cut_at = name.rfind(' ', 32);
+          name.resize(cut_at != std::string::npos && cut_at > 8 ? cut_at : 32);
+          while (!name.empty() && (static_cast<unsigned char>(name.back()) & 0xC0) == 0x80) name.pop_back();
+          if (!name.empty() && (static_cast<unsigned char>(name.back()) & 0x80)) name.pop_back();
+        }
+        p->food_name->make_call().set_value(name).perform();
+      }
       if (p->weight && !std::isnan(lb)) {
         float w = this->fahrenheit_ ? lb : lb * 0.4536f;  // the weight number is in lb with °F, kg with °C
         p->weight->make_call().set_value(std::round(w * 10) / 10).perform();
@@ -492,6 +503,7 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     JsonObject it = l["items"][idx];
     if (it.isNull() || probe < 1 || probe > 6) return err(400, "Pick an item and a food slot");
     this->ai_assign_cut_ = it["profile"] | "";
+    this->ai_assign_name_ = it["name"] | "";  // the food's name (several probes in one food share it)
     this->ai_assign_lb_ = it["weight_lb"].is<float>() ? it["weight_lb"].as<float>() : NAN;
     this->ai_assign_probe_ = probe;
     return this->ai_json_();

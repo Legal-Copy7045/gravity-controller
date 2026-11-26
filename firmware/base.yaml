@@ -4,7 +4,7 @@
 # that will never see Home Assistant can include this file alone. Override any substitution.
 
 substitutions:
-  project_version: "1.4.9"
+  project_version: "1.4.10"
   name: gravity980
   friendly_name: Smoker
   temperature_unit: "F"            # F or C: the controller's own unit (HA converts for display anyway)
@@ -886,6 +886,10 @@ cook_assistant:
         name: Food 1 protein
       weight:
         name: Food 1 weight
+      food_name:
+        name: Food 1 name
+      spot:
+        name: Food 1 spot
       wrapped:
         name: Food 1 wrapped
       time_remaining:
@@ -956,6 +960,10 @@ cook_assistant:
         name: Food 2 protein
       weight:
         name: Food 2 weight
+      food_name:
+        name: Food 2 name
+      spot:
+        name: Food 2 spot
       wrapped:
         name: Food 2 wrapped
       time_remaining:
@@ -1026,6 +1034,10 @@ cook_assistant:
         name: Food 3 protein
       weight:
         name: Food 3 weight
+      food_name:
+        name: Food 3 name
+      spot:
+        name: Food 3 spot
       wrapped:
         name: Food 3 wrapped
       time_remaining:
@@ -1096,6 +1108,10 @@ cook_assistant:
         name: Food 4 protein
       weight:
         name: Food 4 weight
+      food_name:
+        name: Food 4 name
+      spot:
+        name: Food 4 spot
       wrapped:
         name: Food 4 wrapped
       time_remaining:
@@ -1166,6 +1182,10 @@ cook_assistant:
         name: Food 5 protein
       weight:
         name: Food 5 weight
+      food_name:
+        name: Food 5 name
+      spot:
+        name: Food 5 spot
       wrapped:
         name: Food 5 wrapped
       time_remaining:
@@ -1236,6 +1256,10 @@ cook_assistant:
         name: Food 6 protein
       weight:
         name: Food 6 weight
+      food_name:
+        name: Food 6 name
+      spot:
+        name: Food 6 spot
       wrapped:
         name: Food 6 wrapped
       time_remaining:

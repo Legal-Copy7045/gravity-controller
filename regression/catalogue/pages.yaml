@@ -20,6 +20,10 @@
   since: 1.4.0
   docs: docs/features.md
   match: ["^device:.*(Pit & program|Cook in the section bar|What's cooking|Build the cook|When:)", "^page:HA dashboard: Cook section"]
+- feature: "What's cooking as foods: several probes in one food (name, spot, target), Add food, label Add"
+  since: 1.4.10
+  docs: docs/install.md
+  match: ["^device:1440px: (Add food|the food's name|its cut too|and its weight|Add another probe|where the second probe|one Turkey|Remove takes|Remove this food|and the list is empty|What's cooking)", "^device:.*Add puts the label", "^sim:scenarios: scenario 5: .*(food's name|name and spot)", "^package:.*two probes in one food", "^manual:.*several probes"]
 - feature: "Program editor (steps, text, presets, simple form, Load) on both pages"
   since: 0.2.47
   docs: docs/cook-programs.md

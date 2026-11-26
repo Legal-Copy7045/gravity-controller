@@ -277,7 +277,16 @@ class Journal:
         if not probe:
             return
         slug = _entity_slug(probe)
-        sel, num = f"select.smoker_{slug}_protein", f"number.smoker_{slug}_weight"
+        sel, num, txt = f"select.smoker_{slug}_protein", f"number.smoker_{slug}_weight", f"text.smoker_{slug}_name"
+        name = (item.get("name") or "").strip()
+        if name and self.hass.states.get(txt):
+            # The food's name on the slot (controller 1.4.10+): slots with the same name are one food. 32 characters,
+            # cut at a word.
+            if len(name) > 32:
+                cut = name.rfind(" ", 0, 33)
+                name = name[: cut if cut > 8 else 32].rstrip()
+            await self.hass.services.async_call("text", "set_value", {"entity_id": txt, "value": name},
+                                                blocking=True, context=context)
         if self.hass.states.get(sel):
             await self.hass.services.async_call("select", "select_option", {"entity_id": sel, "option": item["profile"]},
                                                 blocking=True, context=context)

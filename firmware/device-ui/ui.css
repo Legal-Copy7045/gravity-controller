@@ -291,16 +291,23 @@ html{background:#f2f4f6}
 .gx .ck-stat:empty{display:none}
 .gx .row.ck-preset{border-top:0;padding-top:0;margin-bottom:8px}
 .gx .ck-from{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 10px}
-.gx .slots{display:flex;flex-direction:column;margin-top:8px}
-.gx .slot{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
-.gx .slot .sw{width:10px;height:10px;border-radius:50%}
+.gx .fds{display:flex;flex-direction:column;margin-top:8px}
+.gx .fd{padding:10px 0;border-top:1px solid var(--line)}
+.gx .fd-h{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:start}
+.gx .fd-h .sw{width:10px;height:10px;border-radius:50%;margin-top:6px}
 .gx .slot-n{display:flex;flex-direction:column;min-width:0}
 .gx .slot-n .small{overflow-wrap:anywhere}
-.gx .slot-f{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
-.gx .slot-f select{max-width:180px;min-width:0}
-.gx .slot-f input[type=number]{width:72px}
-.gx .slots details.more{border-top:1px solid var(--line)}
-@media (max-width:560px){.gx .slot{grid-template-columns:auto minmax(0,1fr)}.gx .slot-f{grid-column:2;justify-content:flex-start}}
+.gx .fd-ed{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin:10px 0 0 20px}
+.gx .fd-ed label{display:flex;flex-direction:column;gap:3px;min-width:0}
+.gx .fd-ed .fd-w{flex:1 1 100%}
+.gx .fd-ed .fd-w input{width:100%;max-width:320px}
+.gx .fd-ed input[type=number]{width:72px}
+.gx .fd-ed select{max-width:200px;min-width:0}
+.gx .fd-ps{flex:1 1 100%;display:flex;flex-direction:column;gap:2px}
+.gx .fd-p{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;padding:6px 0;border-top:1px dashed var(--line)}
+.gx .fd-p input[type=text]{width:130px}
+.gx .fd-ed .btns{flex:1 1 100%}
+.gx .fd-l{display:flex;justify-content:space-between;align-items:center;gap:8px}
 /* step editor: Turbo per step, keep (page.html has the same rules) */
 .gx .pe-turbo{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink-2);cursor:pointer;margin-left:2px;min-height:34px}
 .gx .pe-turbo input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--page)}

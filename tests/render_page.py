@@ -89,6 +89,10 @@ STATES = dict([
     st("sensor.smoker_food_3_time_remaining_early", 15, "Smoker Food 3 time remaining (early)", **MIN),
     st("sensor.smoker_food_3_time_remaining_late", 30, "Smoker Food 3 time remaining (late)", **MIN),
     st("select.smoker_food_3_protein", "Poultry", "Smoker Food 3 protein", options=["Auto", "Poultry"]),
+    st("text.smoker_food_1_name", "", "Smoker Food 1 name", max=32),
+    st("text.smoker_food_1_spot", "", "Smoker Food 1 spot", max=24),
+    st("text.smoker_food_3_name", "", "Smoker Food 3 name", max=32),
+    st("text.smoker_food_3_spot", "", "Smoker Food 3 spot", max=24),
     st("select.smoker_food_1_probe", "Grill probe 1", "Smoker Food 1 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
     st("select.smoker_food_2_probe", "H5198 probe 1", "Smoker Food 2 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
     st("select.smoker_food_3_probe", "Home Assistant", "Smoker Food 3 probe", options=["Grill probe 1", "Grill probe 2", "H5198 probe 1", "H5198 probe 2", "H5198 probe 3", "H5198 probe 4", "Home Assistant"]),
@@ -235,7 +239,7 @@ def presets():
 
 def shared_blocks_match():
     """page.html and the device page's ui.js carry the same shared blocks (cook program editor, page sections)."""
-    for name in ("cook program editor", "page sections", "cook plan", "serve together", "cook replay"):
+    for name in ("cook program editor", "page sections", "cook plan", "serve together", "cook replay", "food list"):
         b, e = f"// ==== BEGIN {name} (shared block) ====", f"// ==== END {name} (shared block) ===="
         out = []
         for f in ("custom_components/smoker/frontend/page.html", "firmware/device-ui/ui.js"):
@@ -453,17 +457,34 @@ def hero_and_cook(pg, fr):
     if "Lid open" not in fr.inner_text("#chips"):
         fails.append("header: no Lid open chip")
     set_state(pg, "binary_sensor.smoker_lid", "off")
-    # What's cooking: one row per food, with its probe, protein and weight.
-    slots = fr.evaluate("[...document.querySelectorAll('#scancard .slot')].map(e => e.innerText.replace(/\\s+/g, ' '))")
-    if len(slots) != 2 or "Food 1" not in slots[0] or "Grill probe 1" not in slots[0] or "Food 3" not in slots[1] or "Home Assistant" not in slots[1]:
-        fails.append(f"what's cooking: slots {slots}")
-    if fr.evaluate("document.querySelector('#scancard .slot select').value") != "Pork shoulder":
-        fails.append("what's cooking: Food 1's protein not shown")
+    # What's cooking: one entry per food (not per slot), with its probes; Change opens it.
+    foods = fr.evaluate("[...document.querySelectorAll('#scancard .fd:not(.fd-l)')].map(e => e.innerText.replace(/\\s+/g, ' '))")
+    if len(foods) != 2 or "Pork shoulder" not in foods[0] or "Grill probe 1" not in foods[0] or "Poultry" not in foods[1] or "Home Assistant" not in foods[1]:
+        fails.append(f"what's cooking: foods {foods}")
+    fr.click("#scancard [data-fa=edit][data-n='1']")
+    if fr.evaluate("document.querySelector('#scancard select[data-ff=prof]').value") != "Pork shoulder":
+        fails.append("what's cooking: Food 1's cut not shown")
     n0 = len(pg.evaluate("window.calls"))
-    fr.evaluate("""() => { const i = document.querySelector('#scancard .slot input[type=number]'); i.value = '9'; i.dispatchEvent(new Event('change', {bubbles: true})); }""")
+    fr.evaluate("""() => { const i = document.getElementById('fdw-1'); i.value = '9'; i.dispatchEvent(new Event('change', {bubbles: true})); }""")
+    fr.evaluate("""() => { const i = document.getElementById('fdn-1'); i.value = 'Pork butt'; i.dispatchEvent(new Event('change', {bubbles: true})); }""")
     time.sleep(0.3)
-    if not any(c[0] == "number" and c[2].get("entity_id") == "number.smoker_food_1_weight" and c[2].get("value") == 9 for c in pg.evaluate("window.calls")[n0:]):
+    got = pg.evaluate("window.calls")[n0:]
+    if not any(c[0] == "number" and c[2].get("entity_id") == "number.smoker_food_1_weight" and c[2].get("value") == 9 for c in got):
         fails.append("what's cooking: the weight isn't set")
+    if not any(c[0] == "text" and c[2].get("entity_id") == "text.smoker_food_1_name" and c[2].get("value") == "Pork butt" for c in got):
+        fails.append(f"what's cooking: the food's name isn't set: {got}")
+    fr.click("#scancard [data-fa=done]")
+    # Two probes in one food: Food 1 and Food 3 both named Turkey, at the breast and the thigh.
+    for n, spot in ((1, "breast"), (3, "thigh")):
+        set_state(pg, f"text.smoker_food_{n}_name", "Turkey")
+        set_state(pg, f"text.smoker_food_{n}_spot", spot)
+    time.sleep(0.3)
+    foods = fr.evaluate("[...document.querySelectorAll('#scancard .fd:not(.fd-l)')].map(e => e.innerText.replace(/\\s+/g, ' '))")
+    if len(foods) != 1 or "Turkey" not in foods[0] or "breast" not in foods[0] or "thigh" not in foods[0]:
+        fails.append(f"what's cooking: two probes in one food: {foods}")
+    for n in (1, 3):
+        set_state(pg, f"text.smoker_food_{n}_name", "")
+        set_state(pg, f"text.smoker_food_{n}_spot", "")
     # Build the cook: Plan with AI and Build it yourself are tabs over one stages list.
     fr.click("#ctab-ai")
     if not fr.is_visible("#plantext") or fr.is_visible("#progedit") or fr.evaluate("document.getElementById('ctab-ai').getAttribute('aria-selected')") != "true":
@@ -728,7 +749,7 @@ def main():
     open(hp, "w").write(harness)
     failures = []
     if not shared_blocks_match():
-        failures.append("the shared blocks (program editor, page sections, cook plan, serve together, cook replay) in page.html and ui.js differ")
+        failures.append("the shared blocks (program editor, page sections, cook plan, serve together, cook replay, food list) in page.html and ui.js differ")
     with sync_playwright() as p:
         exe = os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1243/chrome-linux64/chrome")
         b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
@@ -827,7 +848,7 @@ def main():
                     failures.append(f"{scheme}/{name}: signal rows: {cc[:300]!r}")
                 # What's cooking: separate camera and library buttons (only the camera one opens the camera).
                 sc = fr.evaluate("""() => [...document.querySelectorAll('#scancard input[type=file]')].map(i => [i.hasAttribute('capture'), i.multiple, i.closest('label') && i.closest('label').innerText.trim()])""")
-                if sorted(sc) != sorted([[True, False, "Take a photo"], [False, True, "Choose photos"]]):
+                if sorted(sc) != sorted([[True, False, "Photo of the label"], [False, True, "Choose photos"]]):
                     failures.append(f"{scheme}/{name}: scan inputs: {sc!r}")
                 tb = fr.evaluate("async () => { window.__smOnHass(); await new Promise(r => setTimeout(r, 400)); return document.getElementById('topbar').innerText; }")
                 if "Wi-Fi + Bluetooth" not in tb or fr.evaluate("document.querySelectorAll('#topbar .ic.via').length") != 2:

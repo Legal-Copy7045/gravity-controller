@@ -40,3 +40,7 @@
   check: "Reading a package label on the controller's own page: a phone photo of a meat label gives the cut and weight"
   steps: "AI set up under Setup > AI. Cook > What's cooking > Take a photo of a package label; within a minute the page lists the item with its cut and weight, and Set puts it on a food slot. Try a large photo (12 MP) as well."
   last: "failed before 1.4.9 (every photo refused: 'Send one photo')"
+- key: one food with several probes on the real grill
+  check: "One food with several probes: a turkey with grill probe 1 in the breast and grill probe 2 in the thigh shows as one food, and each probe's done alert names its spot"
+  steps: "What's cooking > Add food > Turkey, Poultry, weight. Add another probe in it > Grill probe 2, Where: thigh, Done at 175. Both probes listed under Turkey on both dashboards; 'Turkey (breast) is done' and 'Turkey (thigh) is done' arrive separately; a serve time gives one 'put it on' reminder."
+  last: "not done yet"

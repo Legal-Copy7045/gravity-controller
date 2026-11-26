@@ -243,6 +243,16 @@ async def main():
                     {"slot": 3, "name": "Poultry", "total": 300, "on": s_ts - (300 + 45) * 60}],
           f"serve together: only foods with a weight and an estimate, earliest first: {foods}")
     check(int(render(st["state"])) == 2 and int(render(st["attributes"]["serve"])) == s_ts, "serve together: count and serve time")
+    # Two probes in one turkey (Food 3 and Food 5 named "Turkey"): one food, at its slower probe, under its name.
+    hass.states.async_set("text.smoker_food_3_name", "Turkey")
+    for k, v in (("sensor.smoker_food_5_estimated_total_cook_time", "340"), ("number.smoker_food_5_weight", "3.5"),
+                 ("select.smoker_food_5_protein", "Poultry"), ("text.smoker_food_5_name", "turkey ")):
+        hass.states.async_set(k, v)
+    two = render(st["attributes"]["foods"])
+    check(two == [foods[0], {"slot": 3, "name": "Turkey", "total": 340, "on": s_ts - (340 + 45) * 60}]
+          and int(render(st["state"])) == 2, f"serve together: two probes in one food count once, at the slower one: {two}")
+    for k in ("text.smoker_food_3_name", "text.smoker_food_5_name", "number.smoker_food_5_weight"):
+        hass.states.async_set(k, "" if "name" in k else "0")
     by = next(x for x in tsens if x.get("unique_id") == "smoker_start_by")["state"]
     got = dt_util.parse_datetime(str(render(by)))
     check(got is not None and abs((serve - got).total_seconds() / 60 - (760 + 45 + 45)) < 1,

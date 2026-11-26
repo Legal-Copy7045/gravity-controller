@@ -195,6 +195,8 @@ cook_assistant:
       reading: {name: Food 1 temperature}
       profile: {name: Food 1 protein}
       weight: {name: Food 1 weight}
+      food_name: {name: Food 1 name}
+      spot: {name: Food 1 spot}
       time_remaining: {name: Food 1 time remaining}
       estimated_total: {name: Food 1 estimated total}
       phase: {name: Food 1 phase}
@@ -209,6 +211,10 @@ cook_assistant:
       unit: C
       phase: {name: Food 2 phase}
       reading: {name: Food 2 temperature}
+      profile: {name: Food 2 protein}
+      weight: {name: Food 2 weight}
+      food_name: {name: Food 2 name}
+      spot: {name: Food 2 spot}
   program_status: {name: Program status}
   program_state: {name: Program state}
   program_error: {name: Program error}

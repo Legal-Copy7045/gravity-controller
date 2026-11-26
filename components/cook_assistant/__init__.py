@@ -34,6 +34,7 @@ CASelect = ca_ns.class_("CASelect", select.Select, cg.Component)
 CASwitch = ca_ns.class_("CASwitch", switch.Switch, cg.Component)
 CAButton = ca_ns.class_("CAButton", button.Button)
 CAText = ca_ns.class_("CAText", text.Text, cg.Component)
+CAName = ca_ns.class_("CAName", text.Text, cg.Component)
 NotifyTrigger = ca_ns.class_(
     "NotifyTrigger", automation.Trigger.template(cg.std_string, cg.std_string, cg.int_, cg.std_string)
 )
@@ -109,6 +110,9 @@ PROBE_SCHEMA = cv.All(cv.Schema(
         cv.Optional("wrapped"): switch.switch_schema(CASwitch, icon="mdi:package-variant-closed").extend(
             cv.COMPONENT_SCHEMA
         ),
+        # The food on this slot and where the probe is in it (slots with the same food name are one food).
+        cv.Optional("food_name"): text.text_schema(CAName, icon="mdi:food-drumstick", mode="TEXT").extend(cv.COMPONENT_SCHEMA),
+        cv.Optional("spot"): text.text_schema(CAName, icon="mdi:map-marker", mode="TEXT").extend(cv.COMPONENT_SCHEMA),
         # The slot's temperature from whichever source it reads, in the controller's unit.
         cv.Optional("reading"): sensor.sensor_schema(
             accuracy_decimals=1, device_class=DEVICE_CLASS_TEMPERATURE, state_class=STATE_CLASS_MEASUREMENT,
@@ -359,6 +363,11 @@ async def to_code(config):
             n = await number.new_number(c, min_value=0, max_value=40 if fahrenheit else 18, step=0.1)
             await cg.register_component(n, c)
             cg.add(cg.RawExpression(f"{pv}->weight = {n}"))
+        for key, ml in (("food_name", 32), ("spot", 24)):
+            if key in p:
+                t = await text.new_text(p[key], max_length=ml)
+                await cg.register_component(t, p[key])
+                cg.add(cg.RawExpression(f"{pv}->{key} = {t}"))
         if "wrapped" in p:
             s = await switch.new_switch(p["wrapped"])
             await cg.register_component(s, p["wrapped"])

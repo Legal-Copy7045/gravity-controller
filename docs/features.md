@@ -11,7 +11,7 @@ from a Govee H5198 nearby, or from Home Assistant.
 |---|---|
 | Grill link | Reads the grill over Wi-Fi (TCP) or Bluetooth, or both; falls back between them |
 | Control | Pit and food targets, Turbo, the timer, power on/off (two taps within 10 s), like the Char-Griller app |
-| Temperatures | The pit probe and the two food probes **plugged into the grill's controller**; a Govee H5198 read directly over Bluetooth; any temperature sensor in Home Assistant. Six food slots, each reading one of these |
+| Temperatures | The pit probe and the two food probes **plugged into the grill's controller**; a Govee H5198 read directly over Bluetooth; any temperature sensor in Home Assistant. Six food slots, each reading one of these; one food can have several probes (a turkey's breast and thigh) |
 | Predictions | Finish time per food (warming → stall → finishing) with an early/late range, learned from your past cooks, weather-aware; stall detection and stall remaining |
 | Cook programs | Multi-step programs run on the controller (`pit 250 until food1 >= 165 for 30m; ...`), presets, manual override and resume, restore after a restart |
 | Alerts | Done/almost done, stall, probe slipped out, pit off target, pit running away (grease fire or air getting in), fire dying or out (told apart from a lid opening), charcoal stuck in the chute, lid open, connection lost, low charcoal; through Home Assistant, ntfy, Pushover or Telegram |
