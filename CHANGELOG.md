@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.9] - 2026-11-26
+
+- Reading a package label on the controller's own page works: every photo was refused with "Send one photo". The
+  controller's JSON library holds text of up to 64 KB and a photo is 100-360 KB, so the photo is now read from the
+  page's request, and put into the request to the AI provider, without it (components/standalone/ai_photo.h).
+
 ## [1.4.8] - 2026-11-25
 
 - `sensor.smoker_community` exists from the start (0 cooks, nothing similar), even with sharing off: the package's AI

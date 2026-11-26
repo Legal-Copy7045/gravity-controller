@@ -5,6 +5,7 @@
 //  - What's cooking: a photo of the package label; it reads the cut and weight, and sets them on a Food slot.
 // Calls run in their own worker lane (standalone.cpp), so a slow answer never holds up a notification.
 #include "standalone.h"
+#include "ai_photo.h"
 
 #include <algorithm>
 #include <cmath>
@@ -153,7 +154,7 @@ bool Standalone::ai_ask_(const std::string &kind, const std::string &system, con
         img["type"] = "image";
         img["source"]["type"] = "base64";
         img["source"]["media_type"] = "image/jpeg";
-        img["source"]["data"] = image_b64;
+        img["source"]["data"] = ai_photo::SLOT;
       }
       JsonObject t = content.add<JsonObject>();
       t["type"] = "text";
@@ -178,7 +179,7 @@ bool Standalone::ai_ask_(const std::string &kind, const std::string &system, con
       if (!image_b64.empty()) {
         JsonObject img = content.add<JsonObject>();
         img["type"] = "image_url";
-        img["image_url"]["url"] = "data:image/jpeg;base64," + image_b64;
+        img["image_url"]["url"] = std::string("data:image/jpeg;base64,") + ai_photo::SLOT;
       }
     }).c_str();
   } else {  // gemini
@@ -193,10 +194,15 @@ bool Standalone::ai_ask_(const std::string &kind, const std::string &system, con
       if (!image_b64.empty()) {
         JsonObject img = parts.add<JsonObject>();
         img["inline_data"]["mime_type"] = "image/jpeg";
-        img["inline_data"]["data"] = image_b64;
+        img["inline_data"]["data"] = ai_photo::SLOT;
       }
       parts.add<JsonObject>()["text"] = user;
     }).c_str();
+  }
+  if (!image_b64.empty()) {
+    // The photo goes in after the request is built: the JSON library holds strings of up to 64 KB, a photo is up to
+    // ~360 KB of base64 (which needs no escaping in a JSON string).
+    if (!ai_photo::put(j.body, image_b64)) { why = "Couldn't build the request"; this->ai_calls_today_--; return false; }
   }
   this->ai_busy_ |= 1u << this->ai_kind_(kind);
   // Whether this question carries the journal's notes (kept from a locked page): its answer then is too.
@@ -465,7 +471,8 @@ std::string Standalone::api_ai_(const std::string &path, JsonDocument &in, int &
     return this->ai_json_();
   }
   if (path == "ai/label") {
-    std::string img = in["image"] | "";
+    std::string img = this->ai_label_image_;  // read from the raw request: the JSON library stops at 64 KB strings
+    this->ai_label_image_.clear();
     if (img.size() < 100 || img.size() > 380000) return err(400, "Send one photo (the page shrinks it first)");
     for (size_t i = 0; i < img.size(); i += 97)  // a cheap check that it's base64
       if (!(isalnum(img[i]) || img[i] == '+' || img[i] == '/' || img[i] == '=')) return err(400, "Not a photo");

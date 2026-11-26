@@ -1,5 +1,6 @@
 #include "standalone.h"
 #include "local_url.h"
+#include "ai_photo.h"
 
 #include <algorithm>
 #include <arpa/inet.h>
@@ -1264,6 +1265,12 @@ std::string Standalone::api(const std::string &method, const std::string &path, 
   // stay write-only either way.
   const bool ai_use = path == "ai/advise" || path == "ai/plan" || path == "ai/label";
   if (!authed && !ai_use) { status = 401; return json::build_json([&](JsonObject o) { o["error"] = "Enter the PIN"; o["pin"] = true; }).c_str(); }
+  if (path == "ai/label") {
+    // {"image": "<base64>"}: a photo is too long a string for the JSON library (64 KB), so it's read here by hand.
+    this->ai_label_image_ = ai_photo::from_request(body);
+    JsonDocument none;
+    return this->api_ai_(path, none, status);
+  }
   JsonDocument in = json::parse_json(body);
   auto str = [&](const char *k) { return in[k].is<const char *>() ? std::string(in[k].as<const char *>()) : std::string(); };
 

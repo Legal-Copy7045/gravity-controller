@@ -13,6 +13,7 @@
 #include "../components/cook_assistant/predictor.h"
 #include "../components/cook_assistant/program.h"
 #include "../components/standalone/local_url.h"
+#include "../components/standalone/ai_photo.h"
 #include "../components/gravity980/protocol.h"
 #include "../components/standalone/pin_auth.h"
 
@@ -1180,8 +1181,24 @@ static void test_local_url() {
   CHECK(!is_local("http://[fd00::1]/") && !is_local("192.168.1.2/x") && !is_local(std::string("http://nas\0.evil.com/", 22)));
 }
 
+// A label photo is far longer than the JSON library's longest string (65,535 characters), so it's read from the
+// page's request and put into the provider's request by hand.
+static void test_ai_photo() {
+  std::printf("AI label photo: read from the page, put into the request\n");
+  const std::string photo(360000, 'A');
+  CHECK(ai_photo::from_request("{\"image\":\"" + photo + "\"}") == photo);
+  CHECK(ai_photo::from_request("{ \"image\" : \"abc+/=\" }") == "abc+/=");
+  CHECK(ai_photo::from_request("{\"image\":12}").empty() && ai_photo::from_request("{}").empty() &&
+        ai_photo::from_request("{\"image\":\"abc").empty());
+  std::string req = std::string("{\"data\":\"") + ai_photo::SLOT + "\",\"text\":\"What is in this photo?\"}";
+  CHECK(ai_photo::put(req, photo) && req == "{\"data\":\"" + photo + "\",\"text\":\"What is in this photo?\"}");
+  std::string none = "{}";
+  CHECK(!ai_photo::put(none, photo) && none == "{}");
+}
+
 int main() {
   test_local_url();
+  test_ai_photo();
   test_pin_auth();
   test_protocol();
   test_wifi_setup();

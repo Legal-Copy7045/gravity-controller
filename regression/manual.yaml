@@ -36,3 +36,7 @@
   check: "Connectivity watchdog: the Connectivity line names the grill, Wi-Fi, Home Assistant and internet; after a router restart everything recovers without the controller restarting"
   steps: "Restart the router while the grill is idle. Watch Connectivity go 'Wi-Fi: down' and back; the controller's uptime keeps counting. (The host test build has no standalone component, so this isn't simulated.)"
   last: "status line seen on 1.4.0 (live check reads it); router restart not done yet"
+- key: reading a package label on the device page
+  check: "Reading a package label on the controller's own page: a phone photo of a meat label gives the cut and weight"
+  steps: "AI set up under Setup > AI. Cook > What's cooking > Take a photo of a package label; within a minute the page lists the item with its cut and weight, and Set puts it on a food slot. Try a large photo (12 MP) as well."
+  last: "failed before 1.4.9 (every photo refused: 'Send one photo')"

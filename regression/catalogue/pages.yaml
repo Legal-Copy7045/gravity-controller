@@ -27,7 +27,7 @@
 - feature: "Plan with AI and the AI's plan as stages"
   since: 0.2.30
   docs: docs/features.md
-  match: ["^device:PIN: (the AI|AI provider|Test the key|Edit the stages|Plan with AI|a label photo|the label's|locked: asking the AI|locked: AI)", "^page:HA dashboard: (Plan with AI|cook plan)"]
+  match: ["^device:PIN: (the AI|AI provider|Test the key|Edit the stages|Plan with AI|a label photo|the label's|locked: asking the AI|locked: AI)", "^page:HA dashboard: (Plan with AI|cook plan)", "^core:core tests: (?i:ai label photo)", "^manual:.*package label"]
 - feature: "Serve-together scheduler"
   since: 1.4.0
   docs: docs/features.md

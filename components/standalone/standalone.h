@@ -419,6 +419,7 @@ class Standalone : public Component {
   std::string ai_advise_();
   std::string ai_json_();  // settings (never the key), what the AI said and its errors
   std::string api_ai_(const std::string &path, JsonDocument &in, int &status);
+  std::string ai_label_image_;  // the photo of an ai/label request (api_call -> api_ai_)
   AiSettings ai_{};
   ESPPreferenceObject aipref_;
   bool ai_save_{false};
