@@ -47,4 +47,4 @@
 - key: signing environment limited to main
   check: "GitHub Settings: the release-signing (and github-pages) environments allow only the default branch"
   steps: "Settings > Environments > release-signing: Deployment branches = Selected branches, only main (optionally a required reviewer). The same for github-pages. The signing key is only safe if this holds; the repository can't show it."
-  last: "not checked yet"
+  last: "2026-11-26: checked by the owner in GitHub Settings"
