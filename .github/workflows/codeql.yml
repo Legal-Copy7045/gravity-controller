@@ -1,34 +1,18 @@
+# Weekly and on demand only (STANDARD.md 1.5), through the standard's reusable workflow. GitHub's CodeQL "default
+# setup" is switched off (Settings -> Code security -> CodeQL analysis), since GitHub won't take results from both.
 name: CodeQL
-
-# Code scanning once a week and on demand (Actions minutes are limited): not on every push or pull request.
-# Replaces GitHub's "default setup" for CodeQL, which the owner switches off (Settings -> Code security -> CodeQL
-# analysis -> Disable), since GitHub won't take results from both.
 on:
   schedule:
-    - cron: "41 8 * * 3"   # Wednesdays 08:41 UTC
+    - cron: "17 3 * * 0"   # Sunday 03:17 UTC: two hours after this project's weekly CI slot
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  analyze:
-    runs-on: ubuntu-latest
+  codeql:
     permissions:
       contents: read
+      actions: read
       security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [actions, c-cpp, javascript-typescript, python]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: none
-      - uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
-        with:
-          category: /language:${{ matrix.language }}
+    uses: Legal-Copy7045/project-standards/.github/workflows/codeql.yml@1f5964bc45844dc0cefda0374af8f8128daa1b40 # v1.1.0
+    with:
+      languages: '["actions", "c-cpp", "javascript-typescript", "python"]'

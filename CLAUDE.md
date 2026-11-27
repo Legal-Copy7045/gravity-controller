@@ -12,10 +12,14 @@ names, credentials, his grill photo).
   version, plus a `CHANGELOG.md` entry (`.github/scripts/check_versions.py`). A push to `main` with a new VERSION
   builds, tests and creates release `v<VERSION>` (firmware, integration zip, package zip) and the web installer
   (GitHub Pages).
-- CI (`.github/workflows/build.yml`, Actions minutes are limited): pull requests (not drafts), the default branch,
-  weekly and by hand; nothing on working-branch pushes. Slow jobs run only when the pull request touches what they
-  test (`.github/scripts/changes.py`); a push to `main` without a new VERSION runs only the quick checks. CodeQL
-  weekly + on demand (`codeql.yml`), Dependabot monthly and grouped. Keep job names when reshaping jobs.
+- Owner's project standard 1.1.0 (`~/.claude/standards/STANDARD.md`; `.github/standard.yaml` lists what this repo
+  keeps beyond it and its exceptions). CI is `.github/workflows/ci.yml`: pull requests (not drafts), a push to `main`
+  that releases, weekly (Sun 01:17 UTC) and by hand; nothing on working-branch pushes. Slow groups start only when a
+  pull request touches their files (`.github/changes.yaml`). `ci-result` is the one required check; keep job names.
+  CodeQL weekly, Dependabot weekly with auto-merge of grouped minor/patch updates. Hand-pinned versions (ESPHome,
+  Home Assistant, Python, Playwright) are listed in `.github/upstreams.yaml`: keep it current.
+- Work in a draft pull request; `python3 regression/run.py check` before marking it ready; merge when `ci-result` is
+  green. A merged VERSION bump is the release.
 - Brand files: edit `brand/`, then `python3 tools/brand_sync.py` (CI checks it).
 - Before pushing a release, run the quick suites locally (`make -C tests`, the host build compile, pytest
   `tests/integration`, `tests/ha_check.py`, `tests/ha_templates.py`, `tests/render_page.py`, and a scenario group only
@@ -50,14 +54,15 @@ and the food list (What's cooking). Change both copies together.
 
 ## Regression suite (`regression/`, `/regression`, `/walkthrough`, `/full-check`)
 
-Three commands (`.claude/skills/<name>/SKILL.md`): `/regression` (every stage + bug, security-claims and LAN-outsider
-reviews), `/walkthrough` (both dashboards crawled on desktop and phone + two UX reviewers), `/full-check` (both at once).
+The global commands `/regression` (every stage + bugs, claims and exposure = LAN-outsider reviewers), `/walkthrough`
+(both dashboards crawled on desktop and phone + two UX reviewers) and `/full-check` (both at once) read
+`regression/profile.yaml` and `regression/README.md` (this project's specifics).
 
 The full regression (every test suite, a bug and a security review, one published report) is run every few releases
-or after a big feature set, when the owner asks ("/regression" runs `.claude/skills/regression/SKILL.md`). Every
+or after a big feature set, when the owner asks. Every
 feature PR keeps it current: add tests for the feature, a `regression/catalogue/<area>.yaml` entry whose `match` finds
-them, a `regression/manual.yaml` entry for what only the real grill can show, and commit new IDs in
-`regression/ids/`. IDs are append-only. `regression/out/` is git-ignored; `regression/RUNS.md` keeps one public-safe
+them, a `regression/manual.yaml` entry for what only the real grill can show, a `regression/claims.yaml` entry for a new
+security claim, and commit new IDs in `regression/ids/`. IDs are append-only. `regression/out/` is git-ignored; `regression/RUNS.md` keeps one public-safe
 entry per run. Live checks are read-only and take the Home Assistant URL from the environment, never the repo.
 
 ## Security posture (docs/security.md)

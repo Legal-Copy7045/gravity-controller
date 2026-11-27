@@ -1,4 +1,4 @@
-# Hash-pinned lock for the release signing job (.github/workflows/build.yml, job `firmware`): esptool (espsecure) and
+# Hash-pinned lock for the release signing job (.github/workflows/ci.yml, job `firmware`): esptool (espsecure) and
 # its own dependencies only, wheels only, in a fresh venv, so as little third-party code as possible runs next to the
 # signing key. Keep the version in step with firmware.txt, and regenerate sign.txt from the repository root with:
 #   uv pip compile .github/requirements/sign.in --generate-hashes --python-version 3.13 \

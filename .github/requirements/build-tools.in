@@ -1,4 +1,4 @@
-# Hash-pinned lock for CI (.github/workflows/build.yml). After changing this file (or ESPHOME_VERSION in build.yml),
+# Hash-pinned lock for CI (.github/workflows/ci.yml). After changing this file (or ESPHOME_VERSION in ci.yml),
 # regenerate build-tools.txt from the repository root with:
 #   uv pip compile .github/requirements/build-tools.in --generate-hashes --python-version 3.13 \
 #     --python-platform x86_64-unknown-linux-gnu --no-header -o .github/requirements/build-tools.txt

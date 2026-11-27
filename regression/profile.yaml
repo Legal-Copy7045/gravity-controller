@@ -1,0 +1,44 @@
+# The project's regression profile (project standard, section 3.1). The global /regression, /walkthrough and
+# /full-check skills read this and regression/README.md; nothing project-specific lives in the skills.
+# This project keeps its own stage runners and reports (regression/run.py, report.py, walkthrough.py,
+# walkthrough_report.py: .github/standard.yaml `beyond:`), so the stages below describe what run.py does rather than
+# commands for standard.py to run.
+name: Smoker (gravity-controller)
+type: firmware              # also an ha-integration (custom_components/smoker) and an HA package
+ui: true
+report_tz: Europe/London
+version_file: VERSION
+security_tools: "ruff, bandit -r custom_components/smoker tools, pip-audit of every .github/requirements/*.txt, g++ -Wall -Wextra, node --check (the quality stage: out/quality.json)"
+roles: [owner]              # one person runs the grill; a PIN-locked device page is covered by the device stage
+
+env:                        # paths to the venvs the stages need (regression/README.md)
+  ESPHOME_PYTHON: "esphome, aioesphomeapi, aiohttp (firmware, sim, device, walkthrough)"
+  HA_PYTHON: "pip install -r tests/requirements-integration.txt (integration, package)"
+  QUALITY_PYTHON: "bandit, pip-audit (quality; ruff from PATH)"
+
+stages:                     # run.py's own stages, in its order; IDs and prefixes predate the standard and are kept
+  ci: {prefix: CI, what: "versions, brand files, privacy guard, release notes, package copy, shared blocks, workflow hygiene"}
+  quality: {prefix: QA, what: "the standard's ci security tools: ruff, bandit, pip-audit, C++ warnings, JavaScript parses"}
+  core: {prefix: CORE, what: "the standard's unit stage: make -C tests (C++ unit tests)"}
+  firmware: {prefix: FW, what: "the standard's device stage, part 1: esphome config and compile of every build"}
+  sim: {prefix: SIM, what: "the host build against the simulated grill: e2e and failure scenarios"}
+  device: {prefix: DEV, what: "the controller's own page in Chromium against the host build (PIN, other origins)"}
+  page: {prefix: PAGE, what: "the Home Assistant dashboard in Chromium with mock states"}
+  integration: {prefix: INT, what: "pytest tests/integration (Home Assistant test framework)"}
+  package: {prefix: PKG, what: "the HA package checked and its templates rendered by Home Assistant"}
+  live:
+    prefix: LIVE
+    env: [HA_URL]           # read-only; skipped when HA_URL isn't set or the host isn't reachable
+    what: "the owner's Home Assistant: integration and firmware at this version, config valid, nothing switched"
+  manual: {prefix: MAN, what: "regression/manual.yaml; results with run.py manual KEY pass|fail"}
+  walkthrough: {prefix: WT, what: "regression/walkthrough.py: both dashboards x desktop/phone x Basic/Advanced, plus Setup"}
+
+walkthrough:
+  ui_paths: ['^firmware/device-ui/', '^custom_components/smoker/frontend/', '^brand/', '^regression/walkthrough']
+
+reviewers:                  # one or two lines each: where this project's risk lives (threat model: docs/security.md)
+  bugs: "What changed, then the risky paths: power-cut recovery, alerts, programs (keep/Turbo), the update guard and rollback, local only, the serve-together scheduler, replay."
+  claims: "Claims are in docs/security.md, README.md and docs/standalone.md (claims.yaml). Judge against the threat model in docs/security.md: findings outside it are info at most, and no fix may add friction for it."
+  exposure: "An outsider on the same home Wi-Fi without the PIN or a Home Assistant login: the device page and /local/ API (other origins, PIN lockout, 5 AI questions a day, write-only keys, request sizes), the ESPHome API before and after adoption, setup hotspot and Bluetooth setup, signed OTA, the release pipeline (workflows, pinned actions, the signing job). Annoyance is low/info."
+  desktop: "Both dashboards share their layout (a change goes in both). Keep separate on purpose: power off needs two taps, the PIN and factory reset, Setup as a page of its own, Basic mirrors the Char-Griller app. No friction for safety's sake on a home smoker."
+  phone: "As desktop. The HA companion app shows the same dashboard; tap targets, the section bar, long pages, forms and keyboards, charts and tables, the Setup page."

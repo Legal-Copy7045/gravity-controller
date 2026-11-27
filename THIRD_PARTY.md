@@ -12,7 +12,7 @@ version 3. **The firmware binary is therefore distributed under the terms of the
 
 The complete corresponding source is this repository at the release's tag (`v<version>`): `firmware/` (the
 configuration, entry point `firmware/gravity980-bridge.yaml`) and `components/`, built with the ESPHome version pinned in
-`.github/workflows/build.yml` (`ESPHOME_VERSION`; the controller's own page shows it under *This controller → Built
+`.github/workflows/ci.yml` (`ESPHOME_VERSION`; the controller's own page shows it under *This controller → Built
 with*). ESPHome itself, and the libraries below, are fetched by ESPHome's build at those versions. To build it
 yourself, see [Development](README.md#development). The MIT licence on this project's own files still applies to those
 files on their own.
@@ -49,7 +49,7 @@ address; the site build downloads a pinned release from npm and checks its hash.
 | [Open-Meteo](https://open-meteo.com/) | data: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Weather, forecast and place search on the controller ("Weather data by Open-Meteo.com") |
 
 These sources were compared with this repository (identical runs of eight or more words): only generic boilerplate
-matches (HTML headers, a CSS grid idiom, import lines). Two CI files, `.github/workflows/build.yml` and
+matches (HTML headers, a CSS grid idiom, import lines). Two CI files, `.github/workflows/ci.yml` and
 `.github/scripts/make_site.py`, were adapted from the same author's Magic-bHAnds project.
 
 ## Trademarks

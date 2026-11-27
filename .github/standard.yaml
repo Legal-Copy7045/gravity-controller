@@ -1,0 +1,19 @@
+# The project standard this repository follows (github.com/Legal-Copy7045/project-standards).
+standard: 1.1.0
+profile: public
+weekly_slot: "Sun 01:17"   # CI; CodeQL Sun 03:17; Dependabot Sun 00:30
+
+beyond:                    # more than the baseline, kept on purpose
+  - {rule: "2.2 release", what: "The release path builds and tests the merged commit again (every group) before it signs anything; signs in a job of its own that checks the compile job's fingerprints; the release and Pages publish only files whose fingerprints the signing job handed on; no build cache on a release; build provenance attested; the integration zip, the HACS zip, the package zip and the firmware images attached; Pages (installer + OTA manifest) only after a release."}
+  - {rule: "1.4 privacy", what: "privacy_guard.py has this repository's own checks (no-reply commit addresses, credentials, image metadata) and runs on the releasing push too; the release waits for both privacy jobs."}
+  - {rule: "1.5 supply chain", what: "Every job's Python packages are hash-locked (.github/requirements/*.txt); the signing job installs only esptool and its own dependencies in a fresh venv."}
+  - {rule: "3 regression", what: "Own stage runners (regression/run.py: 12 stages in four lanes side by side, stable IDs since 0.x), its own report (report.py: verdict, features and their coverage, the claims, folds per stage) and walkthrough (walkthrough.py: both dashboards x desktop/phone x Basic/Advanced with Setup; walkthrough_report.py with screenshots). run.py answers every standard command: brief, log, summary, manual, schema and walkthrough-due through the vendored standard.py; report through report.py / walkthrough_report.py, which read the standard's findings files."}
+
+exceptions:                # done differently, with the reason
+  - {rule: "1.3 one quick job", reason: "The quick checks are the jobs people know (versions, unit-tests, privacy, secrets); ci-result gathers them, so branch protection is unaffected."}
+  - {rule: "1.1 push to main tests nothing", reason: "A releasing push builds and tests everything once more before it signs with the real key (see beyond); a push that doesn't release runs only the private-terms check."}
+  - {rule: "1.5 dependency audit in quick", reason: "pip-audit runs in the regression's quality stage over every lock, and Dependabot's alerts cover the rest; installing pip-audit in CI would need another hash lock for one tool."}
+  - {rule: "2.1 Keep a Changelog headings", reason: "Sections up to 1.5.0 use bold sub-headings (Fixes, Security, ...); from 1.6.0 on they use ### Added / Changed / Fixed / Security / Removed."}
+  - {rule: "3.1 IDs zero-padded to 4", reason: "IDs were issued as PREFIX-001 long before the standard; they are never renumbered."}
+  - {rule: "3.2 standard stage names", reason: "The stages keep their names and prefixes (ci CI, quality QA, core CORE, firmware FW, sim SIM, device DEV, page PAGE, integration INT, package PKG, live LIVE, manual MAN, walkthrough WT): quality is the standard's security tools, core its unit stage, firmware/sim/device its device stage. Renaming would move every ID file; profile.yaml maps each one."}
+  - {rule: "3.5 tap targets 44 px", reason: "The walkthrough checks 40 px on the phone (the dashboards' own minimum, set in 1.5.0); one role (owner): a PIN-locked page is covered by the device stage."}

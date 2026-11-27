@@ -1,0 +1,66 @@
+# Every security and privacy claim the project makes (project standard, section 3.4). code: globs of the files that
+# keep it. The claims reviewer checks each one whose code changed (and all of them in a full audit).
+- id: CLM-001
+  claim: Only firmware signed with this project's key is installed over the network, never an older version.
+  where: [docs/security.md, README.md]
+  code: ["firmware/*.yaml", "components/standalone/standalone_update_guard.cpp", ".github/workflows/ci.yml"]
+- id: CLM-002
+  claim: No firmware upload over the LAN (no ESPHome OTA port, no upload on the device page).
+  where: [docs/security.md]
+  code: ["firmware/*.yaml", "components/standalone/*", "firmware/device-ui/*"]
+- id: CLM-003
+  claim: The signing key never meets the compile's third-party build code; the signing job signs only what the compile job fingerprinted, and only the default branch can use the release-signing environment.
+  where: [docs/security.md]
+  code: [".github/workflows/*.yml", ".github/requirements/sign.*"]
+- id: CLM-004
+  claim: The setup hotspot appears only for a new controller or one that can't reach its Wi-Fi, within 15 minutes of power-on; Bluetooth setup needs the BOOT button.
+  where: [docs/security.md, docs/install.md]
+  code: ["firmware/*.yaml", "components/**"]
+- id: CLM-005
+  claim: The Home Assistant API is encrypted once adopted; before that open for 15 minutes after power-on, and closed at once when a device-page PIN is set.
+  where: [docs/security.md]
+  code: ["firmware/*.yaml", "components/standalone/*"]
+- id: CLM-006
+  claim: The device page serves only its own files, refuses requests from other websites, parses input with size limits and stores no uploads.
+  where: [docs/security.md, docs/standalone.md]
+  code: ["components/standalone/*", "firmware/device-ui/*"]
+- id: CLM-007
+  claim: Keys (AI, Pushover, Telegram, ntfy) are write-only - never shown on the page, in status or in logs.
+  where: [docs/security.md, docs/standalone.md]
+  code: ["components/standalone/*", "firmware/device-ui/*"]
+- id: CLM-008
+  claim: The device-page PIN locks changes, keeps a browser unlocked for a week, and has a lockout after wrong tries; a locked page gets 5 AI questions a day.
+  where: [docs/security.md, docs/standalone.md]
+  code: ["components/standalone/*"]
+- id: CLM-009
+  claim: The controller's outgoing requests use HTTPS with certificate checks, follow no redirects, cap answers at 64 KB and parse JSON only.
+  where: [docs/security.md]
+  code: ["components/standalone/*", "components/cook_assistant/*"]
+- id: CLM-010
+  claim: AI answers and shared data are treated as data - shown escaped, never run; an AI cook program is checked (pit cap, no Turbo, no links) by the controller and by Home Assistant, and loaded, never started.
+  where: [docs/security.md, docs/features.md]
+  code: ["components/cook_assistant/*", "components/standalone/*", "homeassistant/packages/smoker.yaml", "custom_components/smoker/**", "firmware/device-ui/*"]
+- id: CLM-011
+  claim: In the Home Assistant integration, installing the package is admin-only, photo uploads are checked as images, no paths are taken from requests, and the dashboard's bridge touches only the smoker's own entities.
+  where: [docs/security.md]
+  code: ["custom_components/smoker/**"]
+- id: CLM-012
+  claim: Notification buttons carry a one-time code valid only for that notification's buttons.
+  where: [docs/security.md]
+  code: ["homeassistant/packages/smoker.yaml", "components/standalone/*"]
+- id: CLM-013
+  claim: Sharing a cook record anonymises it (no names, places or device ids).
+  where: [docs/features.md, docs/home-dashboards.md]
+  code: ["custom_components/smoker/sharing.py", "components/standalone/*"]
+- id: CLM-014
+  claim: Actions are pinned to commit SHAs and every job's Python packages are hash-locked; a release build uses no build cache; provenance is attested.
+  where: [docs/security.md]
+  code: [".github/workflows/*.yml", ".github/requirements/*"]
+- id: CLM-015
+  claim: Nothing identifying the owner, his family or his home is committed (the privacy guard and the private-terms check).
+  where: [CLAUDE.md, .github/scripts/privacy_guard.py]
+  code: [".github/scripts/privacy_guard.py", ".github/workflows/ci.yml"]
+- id: CLM-016
+  claim: Power off needs two taps, and Home Assistant's factory reset needs two presses within 10 s.
+  where: [docs/security.md, docs/features.md]
+  code: ["firmware/device-ui/*", "custom_components/smoker/frontend/*", "homeassistant/packages/smoker.yaml", "firmware/*.yaml"]

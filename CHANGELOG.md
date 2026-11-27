@@ -1,13 +1,26 @@
 # Changelog
 
-## [Unreleased]
+## [1.6.0] - 2026-11-27
 
-**Build** (no change to the controller, the integration or the package)
-- Fewer Actions minutes: CI runs on pull requests (not drafts), on `main` and once a week; the slow jobs (firmware
-  build, simulated grill, browser and Home Assistant tests) only when a pull request touches what they test, and on
-  `main` only when a push releases. Working-branch pushes run nothing. The quick privacy, version and unit checks
-  still run every time, and a release is still built and tested in full before it is published.
-- CodeQL weekly and on demand; Dependabot monthly, one grouped pull request per ecosystem.
+Nothing changes on the controller, in the integration or in the package: this release moves the build, the release
+and the regression suite onto the owner's project standard (`.github/standard.yaml` says what's kept beyond it).
+
+### Changed
+- CI is one workflow, `ci.yml`, with **`ci-result` as the one check to require**: pull requests (nothing while a
+  draft; the slow groups only when their files change, `.github/changes.yaml`), a push to `main` that releases, and a
+  weekly full run on Sunday. Working-branch pushes run nothing. A release is still built, tested, signed, attested
+  and published exactly as before.
+- The privacy checks run through the standard's shared workflow (this repository's own guard, loaded from `main`);
+  a secret scan (gitleaks) checks every pull request's commits, and the whole history weekly.
+- The simulated-grill tests run in two parts instead of four (fewer repeated set-ups); every job has a time limit and
+  artifacts are kept 3 days.
+- CodeQL runs weekly and on demand through the shared workflow; Dependabot weekly on Sunday, grouped minor and patch
+  updates merge themselves once `ci-result` passes (majors wait for the weekly maintenance).
+- `.github/versions.yaml` lists where the version lives; `.github/upstreams.yaml` the versions pinned by hand
+  (ESPHome, Home Assistant, Python, Playwright) for the weekly maintenance.
+- The regression suite answers the standard's commands (`run.py check`, `brief`, `report`, `log`, `summary`,
+  `manual`) and the global `/regression`, `/walkthrough` and `/full-check` replace this repository's own copies:
+  `regression/profile.yaml`, `claims.yaml` (16 security claims) and `published.yaml` are new; every check ID stays.
 
 ## [1.5.0] - 2026-11-26
 

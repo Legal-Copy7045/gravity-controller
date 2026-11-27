@@ -1,0 +1,8 @@
+# Versions Dependabot doesn't track (STANDARD.md 5): the weekly maintenance session checks each for a newer release.
+# source: pypi:<name> | npm:<name> | github:<owner>/<repo> (release tags) | docker:<image>
+- {name: ESPHome, current: "2026.11.0", source: "pypi:esphome", where: ".github/workflows/ci.yml (ESPHOME_VERSION) and .github/requirements/firmware*.in (relock with uv pip compile --generate-hashes)"}
+- {name: Home Assistant (dashboard and package tests), current: "2026.11.3", source: "pypi:homeassistant", where: ".github/requirements/ha-tests.in (relock)"}
+- {name: Home Assistant test framework, current: "0.13.375", source: "pypi:pytest-homeassistant-custom-component", where: "tests/requirements-integration.txt and .github/requirements/integration-tests.in (relock; it pins its own Home Assistant)"}
+- {name: Python for the firmware jobs, current: "3.13", source: "github:python/cpython", where: ".github/workflows/ci.yml (setup-python, firmware-build/firmware/firmware-tests)"}
+- {name: Python for the Home Assistant jobs, current: "3.14", source: "github:python/cpython", where: ".github/workflows/ci.yml (home-assistant, integration): what Home Assistant requires"}
+- {name: Playwright, current: "1.65.2", source: "pypi:playwright", where: ".github/requirements/firmware-tests.in and ha-tests.in (relock)"}
