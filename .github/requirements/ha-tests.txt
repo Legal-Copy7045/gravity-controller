@@ -846,10 +846,10 @@ ciso8601==2.3.3 \
     # via
     #   hass-nabucasa
     #   homeassistant
-colorlog==6.10.1 \
-    --hash=sha256:2d7e8348291948af66122cff006c9f8da6255d224e7cf8e37d8de2df3bad8c9c \
-    --hash=sha256:eb4ae5cb65fe7fec7773c2306061a8e63e02efc2c72eba9d27b0fa23c94f1321
-    # via -r .github/requirements/ha-tests.in
+colorlog==6.12.0 \
+    --hash=sha256:2a7924c1dadf18b22a0eb8b06d1c7b01d5341707ec1641eb6fcc4fde0c3e8e5f \
+    --hash=sha256:30d392604e9110045a2c2aeefc27d7a017abbab63f3a8aee594eac0801df784e
+    # via -r ha-tests.in
 cronsim==2.7 \
     --hash=sha256:1e1431fa08c51dc7f72e67e571c7c7a09af26420169b607badd4ca9677ffad1e
     # via homeassistant
@@ -1179,7 +1179,7 @@ gazetteer-matcher==1.1.0 \
     --hash=sha256:c6c28513c3689768ec1a75fb1b2c3153ab424a65f6992579b311c57652523c5a \
     --hash=sha256:edd1c12a3bd8e30ea6f4da8e4554fc1386e21606f08901bf7a24a998602b6105 \
     --hash=sha256:f81042403497db23862e2dfa4915100a896a097a45ef5f834ef2a75afbd912e3
-    # via -r .github/requirements/ha-tests.in
+    # via -r ha-tests.in
 greenlet==3.5.6 \
     --hash=sha256:0616b8f878098c5681fd8f0dc92d887551717402342a70f0abcbfea5f5ad8a44 \
     --hash=sha256:06c0e933290fba8ffe53ead4ae1b8044b0e9754b75cebf381aa2bc3e50d82fac \
@@ -1386,7 +1386,7 @@ hass-nabucasa==2.8.1 \
 hassil==3.12.1 \
     --hash=sha256:d12553cccf2548a86cfedd28c8f3171690f5e8c064470c2b66170cc5848ecdef \
     --hash=sha256:dad08f2525ad0246cfd6cc072e2c3015f1b15f918ac49a7b8e9dd07bd6ef8f5a
-    # via -r .github/requirements/ha-tests.in
+    # via -r ha-tests.in
 home-assistant-bluetooth==2.0.0 \
     --hash=sha256:3febd16b194812b156024d9bc8ce8ec7622cdd8d159047cac504cc77ca034ea1 \
     --hash=sha256:8d7c2ac48c303adacad73cb6cdfe7710f2fccd2a367d4c3106acf301b0d22b91
@@ -1394,17 +1394,17 @@ home-assistant-bluetooth==2.0.0 \
 home-assistant-frontend==20261028.8 \
     --hash=sha256:6df9f0fd2c39d108ad7ce6cffae42f3ca421a226e3328f3dec1111515f44f06d \
     --hash=sha256:9a56bb82ea63344519d0d8ab4685b6877410f27c7446618d058ec94d2000ed04
-    # via -r .github/requirements/ha-tests.in
+    # via -r ha-tests.in
 home-assistant-intents==2026.10.27 \
     --hash=sha256:256eb1e4fc6e6f4943d0ba4e089c9639d74d0e9d62ccddeb7148bc168de55e40 \
     --hash=sha256:5a99ec8c3b7e26089284bfa642884db40784495ce3e0d8e2dd6f74ddcba44356
     # via
-    #   -r .github/requirements/ha-tests.in
+    #   -r ha-tests.in
     #   gazetteer-matcher
 homeassistant==2026.11.3 \
     --hash=sha256:1812e29d14ae255441427abdbbb14941e753689f7add6c967f9d6075fd97348d \
     --hash=sha256:8b437172121d48919e9487f2fb91a78e4e0466f2e52f68e0a98a2ee72a1c55d1
-    # via -r .github/requirements/ha-tests.in
+    # via -r ha-tests.in
 httpcore2==2.14.0 \
     --hash=sha256:4c4f64f4b544afeb778c42c0ffb5941b29e671157e90ed3f6dc787c4bca90cd1 \
     --hash=sha256:4f57a1a8249fe6af589d935cfd456f1d13bbdcb0f0fc72af9142368fc94811d7
@@ -2039,7 +2039,7 @@ playwright==1.65.2 \
     --hash=sha256:99dd0de21173375cded45f4e26a9e19b862d748b06cbb11376313758cedc220e \
     --hash=sha256:d0aec9e1c97b6f497f3d9f2ad6e1b7f299968e61239d71f100298b0690f3c776 \
     --hash=sha256:dd3e54b6a926fc6510f272797eec0707dc34ae04d564e74a7056c4a813e53270
-    # via -r .github/requirements/ha-tests.in
+    # via -r ha-tests.in
 probatio==0.13.0 \
     --hash=sha256:b592d11c89b536fa42617c3f23fb8798aeb659da2113cc2ec1ff8759f8a34d8a \
     --hash=sha256:b5941dfdb68d813fbe49551d8802b241c4774f756fe51dfdedbad33e27797373
@@ -2324,7 +2324,7 @@ pycparser==3.12 \
     --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e \
     --hash=sha256:f03387877eab82ce01bbdfd0ba7252ee55a90b1c708d5129e2ce915475cf1db6
     # via cffi
-pyjwt==2.15.1 \
+pyjwt[crypto]==2.15.1 \
     --hash=sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193 \
     --hash=sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8
     # via
@@ -2697,7 +2697,6 @@ typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
-    #   anyio
     #   grpcio
     #   homeassistant
     #   mashumaro
