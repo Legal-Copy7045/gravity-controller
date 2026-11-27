@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Full regression run: every test suite in the repo, one stage at a time, into regression/out/<stage>.json.
+Answers the project standard's commands (STANDARD.md section 3.3; regression/profile.yaml):
 
-    python3 regression/run.py                   # every stage except the slow compiles and live
-    python3 regression/run.py --compile --live  # the full run (/regression does this)
+    python3 regression/run.py check               # ci + quality + core, quiet: before a pull request is marked ready
+    python3 regression/run.py                     # every stage but walkthrough (live when HA_URL is set)
+    python3 regression/run.py --with-walkthrough  # ... and the walkthrough's crawl, side by side
     python3 regression/run.py --stage page --stage ci
+    python3 regression/run.py report [--walkthrough]   # this project's reports (report.py, walkthrough_report.py)
+    python3 regression/run.py brief|log|summary|manual|schema|walkthrough-due ...   # the standard's standard.py
 
 Environment (paths to the venvs the suites need; see README.md):
     ESPHOME_PYTHON  python of a venv with esphome, aioesphomeapi and aiohttp (firmware, sim, device stages)
@@ -12,7 +16,8 @@ Environment (paths to the venvs the suites need; see README.md):
                     session's proxy, so no token is read or printed here
 The system python3 needs playwright (page and device stages).
 
-Each stage writes {stage, started, finished, environment, results:[{id, feature, check, status, detail, evidence}]}.
+Each stage writes {stage, prefix, started, finished, environment, results:[{id, key, feature, check, status, detail,
+evidence}]} (key = check: the standard's name for it); the walkthrough's to out/walkthrough-checks.json.
 IDs are stable: regression/ids/<stage>.yaml maps each check's key to its ID, append-only (see README.md).
 """
 
@@ -51,6 +56,11 @@ def select_stages(stage=None, live=False, with_walkthrough=False):
     if stage:
         return [s for s in ORDER if s in stage]
     return [s for s in ORDER if (s != "live" or live) and (s != "walkthrough" or with_walkthrough)]
+
+
+def result_file(stage):
+    """out/<stage>.json; the walkthrough's checks in walkthrough-checks.json (walkthrough.json is its inventory)."""
+    return "walkthrough-checks.json" if stage == "walkthrough" else f"{stage}.json"
 
 
 def now() -> str:
@@ -194,11 +204,11 @@ class Stage:
 
     def add(self, key, check, status, detail="", evidence=""):
         rid = self.ids.get(key)
-        self.results.append({"id": rid, "feature": feature_for(self.cat, self.name, rid, check), "check": check,
-                             "status": status, "detail": detail, "evidence": evidence})
+        self.results.append({"id": rid, "key": check, "feature": feature_for(self.cat, self.name, rid, check),
+                             "check": check, "status": status, "detail": detail, "evidence": evidence})
 
     def run_failed(self, detail, evidence=""):
-        self.results.append({"id": f"{PREFIX[self.name]}-RUN", "feature": "the suite itself", "check": "stage ran to the end",
+        self.results.append({"id": f"{PREFIX[self.name]}-RUN", "key": "RUN", "feature": "the suite itself", "check": "stage ran to the end",
                              "status": "fail", "detail": detail, "evidence": evidence})
 
     def lines(self, text, evidence, rc, label):
@@ -214,16 +224,16 @@ class Stage:
         """Checks issued before but not produced this run (renamed/removed, or the run stopped early)."""
         for key, rid in self.ids.map.items():
             if key not in self.ids.seen and key.startswith(prefix):
-                self.results.append({"id": rid, "feature": feature_for(self.cat, self.name, rid, key), "check": key,
+                self.results.append({"id": rid, "key": key, "feature": feature_for(self.cat, self.name, rid, key), "check": key,
                                      "status": "skip", "detail": "not produced by this run (removed, renamed or not reached)",
                                      "evidence": ""})
 
     def save(self):
         self.ids.save()
         OUT.mkdir(exist_ok=True)
-        data = {"stage": self.name, "started": self.started, "finished": now(), "environment": self.env,
-                "results": self.results}
-        (OUT / f"{self.name}.json").write_text(json.dumps(data, indent=1, ensure_ascii=False))
+        data = {"stage": self.name, "prefix": PREFIX[self.name], "started": self.started, "finished": now(),
+                "environment": self.env, "results": self.results}
+        (OUT / result_file(self.name)).write_text(json.dumps(data, indent=1, ensure_ascii=False))
         c = {s: sum(r["status"] == s for r in self.results) for s in ("pass", "fail", "manual", "skip")}
         print(f"  {self.name}: {c}", flush=True)
 
@@ -264,8 +274,9 @@ def stage_ci(st, args):
         ok = blk[0] is not None and blk[0] == blk[1]
         st.add(f"shared block {name}", f"shared block '{name}' identical in both dashboards", "pass" if ok else "fail",
                "" if ok else "differs or missing in ui.js")
-    wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-    uses = re.findall(r"uses:\s*(\S+)", wf)
+    wf = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    uses = [u for f in sorted((ROOT / ".github/workflows").glob("*.yml"))
+            for u in re.findall(r"uses:\s*(\S+)", f.read_text(encoding="utf-8"))]
     unpinned = [u for u in uses if not re.search(r"@[0-9a-f]{40}$", u) and not u.startswith("./")]
     st.add("actions pinned", "every GitHub Action pinned to a full commit SHA", "fail" if unpinned else "pass", ", ".join(unpinned))
     st.add("default permissions", "workflow sets top-level permissions", "pass" if re.search(r"^permissions:", wf, re.M) else "fail")
@@ -651,13 +662,38 @@ def stage_walkthrough(st, args):
     for pr in problems:
         st.run_failed(pr, ev)
     st.env["views"] = len(inv["views"])
+    (OUT / "walkthrough.json").write_text(json.dumps(standard_inventory(inv), indent=1, ensure_ascii=False))
     st.missing_as_skip()
 
 
+def standard_inventory(inv):
+    """The crawl in the standard's shape (role -> desktop|phone -> menu and pages) for standard.py's log and briefs.
+    One role: the owner (a locked page is reached only as far as the PIN test goes). The full crawl stays in
+    out/walkthrough/inventory.json."""
+    out = {"owner": {}}
+    for v in inv["views"]:
+        w = out["owner"].setdefault(v["width"], {"menu": [], "pages": []})
+        where = f"{'controller page' if v['page'] == 'device' else 'Home Assistant dashboard'} ({v['mode']})"
+        w["menu"].append({"page": where, "items": [n["label"] for n in v.get("nav", [])]})
+        for sc in v.get("screens", []) + (v.get("setup_page") or {}).get("screens", []):
+            w["pages"].append({"page": where, "section": sc.get("heading") or sc.get("sect", ""),
+                               "screenshot": f"walkthrough/{sc['screenshot']}" if sc.get("screenshot") else "",
+                               "buttons": sc.get("buttons", []), "fields": sc.get("fields", [])})
+    return out
+
+
 def stage_manual(st, args):
+    """manual.yaml; a result recorded for this version (run.py manual KEY pass|fail, in manual-log.yaml) counts."""
     import yaml
+    logp = HERE / "manual-log.yaml"
+    done = (yaml.safe_load(logp.read_text()) or {}) if logp.is_file() else {}
+    version = (ROOT / "VERSION").read_text().strip()
     for item in yaml.safe_load((HERE / "manual.yaml").read_text()) or []:
-        st.add(item["key"], item["check"], "manual", item.get("steps", ""), item.get("last", ""))
+        rec = done.get(item["key"]) or {}
+        if rec.get("version") == version:
+            st.add(item["key"], item["check"], rec.get("result", "manual"), rec.get("note", ""), f"manual-log {rec.get('date', '')}")
+        else:
+            st.add(item["key"], item["check"], "manual", item.get("steps", ""), item.get("last", ""))
 
 
 STAGES = {"ci": stage_ci, "quality": stage_quality, "core": stage_core, "firmware": stage_firmware, "sim": stage_sim, "device": stage_device,
@@ -665,11 +701,33 @@ STAGES = {"ci": stage_ci, "quality": stage_quality, "core": stage_core, "firmwar
           "manual": stage_manual, "walkthrough": stage_walkthrough}
 
 
+TOOLING = {"brief", "log", "summary", "manual", "schema", "walkthrough-due"}
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in TOOLING:  # the standard's shared tooling (regression/standard.py)
+        import standard
+        for f in OUT.glob("*.json"):  # (results written before the standard's "key" field: add it)
+            try:
+                data = json.loads(f.read_text())
+            except ValueError:
+                continue
+            if isinstance(data, dict) and isinstance(data.get("results"), list) and any("key" not in r for r in data["results"]):
+                for r in data["results"]:
+                    r.setdefault("key", "RUN" if r.get("id", "").endswith("-RUN") else r.get("check", ""))
+                f.write_text(json.dumps(data, indent=1, ensure_ascii=False))
+        return standard.main(sys.argv[1:])
+    if len(sys.argv) > 1 and sys.argv[1] == "report":  # this project's reports (richer than the standard's)
+        script = "walkthrough_report.py" if "--walkthrough" in sys.argv[2:] else "report.py"
+        return subprocess.run([sys.executable, str(HERE / script)], check=False).returncode
+    check = len(sys.argv) > 1 and sys.argv[1] == "check"
+    if check:
+        sys.argv.pop(1)
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", action="append", choices=ORDER)
-    ap.add_argument("--compile", action="store_true", help="also compile the firmware (slow)")
-    ap.add_argument("--live", action="store_true", help="run the read-only live checks (needs HA_URL)")
+    ap.add_argument("--compile", action="store_true", default=True, help="compile the firmware (the default; cached after the first run)")
+    ap.add_argument("--no-compile", dest="compile", action="store_false", help="skip the firmware compiles")
+    ap.add_argument("--live", action="store_true", help="run the read-only live checks (the default when HA_URL is set)")
     ap.add_argument("--with-walkthrough", action="store_true", help="also run the walkthrough's crawl (its own ports)")
     ap.add_argument("--quality-python", default=os.environ.get("QUALITY_PYTHON"), help="a venv with bandit and pip-audit")
     ap.add_argument("--esphome-python", default=os.environ.get("ESPHOME_PYTHON"))
@@ -679,7 +737,9 @@ def main():
     args = ap.parse_args()
     global FROM_LOGS
     FROM_LOGS = args.from_logs
-    stages = select_stages(args.stage, args.live, args.with_walkthrough)
+    if check:  # the quick stages, before a pull request is marked ready
+        args.stage = ["ci", "quality", "core"]
+    stages = select_stages(args.stage, args.live or bool(args.ha_url), args.with_walkthrough)
     OUT.mkdir(exist_ok=True)
     catalogue = load_catalogue()
     import threading
@@ -692,6 +752,7 @@ def main():
         except Exception as ex:  # noqa: BLE001  a broken stage is a result, not a crash
             st.run_failed(f"{type(ex).__name__}: {ex}")
         st.save()
+        print(f"{name} done", flush=True)  # (/full-check waits for "walkthrough done")
 
     def lane(names):
         for n in names:
@@ -715,7 +776,15 @@ def main():
     lane(["live"])
     print(f"done in {round((time.time() - t0) / 60, 1)} min", flush=True)
     shutil.rmtree(Path(tempfile.gettempdir()) / "smoker-regress", ignore_errors=True)
+    failing = []
+    for name in stages:
+        p = OUT / result_file(name)
+        if p.is_file():
+            failing += [r["id"] for r in json.loads(p.read_text()).get("results", []) if r["status"] == "fail"]
+    if failing:
+        print("failing: " + ", ".join(failing[:30]) + (f" (+{len(failing) - 30})" if len(failing) > 30 else ""))
+    return 1 if failing else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

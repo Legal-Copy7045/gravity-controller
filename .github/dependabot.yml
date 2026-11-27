@@ -1,19 +1,18 @@
-# Monthly, one grouped pull request per ecosystem (Actions minutes are limited). Security updates still come as
-# soon as an advisory is published. The pip locks are hash-pinned (.github/requirements/*.in -> *.txt).
+# Weekly on Sunday, one grouped PR per ecosystem for minor and patch updates (they merge themselves when ci-result
+# passes: dependabot-automerge.yml); each major update on its own PR for the weekly maintenance session to judge.
+# Security updates arrive as soon as an advisory is published. The pip locks are hash-pinned
+# (.github/requirements/*.in -> *.txt; tests/requirements-integration.txt).
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: monthly
+    schedule: {interval: weekly, day: sunday, time: "00:30"}
+    open-pull-requests-limit: 3
     groups:
-      actions:
-        patterns: ["*"]
+      actions: {patterns: ["*"], update-types: [minor, patch]}
   - package-ecosystem: pip
     directories: ["/.github/requirements", "/tests"]
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 1
+    schedule: {interval: weekly, day: sunday, time: "00:30"}
+    open-pull-requests-limit: 3
     groups:
-      python:
-        patterns: ["*"]
+      python: {patterns: ["*"], update-types: [minor, patch]}

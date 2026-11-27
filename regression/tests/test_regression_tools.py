@@ -104,3 +104,43 @@ def test_regression_report_renders_stages_findings_and_coverage(tmp_path, monkey
     md = report.markdown(stages, findings, cov, unlisted, notes, "9.9.9", "2026-11-26 10:00")
     assert "CI-002" in html and "SEC-001" in html and "9.9.9" in html
     assert "CI-002" in md and "logo differs" in md
+
+
+def test_the_walkthrough_inventory_in_the_standards_shape():
+    inv = {"views": [{"page": "device", "width": "phone", "mode": "basic", "nav": [{"label": "Food"}],
+                      "screens": [{"sect": "food", "heading": "Food", "buttons": ["Start"], "fields": [], "screenshot": "shots/a.png"}],
+                      "setup_page": {"screens": [{"sect": "ai", "heading": "AI", "buttons": [], "fields": ["Key"], "screenshot": ""}]}}]}
+    got = run.standard_inventory(inv)
+    assert list(got) == ["owner"] and list(got["owner"]) == ["phone"]
+    pages = got["owner"]["phone"]["pages"]
+    assert [p["section"] for p in pages] == ["Food", "AI"] and pages[0]["screenshot"] == "walkthrough/shots/a.png"
+    assert got["owner"]["phone"]["menu"][0]["items"] == ["Food"]
+
+
+def test_the_standard_commands_are_answered():
+    assert {"brief", "log", "summary", "manual", "schema", "walkthrough-due"} <= run.TOOLING
+    assert run.result_file("walkthrough") == "walkthrough-checks.json" and run.result_file("ci") == "ci.json"
+
+
+def test_walkthrough_report_reads_the_standards_reviewer_files(tmp_path):
+    (tmp_path / "findings").mkdir()
+    (tmp_path / "findings" / "walkthrough-phone.json").write_text(json.dumps({"reviewer": "phone", "status": "done", "findings": [
+        {"id": "WP-001", "group": "naming", "title": "Two names", "detail": "Chart vs Temperatures", "proposal": "one name",
+         "screenshots": ["walkthrough/shots/x.png"], "value": "high"}]}))
+    (tmp_path / "walkthrough-checks.json").write_text(json.dumps({"results": [{"id": "WT-001", "check": "c", "status": "pass"}]}))
+    stage, inv, fnd = walkthrough_report.load(tmp_path)
+    f = fnd["findings"][0]
+    assert f["group"] == "rename" and f["width"] == "phone" and f["evidence"] == ["shots/x.png"]
+    assert stage["results"][0]["id"] == "WT-001"
+
+
+def test_regression_report_reads_the_standards_findings_and_claims(tmp_path, monkeypatch):
+    monkeypatch.setattr(report, "OUT", tmp_path)
+    (tmp_path / "findings").mkdir()
+    (tmp_path / "findings" / "claims.json").write_text(json.dumps({"reviewer": "claims", "status": "done", "findings": [
+        {"id": "SEC-001", "severity": "low", "title": "t", "description": "d", "verified": True}],
+        "claims": [{"id": "CLM-001", "held": True}]}))
+    (tmp_path / "findings" / "walkthrough-phone.json").write_text(json.dumps({"reviewer": "phone", "findings": [{"id": "WP-001"}]}))
+    stages, findings, catalogue, notes = report.load()
+    assert [f["id"] for f in findings] == ["SEC-001"]
+    assert notes["_claims"][0]["claim"].startswith("CLM-001: Only firmware signed")

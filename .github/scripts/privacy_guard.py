@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Privacy guard: keeps personal details out of this public repository.
 
-Runs on every push and pull request (the privacy jobs in .github/workflows/build.yml, which the release and web
+Runs on every push and pull request (the privacy jobs in .github/workflows/ci.yml, which the release and web
 installer wait for) and fails if:
 
 1. any commit in the push or pull request (BASE..HEAD; without a usable BASE, the commits not yet on the default

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Build the walkthrough report: the reviewers' findings, the automated UX checks and the crawl's inventory.
 
-Usage: python3 regression/walkthrough_report.py
-Writes regression/out/walkthrough/report.html: a self-contained page (no <html>/<body> wrapper, screenshots embedded
+Usage: python3 regression/walkthrough_report.py   (or: python3 regression/run.py report --walkthrough)
+Writes regression/out/walkthrough/report.html (and the same page as regression/out/walkthrough.html): a self-contained page (no <html>/<body> wrapper, screenshots embedded
 as small JPEGs) to publish as a private artifact, republished to the same URL each run.
 
 Inputs (regression/out/):
-  walkthrough.json               the walkthrough stage's checks (WT- IDs, regression/run.py --stage walkthrough)
+  walkthrough-checks.json        the walkthrough stage's checks (WT- IDs, regression/run.py --stage walkthrough)
   walkthrough/inventory.json     the crawl: views (page x width x mode), their navigation and sections
-  walkthrough/findings.json      the two reviewers: {"summary": "...", "findings": [{id: UX-001.., group, title, now,
+  findings/walkthrough-{desktop,phone}.json   the two reviewers in the standard's schema (mapped to the groups
+                                 below), and/or
+  walkthrough/findings.json      the two reviewers in this report's own schema: {"summary": "...", "findings": [{id: UX-001.., group, title, now,
                                  proposal, affects, effort S|M|L, risk, evidence: [screenshot paths], page, width}]}
 """
 
@@ -20,6 +22,7 @@ import html
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -30,13 +33,41 @@ GROUPS = [("merge", "Merge"), ("rename", "Rename"), ("move", "Move"), ("remove",
 e = html.escape
 
 
+# The standard's reviewer groups (regression/standard.py schema walkthrough) -> this report's groups.
+STD_GROUP = {"duplicate": "merge", "naming": "rename", "placement": "move", "dead-end": "flow", "long-flow": "flow",
+             "keep-separate": "keep-separate", "layout": "mobile", "other": "flow"}
+
+
+def from_standard(f, width):
+    """A finding in the standard's walkthrough schema, in this report's fields."""
+    return {"id": f.get("id", ""), "group": STD_GROUP.get(f.get("group"), f.get("group", "flow")), "title": f.get("title", ""),
+            "now": f.get("detail", ""), "proposal": f.get("proposal", ""), "affects": ", ".join(f.get("roles", [])),
+            "effort": f.get("effort", "?"), "risk": f.get("value", "?") and f"value {f.get('value')}",
+            "evidence": [x.removeprefix("walkthrough/") for x in f.get("screenshots", [])],
+            "page": ", ".join(f.get("pages", [])) or "both", "width": width}
+
+
 def load(out=OUT):
     wt = out / "walkthrough"
-    stage = json.loads((out / "walkthrough.json").read_text()) if (out / "walkthrough.json").is_file() else {"results": []}
+    p = out / "walkthrough-checks.json"
+    if not p.is_file():  # (before the standard: the checks were in out/walkthrough.json)
+        p = out / "walkthrough.json"
+    stage = json.loads(p.read_text()) if p.is_file() else {}
+    if not isinstance(stage.get("results"), list):
+        stage = {"results": []}
     inv = json.loads((wt / "inventory.json").read_text()) if (wt / "inventory.json").is_file() else {"views": []}
     fnd = json.loads((wt / "findings.json").read_text()) if (wt / "findings.json").is_file() else {}
     if isinstance(fnd, list):
         fnd = {"findings": fnd}
+    # The standard's reviewer files (the global /walkthrough): out/findings/walkthrough-desktop.json and -phone.json.
+    for width in ("desktop", "phone"):
+        q = out / "findings" / f"walkthrough-{width}.json"
+        if q.is_file():
+            data = json.loads(q.read_text())
+            fnd.setdefault("findings", [])
+            fnd["findings"] += [from_standard(f, width) for f in data.get("findings", [])]
+            if data.get("status") == "failed":
+                fnd["summary"] = (fnd.get("summary", "") + f" The {width} reviewer failed: {data.get('scope', '')}").strip()
     return stage, inv, fnd
 
 
@@ -141,6 +172,7 @@ def main():
     stage, inv, fnd = load()
     WT.mkdir(parents=True, exist_ok=True)
     (WT / "report.html").write_text(page(stage, inv, fnd))
+    shutil.copyfile(WT / "report.html", OUT / "walkthrough.html")  # (the standard's path: what /walkthrough publishes)
     n = len(fnd.get("findings", []))
     print(f"walkthrough report: {len(inv.get('views', []))} views, {sum(r['status'] == 'fail' for r in stage.get('results', []))} failing checks, "
           f"{n} findings -> {WT / 'report.html'} ({os.path.getsize(WT / 'report.html') // 1024} KB)")

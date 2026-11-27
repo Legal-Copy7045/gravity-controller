@@ -37,9 +37,10 @@ e = html.escape
 
 def load():
     stages = {}
-    for s in STAGES + sorted({p.stem for p in OUT.glob("*.json")} - set(STAGES)):
-        p = OUT / f"{s}.json"
-        if not p.is_file() or s.startswith("findings") or s == "notes":
+    files = {s: OUT / f"{s}.json" for s in STAGES + sorted({p.stem for p in OUT.glob("*.json")} - set(STAGES))}
+    files["walkthrough"] = OUT / "walkthrough-checks.json"  # (out/walkthrough.json is the crawl's inventory)
+    for s, p in files.items():
+        if not p.is_file() or s.startswith("findings") or s in ("notes", "brief", "walkthrough-checks"):
             continue
         try:
             data = json.loads(p.read_text())
@@ -48,14 +49,22 @@ def load():
         if isinstance(data, dict) and isinstance(data.get("results"), list):  # stage files only
             stages[s] = data
     findings, claims = [], []
-    for p in sorted(OUT.glob("findings*.json")):
+    # The reviewers' files: out/findings/{bugs,claims,exposure}.json (the standard's names) or the older
+    # out/findings-*.json. A claims entry names its claim by id (regression/claims.yaml).
+    import yaml
+    cy = HERE / "claims.yaml"
+    known = {c["id"]: c for c in (yaml.safe_load(cy.read_text()) or [])} if cy.is_file() else {}
+    for p in sorted(OUT.glob("findings*.json")) + sorted((OUT / "findings").glob("*.json")):
+        if p.parent.name == "findings" and p.stem.startswith("walkthrough"):
+            continue
         try:
             data = json.loads(p.read_text())
         except json.JSONDecodeError:
             continue
         findings += data if isinstance(data, list) else data.get("findings", [])
         if isinstance(data, dict):
-            claims += data.get("claims", [])
+            claims += [{**c, "claim": c.get("claim") or f"{c.get('id', '')}: {known.get(c.get('id'), {}).get('claim', '')}"}
+                       for c in data.get("claims", [])]
     findings.sort(key=lambda f: (SEV.index(f.get("severity", "info")) if f.get("severity") in SEV else 9, f.get("id", "")))
     catalogue = load_catalogue()
     for s, d in stages.items():  # features from the catalogue as it is now (it may have changed since the stage ran)

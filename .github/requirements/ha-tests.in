@@ -1,4 +1,4 @@
-# Hash-pinned lock for CI's Home Assistant checks (.github/workflows/build.yml, job "home-assistant": ha_check,
+# Hash-pinned lock for CI's Home Assistant checks (.github/workflows/ci.yml, job "home-assistant": ha_check,
 # ha_templates, render_page). After changing this file, regenerate ha-tests.txt from the repository root with:
 #   uv pip compile .github/requirements/ha-tests.in --generate-hashes --python-version 3.14.2 \
 #     --python-platform x86_64-unknown-linux-gnu --no-header -o .github/requirements/ha-tests.txt

@@ -1,4 +1,4 @@
-# Hash-pinned lock for CI's integration tests (.github/workflows/build.yml, job "integration"; the same packages as
+# Hash-pinned lock for CI's integration tests (.github/workflows/ci.yml, job "integration"; the same packages as
 # tests/requirements-integration.txt). After changing either, regenerate integration-tests.txt from the repository
 # root with (integration-overrides.txt: packages newer than Home Assistant pins, for known vulnerabilities):
 #   uv pip compile .github/requirements/integration-tests.in --override .github/requirements/integration-overrides.txt \

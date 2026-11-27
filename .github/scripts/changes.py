@@ -1,74 +1,61 @@
 #!/usr/bin/env python3
-"""Which slow CI jobs this run needs (the `changes` job in build.yml). Writes firmware=/dashboards= to GITHUB_OUTPUT.
+"""Which CI groups this run needs (project standard, STANDARD.md 1.2). Writes to $GITHUB_OUTPUT:
+  <group>=true|false for every group in .github/changes.yaml, full=true|false, release=true|false.
 
-- pull_request: by the files the pull request changes (BASE...HEAD):
-    firmware   -> firmware-build + firmware-tests (the ESP32 build, the simulated grill, the device page);
-    dashboards -> home-assistant + integration (the package, the integration, the Home Assistant dashboard).
-  Files that are neither (docs, the regression suite, which CI doesn't run, the notes) start neither; the quick checks always run.
-- push to the default branch: everything when VERSION has no release tag yet (this push releases), nothing slow
-  otherwise (the weekly run covers it).
-- schedule / workflow_dispatch: everything.
-
-Run it locally: EVENT=pull_request BASE=origin/main HEAD=HEAD python3 .github/scripts/changes.py
+pull_request: by the files the PR changes (BASE...HEAD). push to main: release=true when VERSION has no v<VERSION>
+tag, and then every group (this project builds and tests the merged commit again before it signs and publishes);
+otherwise no group. schedule / workflow_dispatch: every group, full=true (dispatch with RELEASE_INPUT=true on main also
+releases an untagged VERSION). Locally: EVENT=pull_request BASE=origin/main HEAD=HEAD python3 .github/scripts/changes.py
 """
 import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
-# Only the dashboards, the integration and the package (and their tests): no firmware rebuild for these.
-DASH_ONLY = re.compile(r"^(custom_components/|homeassistant/|tests/integration/|tests/ha_[a-z_]+\.py$|"
-                       r"tests/render_page\.py$|tests/requirements-integration\.txt$|"
-                       r"\.github/requirements/(ha-tests|integration-[a-z]+)\.(in|txt)$)")
-# Only the controller (no Home Assistant code reads these): no Home Assistant jobs.
-FW_ONLY = re.compile(r"^(components/|firmware/(?!device-ui/)|tests/[^/]*\.(cpp|h|yaml)$|tests/Makefile$|"
-                     r"tests/(e2e|e2e_scenarios|webui_e2e|webui_bridge|fake_grill)[a-z_]*\.py$|"
-                     r"\.github/requirements/(firmware|firmware-tests|build-tools|sign)\.(in|txt)$)")
-# Neither: words and logs.
-NEITHER = re.compile(r"^(docs/|regression/|\.claude/|[^/]+\.md$|LICENSE)")
+import yaml  # preinstalled on GitHub's ubuntu runners
+
+cfg = yaml.safe_load(Path(".github/changes.yaml").read_text()) or {}
+groups = cfg.get("groups", {})
+compile_all = lambda pats: [re.compile(p) for p in pats or []]  # noqa: E731
+ignore, shared = compile_all(cfg.get("ignore")), compile_all(cfg.get("shared"))
+patterns = {g: compile_all(p) for g, p in groups.items()}
+event = os.environ.get("EVENT", "")
+out = {g: False for g in groups}
+full = release = False
 
 
-def decide(files):
-    fw = dash = False
+def untagged() -> bool:
+    v = Path("VERSION").read_text().strip()
+    return subprocess.run(["git", "ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/v{v}"],
+                          capture_output=True).returncode != 0
+
+
+if event == "pull_request":
+    files = subprocess.run(["git", "diff", "--name-only", f"{os.environ['BASE']}...{os.environ['HEAD']}"],
+                           capture_output=True, text=True, check=True).stdout.split()
     for f in files:
-        if NEITHER.match(f):
+        if any(p.search(f) for p in ignore):
             continue
-        if DASH_ONLY.match(f):
-            dash = True
-        elif FW_ONLY.match(f):
-            fw = True
-        else:  # shared (device-ui, brand, VERSION, workflows, tools, regression/...): both
-            fw = dash = True
-    return fw, dash
+        hit = [g for g, ps in patterns.items() if any(p.search(f) for p in ps)]
+        if any(p.search(f) for p in shared) or not hit:
+            out = {g: True for g in groups}
+            break
+        for g in hit:
+            out[g] = True
+elif event == "push":
+    release = untagged()
+    if release:  # (this project re-tests the merged commit before it signs and publishes a release)
+        out = {g: True for g in groups}
+else:  # schedule, workflow_dispatch
+    out = {g: True for g in groups}
+    full = True
+    release = os.environ.get("RELEASE_INPUT") == "true" and os.environ.get("GITHUB_REF") == "refs/heads/main" and untagged()
 
-
-def git(*args):
-    return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
-
-
-def main():
-    event = os.environ.get("EVENT", "")
-    if event == "pull_request":
-        r = git("diff", "--name-only", f"{os.environ['BASE']}...{os.environ.get('HEAD') or 'HEAD'}")
-        if r.returncode != 0:
-            print(r.stderr, file=sys.stderr)
-            fw = dash = True  # can't tell: test everything
-        else:
-            files = [f for f in r.stdout.splitlines() if f]
-            fw, dash = decide(files)
-            print(f"{len(files)} file(s) changed")
-    elif event == "push":
-        with open("VERSION") as fh:
-            version = fh.read().strip()
-        tagged = git("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/v{version}").returncode == 0
-        fw = dash = not tagged
-        print(f"v{version} {'already released: quick checks only' if tagged else 'not released yet: full build and release'}")
-    else:
-        fw = dash = True
-    print(f"firmware={str(fw).lower()} dashboards={str(dash).lower()}")
-    with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as out:
-        out.write(f"firmware={str(fw).lower()}\ndashboards={str(dash).lower()}\n")
-
-
-if __name__ == "__main__":
-    main()
+out.update(full=full, release=release)
+lines = [f"{k}={'true' if v else 'false'}" for k, v in out.items()]
+print("\n".join(lines))
+if os.environ.get("GITHUB_OUTPUT"):
+    with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+        fh.write("\n".join(lines) + "\n")
+sys.exit(0)

@@ -1,0 +1,24 @@
+# Which slow CI groups a pull request starts (STANDARD.md 1.2; .github/scripts/changes.py). Regexes over changed paths.
+#   firmware   -> firmware-build, firmware, firmware-tests (the ESP32 build, the simulated grill, the device page)
+#   dashboards -> home-assistant, integration (the package, the integration, the Home Assistant dashboard)
+# The quick checks (versions, unit tests, privacy, secret scan) run on every ready pull request.
+ignore: ['^docs/', '\.md$', '^regression/', '^\.claude/', '^LICENSE$']   # start nothing slow
+shared: ['^\.github/workflows/', '^\.github/scripts/', '^\.github/changes\.yaml$', '^VERSION$', '^brand/', '^tools/']
+groups:
+  firmware:
+    - '^components/'
+    - '^firmware/'               # (firmware/device-ui is in both: the shared dashboard blocks)
+    - '^tests/[^/]*\.(cpp|h|yaml)$'
+    - '^tests/Makefile$'
+    - '^tests/configs/'
+    - '^tests/(e2e|e2e_scenarios|webui_e2e|webui_bridge)\.py$'
+    - '^\.github/requirements/(firmware|firmware-tests|build-tools|sign)\.(in|txt)$'
+  dashboards:
+    - '^custom_components/'
+    - '^homeassistant/'
+    - '^firmware/device-ui/'
+    - '^tests/integration/'
+    - '^tests/(ha_check|ha_templates|render_page)\.py$'
+    - '^tests/requirements-integration\.txt$'
+    - '^\.github/requirements/(ha-tests|integration-[a-z]+)\.(in|txt)$'
+# A changed file that matches nothing above starts every group (safe default).

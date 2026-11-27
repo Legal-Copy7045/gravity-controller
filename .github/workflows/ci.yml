@@ -1,45 +1,52 @@
-name: Build, test & release
+name: CI
 
-# Runs on pull requests (not drafts), on pushes to the default branch, weekly and by hand. Actions minutes are
-# limited, so (the `changes` job):
-#  - a pull request runs the slow jobs only when it touches what they test (firmware/controller -> firmware-build and
-#    firmware-tests; dashboards/integration/package -> home-assistant and integration); the quick checks always run;
-#  - a push to the default branch builds and tests everything only when VERSION has no release yet: it then creates
-#    release v<VERSION> (tag included) with the firmware and the dashboard integration attached, and publishes that
-#    build's web installer + OTA manifest to GitHub Pages. Any other push there runs only the quick checks (privacy,
-#    versions, unit tests) and leaves Pages (what devices and the installer see) as it is;
-#  - the weekly run tests everything, signs with a throwaway key and publishes nothing; workflow_dispatch on the
-#    default branch behaves like a release push.
-# Pushes to working branches run nothing: run the quick suites locally (CLAUDE.md), then open the pull request.
+# CI per the owner's project standard (github.com/Legal-Copy7045/project-standards, STANDARD.md section 1; what this
+# workflow does beyond it, or differently, is in .github/standard.yaml). Actions minutes are limited, so:
+#  - pull request: nothing while a draft; then the quick checks (versions, unit tests, privacy guard, secret scan) and
+#    each slow group only when the pull request changes its files (`changes`, .github/changes.yaml): firmware ->
+#    firmware-build, firmware and firmware-tests; dashboards -> home-assistant and integration;
+#  - push to main: the private-terms check; when VERSION has no v<VERSION> tag yet, the release path: everything is
+#    built and tested once more from the merged commit, then release v<VERSION> (tag included) is created with the
+#    signed firmware, the integration and the package attached, provenance attested, and that build's web installer +
+#    OTA manifest published to GitHub Pages. A push that doesn't release leaves Pages (what devices see) as it is;
+#  - weekly (Sunday 01:17 UTC) and by hand: everything, the whole history's secret scan, signed with a throwaway key,
+#    publishing nothing (workflow_dispatch on main with release: true retries a release).
+# Pushes to working branches run nothing. ci-result is the only required check.
 # (Adapted from the Magic-bHAnds project's workflow.)
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   schedule:
-    - cron: "17 7 * * 1"   # Mondays 07:17 UTC: the full weekly run
+    - cron: "17 1 * * 0"   # Sunday 01:17 UTC: this project's weekly slot (STANDARD.md 1.6)
   workflow_dispatch:
+    inputs:
+      release: {type: boolean, default: false, description: "Release VERSION if it has no tag yet (main only)"}
 
 permissions:
   contents: read
 
 # Actions are pinned to commit SHAs (the comment gives the tag).
 concurrency:
-  group: build-${{ github.ref }}-${{ github.event_name }}
-  # (never on the default branch: a cancelled release run could leave a release without its attestation)
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  # (pull requests only: a cancelled release run could leave a release without its attestation)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ESPHOME_VERSION: "2026.11.0"
-  IS_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+  # A release run on the default branch (push, or workflow_dispatch with release: true): real key, no build cache.
+  IS_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release)) }}
 
 jobs:
   # What this run has to test. Never for a draft pull request (every job needs this one, so a draft runs nothing).
   changes:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
+      release: ${{ steps.what.outputs.release }}
+      full: ${{ steps.what.outputs.full }}
       firmware: ${{ steps.what.outputs.firmware }}
       dashboards: ${{ steps.what.outputs.dashboards }}
     steps:
@@ -53,11 +60,15 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          RELEASE_INPUT: ${{ inputs.release }}
         run: python3 .github/scripts/changes.py
 
+  # Quick checks: every pull request and every weekly run; on a push to main only when it releases.
   versions:
     needs: changes
+    if: github.event_name != 'push' || needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,56 +78,39 @@ jobs:
       - name: Check the pages carry the current brand/ files
         run: python3 tools/brand_sync.py --check
 
-# Keeps personal details out of this public repository (.github/scripts/privacy_guard.py): nothing is published
-# (web installer, release) unless it passes. Two jobs:
-#  - privacy (every push and pull request, no secrets): no-reply commit emails, credentials and image metadata, in
-#    the tree and in every line the pushed commits add;
-#  - privacy-denylist (default branch only): the same plus the private terms in the PRIVACY_DENYLIST secret. The
-#    secret belongs in the `privacy` environment, which the owner restricts to the default branch (Settings ->
-#    Environments -> privacy -> Deployment branches: the default branch only), so a workflow edited on another
-#    branch can't read it. Release and Pages wait for both.
+# Keeps personal details out of this public repository (.github/scripts/privacy_guard.py, this repository's own
+# copy with its own checks, always loaded from the default branch so a pull request can't weaken it), through the
+# standard's reusable workflow. Two jobs:
+#  - privacy (pull requests, weekly, and a releasing push; no secrets): no-reply commit emails, credentials and image
+#    metadata, in the tree and in every line the commits add;
+#  - privacy-denylist (pushes to main, and a run by hand on main): the same plus the private terms in the
+#    PRIVACY_DENYLIST secret, in the `privacy` environment, which the owner restricts to the default branch (Settings ->
+#    Environments -> privacy -> Deployment branches), so a workflow edited on another branch can't read it.
+# Release and Pages wait for both.
   privacy:
     needs: changes
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check for personal details
-        env:
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        # The default branch's copy of the guard runs (a branch can't weaken the check).
-        run: |
-          git show "origin/${DEFAULT_BRANCH}:.github/scripts/privacy_guard.py" > "$RUNNER_TEMP/privacy_guard.py"
-          python3 "$RUNNER_TEMP/privacy_guard.py"
+    if: github.event_name != 'push' || needs.changes.outputs.release == 'true'
+    uses: Legal-Copy7045/project-standards/.github/workflows/privacy.yml@1f5964bc45844dc0cefda0374af8f8128daa1b40 # v1.1.0
 
   privacy-denylist:
     needs: changes
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    environment: privacy
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check for personal details and private terms
-        env:
-          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
-          PRIVACY_DENYLIST_REQUIRED: "1"
-          BASE: ${{ github.event.before }}
-          HEAD: ${{ github.sha }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          git show "origin/${DEFAULT_BRANCH}:.github/scripts/privacy_guard.py" > "$RUNNER_TEMP/privacy_guard.py"
-          python3 "$RUNNER_TEMP/privacy_guard.py"
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')
+    uses: Legal-Copy7045/project-standards/.github/workflows/privacy.yml@1f5964bc45844dc0cefda0374af8f8128daa1b40 # v1.1.0
+    with: {denylist: true}
+    secrets: inherit
+
+  # gitleaks: the pull request's commits; the whole history weekly.
+  secrets:
+    needs: changes
+    if: github.event_name != 'push'
+    uses: Legal-Copy7045/project-standards/.github/workflows/gitleaks.yml@1f5964bc45844dc0cefda0374af8f8128daa1b40 # v1.1.0
+    with: {full-history: "${{ needs.changes.outputs.full == 'true' }}"}
 
   unit-tests:
     needs: changes
+    if: github.event_name != 'push' || needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,6 +127,7 @@ jobs:
     needs: [changes, versions]
     if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     # The sha256 of every file it hands to the signing job, as a job output (another job can't rewrite this job's
     # outputs, but it could replace an artifact): `firmware` checks them before it signs anything.
     outputs:
@@ -197,19 +192,21 @@ jobs:
             firmware/.esphome/build/gravity980/build/ota_data_initial.bin
             firmware/.esphome/build/gravity980/build/flasher_args.json
           if-no-files-found: error
+          retention-days: 3
 
   # Signs the app and assembles the update image, the installer's factory image and the site. Only espsecure and
   # esptool run here (hash-pinned), with the key on disk for the signing step alone.
   firmware:
     needs: firmware-build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Fingerprints of what it publishes (the signed images, and the Pages bundle), checked by release and deploy.
     outputs:
       bins: ${{ steps.pubsums.outputs.bins }}
       site: ${{ steps.pubsums.outputs.site }}
     # The firmware signing key (OTA_SIGNING_KEY) is in the release-signing environment, which only the default branch
     # can use. Every other build is signed with a throwaway key made for that run (never published).
-    environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && 'release-signing' || 'unsigned-build' }}
+    environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release)) && 'release-signing' || 'unsigned-build' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -282,11 +279,13 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
+          retention-days: 3
       - name: Upload firmware
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: firmware
           path: _site/firmware/*.bin
+          retention-days: 3
       - name: Fingerprints of what's published
         id: pubsums
         run: |
@@ -299,9 +298,10 @@ jobs:
   # Provenance for the published firmware, on the default branch only (the only job besides release that can mint
   # an OIDC token for attestations).
   attest:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: firmware
+    if: needs.changes.outputs.release == 'true'
+    needs: [changes, firmware]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
@@ -316,16 +316,17 @@ jobs:
         with:
           subject-path: firmware-bin/*.bin
 
-  # Four side by side (about 15 min instead of 40 one after another): the end-to-end test and the device page, and the
-  # failure scenarios in their three independent groups (tests/e2e_scenarios.py, SCENARIO_GROUP).
+  # Two side by side (each repeats the compile): the end-to-end test, the device page and scenario group A; then
+  # scenario groups B and C (tests/e2e_scenarios.py, SCENARIO_GROUP).
   firmware-tests:
     needs: [changes, versions]
     if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        part: [e2e-and-page, scenarios-A, scenarios-B, scenarios-C]
+        part: [e2e-page-A, scenarios-B-C]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -347,30 +348,34 @@ jobs:
         working-directory: tests
         run: esphome compile host-bridge.yaml
       - name: End-to-end test against the simulated grill
-        if: matrix.part == 'e2e-and-page'
+        if: matrix.part == 'e2e-page-A'
         run: python3 tests/e2e.py
       - name: Failure scenarios (${{ matrix.part }})
-        if: startsWith(matrix.part, 'scenarios-')
         env:
-          SCENARIO_GROUP: ${{ matrix.part == 'scenarios-A' && 'A' || matrix.part == 'scenarios-B' && 'B' || 'C' }}
-        run: python3 tests/e2e_scenarios.py
+          GROUPS: ${{ matrix.part == 'e2e-page-A' && 'A' || 'B C' }}
+        run: |
+          rc=0
+          for g in $GROUPS; do SCENARIO_GROUP=$g python3 tests/e2e_scenarios.py || rc=1; done
+          exit $rc
       - name: Device web page (firmware/device-ui) in Chromium against the host build
-        if: matrix.part == 'e2e-and-page'
+        if: matrix.part == 'e2e-page-A'
         run: |
           python3 -m playwright install --with-deps chromium
           python3 tests/webui_e2e.py _device_ui_screens
       - name: Upload device page screenshots
-        if: always() && matrix.part == 'e2e-and-page'
+        if: always() && matrix.part == 'e2e-page-A'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: device-page-screenshots
           path: _device_ui_screens/*.png
           if-no-files-found: ignore
+          retention-days: 3
 
   home-assistant:
     needs: [changes, versions]
     if: needs.changes.outputs.dashboards == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -398,11 +403,13 @@ jobs:
         with:
           name: dashboard-screenshots
           path: _screens/*.png
+          retention-days: 3
 
   integration:
     needs: [changes, versions]
     if: needs.changes.outputs.dashboards == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -428,6 +435,7 @@ jobs:
     if: needs.release.outputs.publish == 'true'
     needs: [privacy, privacy-denylist, firmware, attest, firmware-tests, unit-tests, home-assistant, integration, release]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
@@ -451,9 +459,10 @@ jobs:
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   release:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [privacy, privacy-denylist, firmware, firmware-tests, unit-tests, home-assistant, integration]
+    if: needs.changes.outputs.release == 'true'
+    needs: [changes, versions, privacy, privacy-denylist, firmware, firmware-tests, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
@@ -526,3 +535,18 @@ jobs:
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Smoker bridge $V" \
             --notes-file notes.md "smoker-integration-$V.zip" smoker-integration.zip "smoker-ha-package-$V.zip" ./*-$V.bin
+
+  # The one required status check: fails when a needed job failed or was cancelled, passes when they passed or were
+  # skipped (so jobs can be reshaped without touching branch protection).
+  ci-result:
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    needs: [changes, versions, privacy, privacy-denylist, secrets, unit-tests, firmware-build, firmware, attest,
+            firmware-tests, home-assistant, integration, release, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then echo "A needed job failed or was cancelled."; exit 1; fi
