@@ -1,15 +1,24 @@
 name: Build, test & release
 
-# Every push builds the firmware and runs every test. Pushes to the default
-# branch also, when VERSION has no release yet, create release v<VERSION> (tag
-# included) with the firmware and the dashboard integration attached, and then
-# publish that build's web installer + OTA manifest to GitHub Pages. A push that
-# doesn't release leaves Pages (what devices and the installer see) as it is.
+# Runs on pull requests (not drafts), on pushes to the default branch, weekly and by hand. Actions minutes are
+# limited, so (the `changes` job):
+#  - a pull request runs the slow jobs only when it touches what they test (firmware/controller -> firmware-build and
+#    firmware-tests; dashboards/integration/package -> home-assistant and integration); the quick checks always run;
+#  - a push to the default branch builds and tests everything only when VERSION has no release yet: it then creates
+#    release v<VERSION> (tag included) with the firmware and the dashboard integration attached, and publishes that
+#    build's web installer + OTA manifest to GitHub Pages. Any other push there runs only the quick checks (privacy,
+#    versions, unit tests) and leaves Pages (what devices and the installer see) as it is;
+#  - the weekly run tests everything, signs with a throwaway key and publishes nothing; workflow_dispatch on the
+#    default branch behaves like a release push.
+# Pushes to working branches run nothing: run the quick suites locally (CLAUDE.md), then open the pull request.
 # (Adapted from the Magic-bHAnds project's workflow.)
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "17 7 * * 1"   # Mondays 07:17 UTC: the full weekly run
   workflow_dispatch:
 
 permissions:
@@ -23,10 +32,31 @@ concurrency:
 
 env:
   ESPHOME_VERSION: "2026.11.0"
-  IS_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' }}
+  IS_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
 
 jobs:
+  # What this run has to test. Never for a draft pull request (every job needs this one, so a draft runs nothing).
+  changes:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    outputs:
+      firmware: ${{ steps.what.outputs.firmware }}
+      dashboards: ${{ steps.what.outputs.dashboards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide which slow jobs run
+        id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/changes.py
+
   versions:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,6 +76,7 @@ jobs:
 #    Environments -> privacy -> Deployment branches: the default branch only), so a workflow edited on another
 #    branch can't read it. Release and Pages wait for both.
   privacy:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,7 +94,8 @@ jobs:
           python3 "$RUNNER_TEMP/privacy_guard.py"
 
   privacy-denylist:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    needs: changes
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: privacy
     steps:
@@ -83,6 +115,7 @@ jobs:
           python3 "$RUNNER_TEMP/privacy_guard.py"
 
   unit-tests:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,7 +130,8 @@ jobs:
   # real signing key: it signs with a throwaway key made for the run, and the `firmware` job below signs the unsigned
   # app it leaves (gravity980-unsigned.bin) with the real key, in a job that runs nothing but espsecure and esptool.
   firmware-build:
-    needs: versions
+    needs: [changes, versions]
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
     # The sha256 of every file it hands to the signing job, as a job output (another job can't rewrite this job's
     # outputs, but it could replace an artifact): `firmware` checks them before it signs anything.
@@ -175,7 +209,7 @@ jobs:
       site: ${{ steps.pubsums.outputs.site }}
     # The firmware signing key (OTA_SIGNING_KEY) is in the release-signing environment, which only the default branch
     # can use. Every other build is signed with a throwaway key made for that run (never published).
-    environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' && 'release-signing' || 'unsigned-build' }}
+    environment: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && 'release-signing' || 'unsigned-build' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -265,7 +299,7 @@ jobs:
   # Provenance for the published firmware, on the default branch only (the only job besides release that can mint
   # an OIDC token for attestations).
   attest:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: firmware
     runs-on: ubuntu-latest
     permissions:
@@ -285,7 +319,8 @@ jobs:
   # Four side by side (about 15 min instead of 40 one after another): the end-to-end test and the device page, and the
   # failure scenarios in their three independent groups (tests/e2e_scenarios.py, SCENARIO_GROUP).
   firmware-tests:
-    needs: versions
+    needs: [changes, versions]
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -333,7 +368,8 @@ jobs:
           if-no-files-found: ignore
 
   home-assistant:
-    needs: versions
+    needs: [changes, versions]
+    if: needs.changes.outputs.dashboards == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -364,7 +400,8 @@ jobs:
           path: _screens/*.png
 
   integration:
-    needs: versions
+    needs: [changes, versions]
+    if: needs.changes.outputs.dashboards == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -414,7 +451,7 @@ jobs:
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   release:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [privacy, privacy-denylist, firmware, firmware-tests, unit-tests, home-assistant, integration]
     runs-on: ubuntu-latest
     permissions:

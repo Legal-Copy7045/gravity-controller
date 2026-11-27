@@ -46,7 +46,8 @@ Start three general-purpose agents with a brief that gives them the code, not yo
 - **Security** -> `regression/out/findings-security.json`: `{findings: [SEC-001..], claims: [{claim, where, held,
   note}]}`, every security claim in the README and docs checked against the code (PIN, write-only secrets, other
   origins, local only, signed updates, two-tap power, notification codes, AI plan limits, sharing anonymisation,
-  workflow secrets).
+  workflow secrets), then the whole codebase, starting from the quality stage's bandit, pip-audit and compiler-warning
+  results (`regression/out/quality.json`).
 
 - **Outsider on the LAN** -> `regression/out/findings-lan.json`: `{findings: [LAN-001..]}`, same fields. Someone on the
   same home Wi-Fi who doesn't have the PIN or a Home Assistant login, attacking what changed and the update and network

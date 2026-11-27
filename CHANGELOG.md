@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+**Build** (no change to the controller, the integration or the package)
+- Fewer Actions minutes: CI runs on pull requests (not drafts), on `main` and once a week; the slow jobs (firmware
+  build, simulated grill, browser and Home Assistant tests) only when a pull request touches what they test, and on
+  `main` only when a push releases. Working-branch pushes run nothing. The quick privacy, version and unit checks
+  still run every time, and a release is still built and tested in full before it is published.
+- CodeQL weekly and on demand; Dependabot monthly, one grouped pull request per ecosystem.
+
 ## [1.5.0] - 2026-11-26
 
 Everything the first full check (regression, three security reviews, the desktop and phone walkthrough) found.

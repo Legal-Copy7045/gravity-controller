@@ -12,6 +12,10 @@ names, credentials, his grill photo).
   version, plus a `CHANGELOG.md` entry (`.github/scripts/check_versions.py`). A push to `main` with a new VERSION
   builds, tests and creates release `v<VERSION>` (firmware, integration zip, package zip) and the web installer
   (GitHub Pages).
+- CI (`.github/workflows/build.yml`, Actions minutes are limited): pull requests (not drafts), the default branch,
+  weekly and by hand; nothing on working-branch pushes. Slow jobs run only when the pull request touches what they
+  test (`.github/scripts/changes.py`); a push to `main` without a new VERSION runs only the quick checks. CodeQL
+  weekly + on demand (`codeql.yml`), Dependabot monthly and grouped. Keep job names when reshaping jobs.
 - Brand files: edit `brand/`, then `python3 tools/brand_sync.py` (CI checks it).
 - Before pushing a release, run the quick suites locally (`make -C tests`, the host build compile, pytest
   `tests/integration`, `tests/ha_check.py`, `tests/ha_templates.py`, `tests/render_page.py`, and a scenario group only
