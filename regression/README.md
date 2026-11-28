@@ -131,7 +131,10 @@ A full run (`/regression`) also has three independent reviewers (briefed by `run
 held or not) and `out/findings/exposure.json` (`EXP-`), in the standard's schema (`run.py schema findings`):
 `{id, severity critical|high|medium|low|info, area, title, file, line, description, scenario, recommendation,
 verified}`. The older `out/findings-*.json` names still load. `out/notes.json` (`{summary, observations}`) adds the summary and observations. The run
-fixes nothing in product code: findings go to the report and are fixed afterwards, in a release of their own.
+itself fixes nothing in product code. Afterwards every finding with a clear fix goes into the next release without
+asking; the owner is asked only when a fix is uncertain, weakens a security setting, changes a legal or governance
+rule, or merges or removes pages (keep-separate items stay as they are). The summary says which findings will be
+fixed and which need the owner (project standard 3.6).
 
 ## Live checks
 

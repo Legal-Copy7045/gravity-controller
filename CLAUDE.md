@@ -12,7 +12,7 @@ names, credentials, his grill photo).
   version, plus a `CHANGELOG.md` entry (`.github/scripts/check_versions.py`). A push to `main` with a new VERSION
   builds, tests and creates release `v<VERSION>` (firmware, integration zip, package zip) and the web installer
   (GitHub Pages).
-- Owner's project standard 1.1.0 (`~/.claude/standards/STANDARD.md`; `.github/standard.yaml` lists what this repo
+- Owner's project standard 1.2.0 (`~/.claude/standards/STANDARD.md`; `.github/standard.yaml` lists what this repo
   keeps beyond it and its exceptions). CI is `.github/workflows/ci.yml`: pull requests (not drafts), a push to `main`
   that releases, weekly (Sun 01:17 UTC) and by hand; nothing on working-branch pushes. Slow groups start only when a
   pull request touches their files (`.github/changes.yaml`). `ci-result` is the one required check; keep job names.

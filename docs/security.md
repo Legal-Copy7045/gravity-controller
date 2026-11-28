@@ -46,6 +46,24 @@ power station's standards.
   within 10 s).
 - Local only is off by default.
 
+## What a security scanner sees in the integration
+
+A Home Assistant security scanner reading `custom_components/smoker` may flag these; each is deliberate:
+
+- **A server the developer runs** (`api.open-pitmaster.workers.dev`, `sharing.py`): Open Pitmaster, the anonymous cook
+  sharing. It's off until you turn it on (Setup → Share cooks); what goes there is listed in
+  [sharing.md](sharing.md). The community averages are read (a plain download, nothing sent) from GitHub
+  (`raw.githubusercontent.com`) whether or not you share. "Local only" stops both.
+- **Files written outside the integration's folder**, all in your Home Assistant config folder: the package
+  (`packages/smoker.yaml`, only when an admin runs `smoker.install_package`, with backups), scanned labels in the
+  media folder (`smoker_scans`, so the AI task can read them), and the label scans, your grill photo and its address
+  key in `smoker/photos/` (up to 1.6.0 this was `.storage/smoker_photos/`, moved once at start-up). The journal,
+  sharing and replays use Home Assistant's own storage helper. Nothing outside the config folder is touched.
+- **An address that works without a login** (`/api/smoker/grill_photo/image/<key>`): only your grill photo, so the
+  controller's own page (which has no Home Assistant login) can show it. The address has a random 128-bit part that
+  changes with every upload and is compared in constant time; a wrong or missing one gets "not found". Without an
+  uploaded photo it serves nothing.
+
 ## Reporting
 
 Found something that lets code in, or leaks a key? Open an issue (no details of an unfixed hole in public: ask for a

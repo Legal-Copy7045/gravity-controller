@@ -71,7 +71,7 @@ so an overnight brisket's finish time accounts for the 3 a.m. low.
 - The AI advisor and planner see your recent notes and ratings (e.g. a 2★ "dry" brisket at 275 °F) and the scanned
   packages, and adjust their advice.
 - Needs: the Smoker integration (HACS), an AI Task entity that supports attachments (Google Gemini does), and Home
-  Assistant's media folder (photos are stored in `media/smoker/` and `.storage/smoker_photos/`).
+  Assistant's media folder (photos are stored in `media/smoker/` and, from 1.6.1, `smoker/photos/` in the config folder).
 
 ## Voice (Assist)
 
