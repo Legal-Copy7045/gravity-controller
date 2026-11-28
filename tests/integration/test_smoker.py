@@ -232,6 +232,9 @@ async def test_journal_flow(hass: HomeAssistant, hass_client, hass_client_no_aut
     got = await img.read()
     assert img.status == 200 and got.startswith(b"\xff\xd8\xff") and "public" not in img.headers["Cache-Control"]
     assert len(Image.open(io.BytesIO(got)).getexif()) == 0  # no EXIF (no location) in what's served
+    # Kept in the integration's own folder, never in Home Assistant's .storage (its settings and logins) or www.
+    assert (Path(hass.config.path("smoker", "photos")) / "grill.jpg").is_file()
+    assert not Path(hass.config.path(".storage", "smoker_photos")).exists()
     for wrong in ("/api/smoker/grill_photo/image", "/api/smoker/grill_photo/image/" + "0" * 32,
                   "/api/smoker/grill_photo/image/" + url.split("/")[-1].split("?")[0][:-1] + "é"):
         assert (await anon.get(wrong)).status in (401, 404), wrong
@@ -596,3 +599,18 @@ async def test_set_device_pin(hass: HomeAssistant, tmp_path, hass_admin_user, ha
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert not hass.services.has_service(DOMAIN, "set_device_pin")
+
+
+async def test_photos_from_before_1_6_1_move_out_of_storage(hass: HomeAssistant, tmp_path):
+    hass.config.config_dir = str(tmp_path / "config")  # (its own: the test config folder is shared)
+    old = Path(hass.config.path(".storage", "smoker_photos"))
+    old.mkdir(parents=True)
+    (old / "grill.jpg").write_bytes(b"\xff\xd8\xff photo")
+    (old / "grill.key").write_text("a" * 32)
+    (old / "20261101-abcdef-0.jpg").write_bytes(b"\xff\xd8\xff scan")
+    await _setup(hass, tmp_path)
+    new = Path(hass.config.path("smoker", "photos"))
+    assert {"20261101-abcdef-0.jpg", "grill.jpg", "grill.key"} <= {f.name for f in new.iterdir()}
+    assert not old.exists()
+    assert (new / "grill.key").read_text() == "a" * 32  # the address the controller keeps still works
+

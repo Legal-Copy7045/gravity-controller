@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.6.1] - 2026-11-28
+
+### Changed
+- The integration keeps its photos (scanned labels, your grill photo and its address key) in its own folder,
+  `smoker/photos/` in the Home Assistant config folder, instead of Home Assistant's `.storage` folder, where Home
+  Assistant keeps its own settings and logins. Existing photos move there by themselves at the first start, and the
+  grill photo's address stays the same. (Flagged by a Home Assistant security scanner.)
+- `docs/security.md` explains what such a scanner sees in the integration: the opt-in Open Pitmaster server, the
+  files it writes in the config folder, and the grill photo's address that works without a login.
+- The regression suite follows project standard 1.2.0: findings with a clear fix go into the next release.
+
 ## [1.6.0] - 2026-11-27
 
 Nothing changes on the controller, in the integration or in the package: this release moves the build, the release

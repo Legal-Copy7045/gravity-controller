@@ -19,6 +19,7 @@ import logging
 import math
 import re
 import secrets
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -113,6 +114,25 @@ def parse_items(text: str) -> list[dict[str, Any]]:
     return items[:12]
 
 
+def photo_folder(hass) -> Path:
+    """The integration's own folder for photos (label scans, the grill photo and its address key): /config/smoker/photos.
+    Not under .storage (Home Assistant's own settings and logins) and not under www (served without a login)."""
+    return Path(hass.config.path("smoker", "photos"))
+
+
+def move_old_photo_folder(hass) -> None:
+    """Up to 1.6.0 the photos were in .storage/smoker_photos: moved to photo_folder() once (blocking)."""
+    old, new = Path(hass.config.path(".storage", "smoker_photos")), photo_folder(hass)
+    if not old.is_dir():
+        return
+    new.mkdir(parents=True, exist_ok=True)
+    for f in old.iterdir():
+        if f.is_file() and not (new / f.name).exists():
+            shutil.move(str(f), str(new / f.name))
+    if not any(old.iterdir()):
+        old.rmdir()
+
+
 class Journal:
     """Persistent journal + next-cook draft."""
 
@@ -122,12 +142,16 @@ class Journal:
         self.store: Store = Store(hass, STORE_VERSION, STORE_KEY)
         self.data: dict[str, Any] = {"entries": [], "draft": {"items": [], "photos": []}}
         self.listeners: list = []  # called with each new entry (sharing offers it)
-        self.photo_dir = Path(hass.config.path(".storage", "smoker_photos"))
+        self.photo_dir = photo_folder(hass)
         from .replay import Replays
 
         self.replays = Replays(hass)  # each cook's curves and events (replay.py)
 
     async def async_load(self) -> None:
+        try:
+            await self.hass.async_add_executor_job(move_old_photo_folder, self.hass)
+        except OSError as err:  # (left where they were: found again at the next start)
+            _LOGGER.warning("Couldn't move the smoker photos to %s: %s", self.photo_dir, err)
         stored = await self.store.async_load()
         if isinstance(stored, dict):
             self.data.update(stored)
@@ -551,7 +575,7 @@ def strip_metadata(body: bytes, ext: str) -> tuple[bytes, str]:
 
 def _uploaded_grill_photo(hass) -> Path | None:
     for ext in ("jpg", "png", "webp"):
-        f = Path(hass.config.path(".storage", "smoker_photos", f"grill.{ext}"))
+        f = photo_folder(hass) / f"grill.{ext}"
         if f.is_file():
             return f
     return None
@@ -560,7 +584,7 @@ def _uploaded_grill_photo(hass) -> Path | None:
 def _grill_photo_key(hass, new: bool = False) -> str:
     """The secret part of the grill photo's address (blocking). A new one with every upload, so an address handed out
     for an earlier photo stops working; made on first use for a photo uploaded before addresses had one."""
-    f = Path(hass.config.path(".storage", "smoker_photos", "grill.key"))
+    f = photo_folder(hass) / "grill.key"
     if not new:
         try:
             key = f.read_text(encoding="utf-8").strip()
@@ -635,7 +659,7 @@ class GrillPhotoView(HomeAssistantView):
         ext = GRILL_PHOTO_EXT[ctype]
 
         def save():
-            folder = Path(hass.config.path(".storage", "smoker_photos"))
+            folder = photo_folder(hass)
             folder.mkdir(parents=True, exist_ok=True)
             data, out_ext = strip_metadata(body, ext)
             for old in folder.glob("grill.*"):
@@ -660,7 +684,7 @@ class GrillPhotoView(HomeAssistantView):
             up = _uploaded_grill_photo(hass)
             if up is not None:
                 up.unlink(missing_ok=True)
-            Path(hass.config.path(".storage", "smoker_photos", "grill.key")).unlink(missing_ok=True)
+            (photo_folder(hass) / "grill.key").unlink(missing_ok=True)
 
         await hass.async_add_executor_job(remove)
         return self.json({"url": None})
